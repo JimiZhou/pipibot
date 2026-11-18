@@ -1,0 +1,75 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build & TypeScript outputs
+dist/
+build/
+out/
+*.tsbuildinfo
+.tsbuildinfo
+coverage/
+
+# Logs & runtime state
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pipibot/
+
+# Local-first SQLite & memory stores
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+memory-data/
+
+# Environment variables & credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.mobileprovision
+
+# Cloudflare / Wrangler local state
+.wrangler/
+.dev.vars
+wrangler.local.toml
+
+# macOS & OS artifacts
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# Swift / Xcode (pipibot-ios & macOS host)
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+.swiftpm/
+
+# IDEs & Editors
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# Python & temporary files
+__pycache__/
+*.py[cod]
+.venv/
+tmp/
+.cache/

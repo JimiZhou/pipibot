@@ -1,0 +1,2184 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PipiBot Design System — Ambient Soul &amp; Outcome Studio</title>
+  <link rel="stylesheet" href="./tokens.css" />
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--pipi-font-sans);
+      font-size: var(--pipi-text-base);
+      line-height: 1.55;
+      color: var(--pipi-text-primary);
+      background-color: var(--pipi-bg-canvas);
+      background-image:
+        radial-gradient(circle at 18% 8%, rgba(124, 108, 246, 0.11), transparent 38%),
+        radial-gradient(circle at 84% 22%, rgba(56, 189, 248, 0.08), transparent 36%),
+        radial-gradient(rgba(140, 148, 168, 0.12) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 24px 24px;
+      transition: background-color var(--pipi-duration-med) var(--pipi-ease-gentle),
+                  color var(--pipi-duration-med) var(--pipi-ease-gentle);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .mono {
+      font-family: var(--pipi-font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* --- Top Navigation --- */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      backdrop-filter: var(--pipi-glass-blur);
+      -webkit-backdrop-filter: var(--pipi-glass-blur);
+      background: var(--pipi-bg-glass-strong);
+      border-bottom: 1px solid var(--pipi-border-subtle);
+    }
+
+    .topbar-inner {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-avatar {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border-radius: var(--pipi-radius-sm);
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-subtle);
+    }
+
+    .brand-title {
+      font-weight: 700;
+      font-size: var(--pipi-text-base);
+      letter-spacing: -0.015em;
+    }
+
+    .brand-sub {
+      font-size: var(--pipi-text-2xs);
+      color: var(--pipi-text-muted);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .nav-links a {
+      color: var(--pipi-text-secondary);
+      text-decoration: none;
+      font-size: var(--pipi-text-xs);
+      font-weight: 500;
+      padding: 6px 11px;
+      border-radius: var(--pipi-radius-pill);
+      transition: background var(--pipi-duration-fast), color var(--pipi-duration-fast);
+    }
+
+    .nav-links a:hover {
+      color: var(--pipi-text-primary);
+      background: var(--pipi-bg-surface-hover);
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--pipi-font-sans);
+      font-size: var(--pipi-text-xs);
+      font-weight: 600;
+      color: var(--pipi-text-primary);
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-pill);
+      padding: 6px 13px;
+      cursor: pointer;
+      transition: transform var(--pipi-duration-fast) var(--pipi-ease-overshoot),
+                  background var(--pipi-duration-fast),
+                  border-color var(--pipi-duration-fast);
+    }
+
+    .btn:hover {
+      background: var(--pipi-bg-surface-hover);
+      border-color: var(--pipi-border-strong);
+    }
+
+    .btn:active {
+      transform: scale(0.96);
+    }
+
+    .btn-primary {
+      background: var(--pipi-soul-primary);
+      color: #ffffff;
+      border-color: transparent;
+    }
+
+    .btn-primary:hover {
+      background: var(--pipi-soul-primary);
+      filter: brightness(1.08);
+    }
+
+    .btn.is-active {
+      border-color: var(--pipi-soul-primary);
+      background: rgba(124, 108, 246, 0.16);
+      color: var(--pipi-text-primary);
+    }
+
+    /* --- Main Container & Section Framing --- */
+    .container {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 32px 24px 96px;
+      display: flex;
+      flex-direction: column;
+      gap: 56px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .section-eyebrow {
+      font-family: var(--pipi-font-mono);
+      font-size: var(--pipi-text-2xs);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--pipi-soul-primary);
+      margin-bottom: 4px;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: var(--pipi-text-xl);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .section-desc {
+      margin: 4px 0 0;
+      font-size: var(--pipi-text-sm);
+      color: var(--pipi-text-secondary);
+      max-width: 68ch;
+    }
+
+    .card {
+      background: var(--pipi-bg-elevated);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-lg);
+      box-shadow: var(--pipi-shadow-md);
+      padding: 20px;
+    }
+
+    .glass-card {
+      background: var(--pipi-bg-glass);
+      backdrop-filter: var(--pipi-glass-blur);
+      -webkit-backdrop-filter: var(--pipi-glass-blur);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-lg);
+      box-shadow: var(--pipi-shadow-md);
+      padding: 20px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: var(--pipi-radius-pill);
+      font-size: var(--pipi-text-2xs);
+      font-weight: 600;
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-subtle);
+      color: var(--pipi-text-secondary);
+    }
+
+    .dot-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      position: relative;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    .dot-indicator.is-breathing {
+      animation: pipi-dot-breathe 2.4s ease-in-out infinite;
+    }
+
+    .dot-indicator.is-busy {
+      animation: pipi-dot-breathe 0.85s ease-in-out infinite;
+    }
+
+    .dot-indicator.is-degraded {
+      animation: pipi-dot-alert 1.2s ease-in-out infinite;
+    }
+
+    /* --- Section 1: Hero PipiAvatar Stage & Telemetry Lab --- */
+    .stage-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    @media (max-width: 980px) {
+      .stage-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .avatar-stage-card {
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .avatar-podium {
+      position: relative;
+      min-height: 280px;
+      border-radius: var(--pipi-radius-md);
+      background: var(--pipi-bg-inset);
+      border: 1px solid var(--pipi-border-subtle);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow: hidden;
+    }
+
+    .podium-aura {
+      position: absolute;
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      filter: blur(54px);
+      opacity: 0.28;
+      pointer-events: none;
+      transition: background-color 320ms ease;
+    }
+
+    .podium-crosshair {
+      position: absolute;
+      inset: 14px;
+      border-radius: 12px;
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 28px 28px;
+      pointer-events: none;
+    }
+
+    .podium-hud-top {
+      position: absolute;
+      top: 12px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .podium-hud-bottom {
+      position: absolute;
+      bottom: 12px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #main-avatar-mount {
+      position: relative;
+      z-index: 2;
+      width: 210px;
+      height: 210px;
+      display: grid;
+      place-items: center;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .control-label {
+      font-family: var(--pipi-font-mono);
+      font-size: var(--pipi-text-2xs);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--pipi-text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      font-family: var(--pipi-font-sans);
+      font-size: var(--pipi-text-xs);
+      font-weight: 500;
+      padding: 5px 10px;
+      border-radius: var(--pipi-radius-xs);
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-subtle);
+      color: var(--pipi-text-secondary);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all var(--pipi-duration-fast) var(--pipi-ease-snappy);
+    }
+
+    .chip:hover {
+      color: var(--pipi-text-primary);
+      border-color: var(--pipi-border-strong);
+      background: var(--pipi-bg-surface-hover);
+    }
+
+    .chip.is-selected {
+      color: var(--pipi-text-primary);
+      border-color: var(--pipi-soul-primary);
+      background: rgba(124, 108, 246, 0.16);
+      box-shadow: 0 0 0 1px rgba(124, 108, 246, 0.25);
+    }
+
+    /* Telemetry Panel */
+    .telemetry-card {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .scope-wrap {
+      background: var(--pipi-bg-inset);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-md);
+      padding: 12px;
+    }
+
+    .scope-legend {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: var(--pipi-text-2xs);
+      color: var(--pipi-text-muted);
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .legend-items {
+      display: flex;
+      gap: 12px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    #spring-scope {
+      width: 100%;
+      height: 112px;
+      display: block;
+    }
+
+    .tracks-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .track-meter {
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-sm);
+      padding: 8px 10px;
+    }
+
+    .track-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: var(--pipi-text-2xs);
+      margin-bottom: 5px;
+    }
+
+    .track-bar-bg {
+      height: 5px;
+      border-radius: 999px;
+      background: var(--pipi-bg-inset);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .track-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--pipi-soul-primary);
+      transition: width 60ms linear;
+    }
+
+    .rodrigues-box {
+      background: var(--pipi-bg-inset);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-md);
+      padding: 12px;
+      font-size: var(--pipi-text-xs);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 14px;
+    }
+
+    .kv-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px dashed var(--pipi-border-subtle);
+      padding-bottom: 4px;
+    }
+
+    .kv-row span:first-child {
+      color: var(--pipi-text-muted);
+    }
+
+    /* --- Section 2: macOS Resident & Manus Cue Simulator --- */
+    .mac-desktop-sim {
+      border-radius: var(--pipi-radius-xl);
+      border: 1px solid var(--pipi-border-strong);
+      background:
+        radial-gradient(circle at 20% 20%, rgba(124, 108, 246, 0.22), transparent 45%),
+        radial-gradient(circle at 82% 76%, rgba(16, 185, 129, 0.16), transparent 45%),
+        var(--pipi-bg-inset);
+      overflow: hidden;
+      box-shadow: var(--pipi-shadow-lg);
+      position: relative;
+      min-height: 580px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .mac-menubar {
+      height: 32px;
+      padding: 0 14px;
+      background: var(--pipi-bg-glass-strong);
+      backdrop-filter: var(--pipi-glass-blur);
+      border-bottom: 1px solid var(--pipi-border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: var(--pipi-text-xs);
+      z-index: 5;
+    }
+
+    .mac-menubar-left, .mac-menubar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .mac-menu-avatar-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--pipi-border-subtle);
+      background: var(--pipi-bg-surface);
+      color: var(--pipi-text-primary);
+      cursor: pointer;
+      font-size: var(--pipi-text-2xs);
+      font-weight: 600;
+    }
+
+    .mac-menu-avatar-btn:hover {
+      background: var(--pipi-bg-surface-hover);
+    }
+
+    .mac-workspace {
+      flex: 1;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 1fr 390px;
+      gap: 20px;
+      align-items: start;
+      position: relative;
+    }
+
+    @media (max-width: 1020px) {
+      .mac-workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .mac-left-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .cue-pill {
+      max-width: var(--pipi-cue-max-width);
+      width: 100%;
+      background: var(--pipi-bg-glass-strong);
+      backdrop-filter: var(--pipi-glass-blur);
+      border: 1px solid var(--pipi-border-strong);
+      border-radius: var(--pipi-radius-pill);
+      padding: 7px 10px 7px 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: var(--pipi-shadow-cue);
+      transition: opacity 220ms ease, transform 260ms var(--pipi-ease-overshoot);
+    }
+
+    .cue-pill.is-hidden {
+      opacity: 0;
+      transform: translateY(10px) scale(0.97);
+      pointer-events: none;
+    }
+
+    .cue-context-chip {
+      font-size: var(--pipi-text-2xs);
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: var(--pipi-radius-pill);
+      background: rgba(56, 189, 248, 0.14);
+      color: var(--pipi-soul-secondary);
+      white-space: nowrap;
+    }
+
+    .cue-text {
+      flex: 1;
+      font-size: var(--pipi-text-xs);
+      color: var(--pipi-text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .cue-kbd {
+      font-family: var(--pipi-font-mono);
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-strong);
+      color: var(--pipi-text-secondary);
+    }
+
+    .mac-popover {
+      width: 100%;
+      max-width: 390px;
+      background: var(--pipi-bg-glass-strong);
+      backdrop-filter: var(--pipi-glass-blur);
+      border: 1px solid var(--pipi-border-strong);
+      border-radius: var(--pipi-radius-lg);
+      box-shadow: var(--pipi-shadow-lg);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      transition: opacity 200ms ease, transform 240ms var(--pipi-ease-overshoot);
+    }
+
+    .mac-popover.is-collapsed {
+      opacity: 0.35;
+      transform: scale(0.97);
+    }
+
+    .fleet-dots-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+
+    @media (max-width: 640px) {
+      .fleet-dots-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .fleet-node-tile {
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-md);
+      padding: 10px;
+      cursor: pointer;
+      transition: border-color var(--pipi-duration-fast), transform var(--pipi-duration-fast);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .fleet-node-tile:hover {
+      border-color: var(--pipi-border-strong);
+      transform: translateY(-1px);
+    }
+
+    .dot-matrix-3x3 {
+      display: grid;
+      grid-template-columns: repeat(3, 5px);
+      gap: 3px;
+    }
+
+    .dot-cell {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.25;
+    }
+
+    .dot-cell.on {
+      opacity: 0.95;
+      animation: pipi-dot-breathe 2.2s ease-in-out infinite;
+    }
+
+    /* --- Section 3: iOS Companion & Devin "Needs You" Simulator --- */
+    .ios-grid {
+      display: grid;
+      grid-template-columns: 390px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    @media (max-width: 980px) {
+      .ios-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .iphone-frame {
+      width: 100%;
+      max-width: 390px;
+      margin: 0 auto;
+      border-radius: 44px;
+      border: 6px solid #23262f;
+      background: var(--pipi-bg-canvas);
+      box-shadow: var(--pipi-shadow-lg), inset 0 0 0 1px rgba(255,255,255,0.08);
+      padding: 12px 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 670px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .dynamic-island {
+      margin: 0 auto;
+      background: #050507;
+      color: #f4f5f7;
+      border-radius: 24px;
+      padding: 6px 12px;
+      min-width: 196px;
+      max-width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      cursor: pointer;
+      transition: all 280ms var(--pipi-ease-overshoot);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .dynamic-island-compact {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .dynamic-island-expanded {
+      display: none;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 11px;
+    }
+
+    .dynamic-island.is-expanded {
+      width: 100%;
+      border-radius: 22px;
+      padding: 10px 14px;
+    }
+
+    .dynamic-island.is-expanded .dynamic-island-expanded {
+      display: block;
+    }
+
+    .ios-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      background: var(--pipi-bg-surface);
+      padding: 4px;
+      border-radius: var(--pipi-radius-pill);
+      border: 1px solid var(--pipi-border-subtle);
+    }
+
+    .ios-tab-btn {
+      border: none;
+      background: transparent;
+      color: var(--pipi-text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 6px 8px;
+      border-radius: var(--pipi-radius-pill);
+      cursor: pointer;
+      transition: all var(--pipi-duration-fast);
+    }
+
+    .ios-tab-btn.is-active {
+      background: var(--pipi-soul-primary);
+      color: #ffffff;
+    }
+
+    .swipe-deck {
+      position: relative;
+      min-height: 360px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .needs-you-card {
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-strong);
+      border-radius: var(--pipi-radius-lg);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: var(--pipi-shadow-md);
+      transition: transform 320ms var(--pipi-ease-overshoot), opacity 260ms ease;
+    }
+
+    .needs-you-card.swipe-right {
+      transform: translateX(120%) rotate(10deg);
+      opacity: 0;
+    }
+
+    .needs-you-card.swipe-left {
+      transform: translateX(-120%) rotate(-10deg);
+      opacity: 0;
+    }
+
+    .r2-diff-box {
+      border-radius: var(--pipi-radius-sm);
+      border: 1px solid var(--pipi-border-subtle);
+      background: var(--pipi-bg-inset);
+      padding: 10px;
+      font-size: 11px;
+    }
+
+    .muse-canvas-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .muse-card {
+      border-radius: var(--pipi-radius-md);
+      border: 1px solid var(--pipi-border-subtle);
+      background: var(--pipi-bg-surface);
+      padding: 10px;
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .voice-bars {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 16px;
+    }
+
+    .voice-bar {
+      width: 3px;
+      border-radius: 2px;
+      background: var(--pipi-soul-secondary);
+      height: 5px;
+      transition: height 120ms ease;
+    }
+
+    /* --- Section 4: 53-State Matrix Explorer --- */
+    .states-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .search-input {
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-pill);
+      padding: 7px 14px;
+      color: var(--pipi-text-primary);
+      font-size: var(--pipi-text-xs);
+      min-width: 240px;
+      outline: none;
+    }
+
+    .search-input:focus {
+      border-color: var(--pipi-border-focus);
+    }
+
+    .states-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .state-tile {
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-md);
+      padding: 11px 12px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: left;
+      color: var(--pipi-text-primary);
+      transition: border-color var(--pipi-duration-fast), transform var(--pipi-duration-fast), background var(--pipi-duration-fast);
+    }
+
+    .state-tile:hover {
+      border-color: var(--pipi-border-strong);
+      background: var(--pipi-bg-surface-hover);
+      transform: translateY(-1px);
+    }
+
+    .state-tile.is-active {
+      border-color: var(--pipi-soul-primary);
+      box-shadow: 0 0 0 1px var(--pipi-soul-primary);
+    }
+
+    /* --- Section 5: Design Tokens --- */
+    .tokens-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 12px;
+    }
+
+    .token-swatch {
+      background: var(--pipi-bg-surface);
+      border: 1px solid var(--pipi-border-subtle);
+      border-radius: var(--pipi-radius-md);
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+    }
+
+    .token-swatch:hover {
+      border-color: var(--pipi-border-strong);
+    }
+
+    .swatch-box {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--pipi-radius-sm);
+      border: 1px solid var(--pipi-border-strong);
+      flex-shrink: 0;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 99;
+      background: var(--pipi-bg-glass-strong);
+      backdrop-filter: var(--pipi-glass-blur);
+      border: 1px solid var(--pipi-border-strong);
+      border-radius: var(--pipi-radius-pill);
+      padding: 8px 16px;
+      font-size: var(--pipi-text-xs);
+      box-shadow: var(--pipi-shadow-lg);
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: opacity 180ms ease, transform 200ms ease;
+    }
+
+    .toast.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-avatar" id="brand-avatar-mount"></div>
+        <div>
+          <div class="brand-title">PipiBot Design System</div>
+          <div class="brand-sub">Ambient Soul &amp; Outcome Studio · v0.1.0-alpha</div>
+        </div>
+      </div>
+
+      <nav class="nav-links" aria-label="Workbench sections">
+        <a href="#stage">PipiAvatar 120Hz</a>
+        <a href="#macos-cue">macOS &amp; Manus Cue</a>
+        <a href="#ios-companion">iOS &amp; Needs You</a>
+        <a href="#states-matrix">53-State Matrix</a>
+        <a href="#tokens-ref">Design Tokens</a>
+      </nav>
+
+      <div class="topbar-actions">
+        <span class="pill" id="top-harness-pill">
+          <span class="dot-indicator is-breathing" style="background: var(--pipi-harness-pi)"></span>
+          <span class="mono" id="top-harness-label">pi-native</span>
+        </span>
+        <button class="btn is-active" id="toggle-cursor-btn" type="button">Gaze Track: ON</button>
+        <button class="btn is-active" id="toggle-blink-btn" type="button">Auto Blink: ON</button>
+        <button class="btn" id="theme-toggle-btn" type="button">Switch to Light</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- SECTION 1: PipiAvatar 120Hz Stage & Telemetry -->
+    <section id="stage">
+      <div class="section-head">
+        <div>
+          <div class="section-eyebrow">01 · Procedural SVG Character Engine</div>
+          <h1 class="section-title">PipiAvatar 120 Hz 物理引擎与实时遥测舞台</h1>
+          <p class="section-desc">
+            零第三方运行时依赖：192 射线极坐标轮廓插值 · 6 轨道 Cubic-Bézier 编舞 · 120 Hz 半隐式 Euler 弹簧三元组 · Rodrigues 伪 3D 球面眼球投影 · 0.26s 眨眼（45% 闭合）。移动鼠标让双眼追踪你，点击头像即可戳击互动。
+          </p>
+        </div>
+        <div class="chip-row">
+          <button class="btn btn-primary" id="poke-btn" type="button">Poke &amp; Impulse</button>
+          <button class="btn" id="blink-btn" type="button">Blink (0.26s)</button>
+          <button class="btn" id="random-state-btn" type="button">Random State</button>
+        </div>
+      </div>
+
+      <div class="stage-grid">
+        <div class="card avatar-stage-card">
+          <div class="avatar-podium" id="avatar-podium">
+            <div class="podium-crosshair"></div>
+            <div class="podium-aura" id="podium-aura" style="background: var(--pipi-soul-primary);"></div>
+            <div class="podium-hud-top">
+              <span class="pill mono" id="hud-state-pill">state: idle</span>
+              <span class="pill mono" id="hud-shape-expr">orb · neutral</span>
+            </div>
+
+            <div id="main-avatar-mount" title="Click to poke PipiBot!"></div>
+
+            <div class="podium-hud-bottom">
+              <span class="pill mono" style="font-size: 11px;">192 rays · 120 Hz Euler · Rodrigues 3D</span>
+              <span class="pill mono" style="font-size: 11px;" id="hud-gaze-coords">gaze (0.00, 0.00)</span>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Lifecycle Presets (Core States)</span>
+              <span class="mono" id="active-group-label">Idle &amp; Ambient</span>
+            </div>
+            <div class="chip-row" id="preset-chips"></div>
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>192-Ray Polar Shapes (8 Core Geometries)</span>
+              <span class="mono">R_shape(θ)</span>
+            </div>
+            <div class="chip-row" id="shape-chips"></div>
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>9 Core Expressions</span>
+              <span class="mono">Rodrigues Eye Mesh</span>
+            </div>
+            <div class="chip-row" id="expression-chips"></div>
+          </div>
+        </div>
+
+        <div class="card telemetry-card">
+          <div class="scope-wrap">
+            <div class="scope-legend">
+              <span class="mono" style="font-weight: 600;">120 Hz Semi-Implicit Euler Spring Trio</span>
+              <div class="legend-items mono">
+                <span class="legend-item"><i style="width:8px;height:3px;background:#f472b6;display:inline-block;"></i>amount</span>
+                <span class="legend-item"><i style="width:8px;height:3px;background:#38bdf8;display:inline-block;"></i>swap</span>
+                <span class="legend-item"><i style="width:8px;height:3px;background:#a855f7;display:inline-block;"></i>spin/180</span>
+              </div>
+            </div>
+            <canvas id="spring-scope" width="480" height="120"></canvas>
+          </div>
+
+          <div>
+            <div class="control-label" style="margin-bottom: 8px;">
+              <span>6-Track Cubic-Bézier Keyframes</span>
+              <span class="mono">x · y · rot · squash · scale · lids</span>
+            </div>
+            <div class="tracks-grid" id="tracks-grid"></div>
+          </div>
+
+          <div>
+            <div class="control-label" style="margin-bottom: 8px;">
+              <span>Rodrigues Sphere Projection &amp; Blink Telemetry</span>
+              <span class="mono">0.26s @ 45% peak</span>
+            </div>
+            <div class="rodrigues-box mono" id="rodrigues-readout"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: macOS Resident Host & Manus Cue -->
+    <section id="macos-cue">
+      <div class="section-head">
+        <div>
+          <div class="section-eyebrow">02 · macOS Always-On Resident &amp; Manus Cue</div>
+          <h2 class="section-title">macOS 菜单栏驻留宿主 + Manus Cue (`⌥Space`) + Dots 节点矩阵</h2>
+          <p class="section-desc">
+            点击右上角菜单栏中的 22×22pt 活体 PipiBot 可展开/折叠 420×640pt Outcome Studio 弹窗；按下 <span class="cue-kbd">⌥ Space</span> 或点击按钮唤醒/切换 Manus Cue 环境感知轻提示胶囊，并实时切换多 Harness 路由与 Dots 节点活性。
+          </p>
+        </div>
+        <div class="chip-row">
+          <button class="btn btn-primary" id="toggle-cue-btn" type="button">Toggle Manus Cue (⌥Space)</button>
+          <button class="btn" id="toggle-popover-btn" type="button">Toggle Studio Popover</button>
+        </div>
+      </div>
+
+      <div class="mac-desktop-sim">
+        <div class="mac-menubar">
+          <div class="mac-menubar-left">
+            <strong style="font-size: 13px;"></strong>
+            <strong id="mac-active-app-name">Xcode</strong>
+            <span style="color: var(--pipi-text-muted);">File</span>
+            <span style="color: var(--pipi-text-muted);">Edit</span>
+            <span style="color: var(--pipi-text-muted);">Product</span>
+          </div>
+          <div class="mac-menubar-right">
+            <span class="pill mono" style="padding: 2px 8px; font-size: 10px;">
+              <span class="dot-indicator is-breathing" style="background: var(--pipi-status-ok)"></span>
+              CF Tunnel 18ms
+            </span>
+            <button class="mac-menu-avatar-btn" id="mac-menubar-avatar-btn" type="button" title="Toggle Outcome Studio Popover">
+              <span id="menubar-avatar-mount" style="width: 20px; height: 20px; display: inline-grid; place-items: center;"></span>
+              <span>PipiBot</span>
+            </button>
+            <span class="mono" style="color: var(--pipi-text-secondary);">23:52</span>
+          </div>
+        </div>
+
+        <div class="mac-workspace">
+          <div class="mac-left-stack">
+            <div class="glass-card" style="padding: 14px 16px;">
+              <div class="control-label" style="margin-bottom: 8px;">
+                <span>Simulate Active Foreground Window (Manus Cue Context)</span>
+                <span class="mono">L0 Sensory Memory</span>
+              </div>
+              <div class="chip-row" id="cue-context-chips"></div>
+            </div>
+
+            <!-- Manus Cue Floating Ambient Pill -->
+            <div class="cue-pill" id="manus-cue-pill">
+              <div id="cue-avatar-mount" style="width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center;"></div>
+              <span class="cue-context-chip mono" id="cue-chip-text">Xcode · PipiHost.swift</span>
+              <span class="cue-text" id="cue-suggestion-text">检测到 SwiftUI 测试未运行，建议交由 Pi + Xcode MCP 执行回归并上传录屏</span>
+              <button class="btn btn-primary" id="cue-run-btn" type="button" style="padding: 5px 12px; font-size: 11px;">↵ 执行</button>
+            </div>
+
+            <!-- Harness Router Selector -->
+            <div class="glass-card" style="padding: 14px 16px;">
+              <div class="control-label" style="margin-bottom: 8px;">
+                <span>Multi-Harness &amp; BYOK Inference Router (`PipiRouter`)</span>
+                <span class="mono">Routed MCP Bridge</span>
+              </div>
+              <div class="chip-row" id="harness-chips"></div>
+              <p id="harness-route-desc" style="margin: 10px 0 0; font-size: 12px; color: var(--pipi-text-secondary);">
+                Pi Native Core (`@mariozechner/pi-coding-agent`): 4 核心极简工具 (read/write/edit/bash) + 嵌入式 RPC 状态流。
+              </p>
+            </div>
+
+            <!-- Dots Fleet Vitality Matrix -->
+            <div class="glass-card" style="padding: 14px 16px;">
+              <div class="control-label" style="margin-bottom: 10px;">
+                <span>Dots Fleet Vitality Matrix (Click any node to simulate fault/recovery)</span>
+                <span class="mono">5 Nodes Online</span>
+              </div>
+              <div class="fleet-dots-grid" id="mac-fleet-grid"></div>
+            </div>
+          </div>
+
+          <!-- macOS 420x640 Proportional Popover Outcome Studio -->
+          <div class="mac-popover" id="mac-popover">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div id="popover-avatar-mount" style="width: 44px; height: 44px; display: grid; place-items: center;"></div>
+                <div>
+                  <div style="font-weight: 700; font-size: 14px;">Outcome Studio</div>
+                  <div class="mono" style="font-size: 11px; color: var(--pipi-text-muted);" id="popover-subtitle">3 Outcomes · 1 Needs You</div>
+                </div>
+              </div>
+              <span class="pill mono" style="font-size: 10px;">Mac Host</span>
+            </div>
+
+            <div class="card" style="padding: 10px 12px; box-shadow: none;">
+              <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                <span>Layout Guardian Bot</span>
+                <span class="mono" style="color: var(--pipi-status-ok);">Every 3h · 100%</span>
+              </div>
+              <div style="font-size: 11px; color: var(--pipi-text-secondary); margin-top: 3px;">
+                上次巡检修复 CLS 回归 2 处，证据已上传至 Cloudflare R2。
+              </div>
+            </div>
+
+            <div class="card" style="padding: 10px 12px; box-shadow: none;">
+              <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                <span>Hetzner VPS Ops Bot</span>
+                <span class="mono" style="color: var(--pipi-harness-codex);">Codex CLI</span>
+              </div>
+              <div style="font-size: 11px; color: var(--pipi-text-secondary); margin-top: 3px;">
+                监控 Docker / Nginx / TLS 证书到期，自动触发零停机续签。
+              </div>
+            </div>
+
+            <div class="card" style="padding: 10px 12px; box-shadow: none;">
+              <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                <span>Nightly Dream Evolution</span>
+                <span class="mono" style="color: var(--pipi-group-evolve);">02:30 Cron</span>
+              </div>
+              <div style="font-size: 11px; color: var(--pipi-text-secondary); margin-top: 3px;">
+                已更新 3 条 USER.md 偏好并蒸馏 1 个新 Pi Skill (`cf-tunnel-heal.md`)。
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+              <input class="search-input" id="popover-quick-cmd" style="flex: 1; min-width: 0;" placeholder="向 PipiBot 下达 Outcome 目标..." />
+              <button class="btn btn-primary" id="popover-send-btn" type="button">分派</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: iOS Companion & Devin "Needs You" -->
+    <section id="ios-companion">
+      <div class="section-head">
+        <div>
+          <div class="section-eyebrow">03 · iOS Companion, Dynamic Island &amp; Devin Decision Inbox</div>
+          <h2 class="section-title">iOS 伴侣端模拟器：灵动岛 Live Activity · Needs You 滑动审批 · Muse 空间画布</h2>
+          <p class="section-desc">
+            所有 Mac 端或 VPS 舰队产生的异步成果通过 0 费用 Cloudflare Tunnel + Workers 中继至 iPhone。点击灵动岛可展开 Live Activity；在 Needs You 卡片堆中查看 R2 前后对比证据并左右审批。
+          </p>
+        </div>
+      </div>
+
+      <div class="ios-grid">
+        <div class="iphone-frame">
+          <!-- Dynamic Island -->
+          <div class="dynamic-island" id="dynamic-island" title="Click to expand/collapse Live Activity">
+            <div class="dynamic-island-compact">
+              <div style="display: flex; align-items: center; gap: 7px;">
+                <span id="island-avatar-mount" style="width: 22px; height: 22px; display: inline-grid; place-items: center;"></span>
+                <span id="island-title">Layout Bot · PR #42</span>
+              </div>
+              <span class="mono" id="island-badge" style="color: #f59e0b;">Needs You</span>
+            </div>
+            <div class="dynamic-island-expanded">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="color: #a1a7b3;">Cloudflare R2 Evidence Ready</span>
+                <span class="mono" style="color: #10b981;">CLS 0.34 → 0.01</span>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <button class="btn btn-primary" id="island-approve-btn" type="button" style="flex: 1; justify-content: center; padding: 5px 8px; font-size: 11px;">Approve PR #42</button>
+                <button class="btn" id="island-collapse-btn" type="button" style="padding: 5px 8px; font-size: 11px;">收起</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+            <span class="pill mono" style="padding: 3px 8px;">
+              <span class="dot-indicator is-breathing" style="background: var(--pipi-status-ok)"></span>
+              CF Zero Trust · 18ms
+            </span>
+            <span class="mono" style="color: var(--pipi-text-secondary);">Understanding 94.2%</span>
+          </div>
+
+          <div class="ios-tabs">
+            <button class="ios-tab-btn is-active" data-ios-tab="needs-you" type="button">Needs You (<span id="needs-count">3</span>)</button>
+            <button class="ios-tab-btn" data-ios-tab="outcomes" type="button">Outcomes &amp; Dots</button>
+            <button class="ios-tab-btn" data-ios-tab="muse" type="button">Muse Canvas</button>
+          </div>
+
+          <!-- Tab 1: Devin-style Needs You Swipe Deck -->
+          <div id="ios-panel-needs-you" class="swipe-deck"></div>
+
+          <!-- Tab 2: Outcomes & Fleet Dots -->
+          <div id="ios-panel-outcomes" style="display: none; flex-direction: column; gap: 10px;">
+            <div class="card" style="padding: 12px; box-shadow: none;">
+              <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700;">
+                <span>iOS ↔ Android Parity Bot</span>
+                <span class="mono" style="color: var(--pipi-status-ok);">88%</span>
+              </div>
+              <div style="font-size: 11px; color: var(--pipi-text-secondary); margin: 4px 0 8px;">
+                3 Child Sessions 并行迁移中 · Claude Code + Pi Core
+              </div>
+              <div class="track-bar-bg"><div class="track-bar-fill" style="width: 88%; background: var(--pipi-status-ok);"></div></div>
+            </div>
+
+            <div class="card" style="padding: 12px; box-shadow: none;">
+              <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700;">
+                <span>Home + VPS Fleet Watch</span>
+                <span class="mono" style="color: var(--pipi-soul-secondary);">5/5 Online</span>
+              </div>
+              <div style="font-size: 11px; color: var(--pipi-text-secondary); margin: 4px 0 8px;">
+                Mac Studio · iPhone · Hetzner VPS · Win11 · ESP32
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;" id="ios-dots-strip"></div>
+            </div>
+          </div>
+
+          <!-- Tab 3: Muse Spatial Canvas & Voice Interruption -->
+          <div id="ios-panel-muse" style="display: none; flex-direction: column; gap: 10px;">
+            <div class="muse-canvas-grid">
+              <div class="muse-card">
+                <span class="mono" style="color: var(--pipi-status-ok); font-size: 10px;">LIFE · 19:30</span>
+                <strong>东京行程与航班值机</strong>
+                <span style="color: var(--pipi-text-secondary);">已自动提取邮件登机牌写入日历</span>
+              </div>
+              <div class="muse-card">
+                <span class="mono" style="color: var(--pipi-harness-claude); font-size: 10px;">WORK · PR #42</span>
+                <strong>结账页 CLS 回归修复</strong>
+                <span style="color: var(--pipi-text-secondary);">R2 对比录屏就绪，待批准合并</span>
+              </div>
+              <div class="muse-card">
+                <span class="mono" style="color: var(--pipi-fleet-vps); font-size: 10px;">INFRA · VPS</span>
+                <strong>Nginx TLS 自动续期</strong>
+                <span style="color: var(--pipi-text-secondary);">剩余 89 天 · 零停机热重载</span>
+              </div>
+              <div class="muse-card">
+                <span class="mono" style="color: var(--pipi-fleet-embedded); font-size: 10px;">IOT · HOME</span>
+                <strong>卧室环境与夜灯模式</strong>
+                <span style="color: var(--pipi-text-secondary);">ESP32 MQTT · 24.5°C / 48%</span>
+              </div>
+            </div>
+
+            <div class="card" style="padding: 12px; box-shadow: none; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+              <div>
+                <div style="font-size: 12px; font-weight: 700;">Muse 语音随时打断</div>
+                <div style="font-size: 11px; color: var(--pipi-text-secondary);" id="voice-status-text">点击切换语音打断与空间批注模式</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="voice-bars" id="voice-bars">
+                  <span class="voice-bar"></span>
+                  <span class="voice-bar"></span>
+                  <span class="voice-bar"></span>
+                  <span class="voice-bar"></span>
+                </div>
+                <button class="btn btn-primary" id="voice-interrupt-btn" type="button">语音打断</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Explanatory Architectural Callout Cards next to iPhone -->
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div class="card">
+            <div class="section-eyebrow">Devin Outcome Model</div>
+            <h3 style="margin: 0 0 8px; font-size: 16px;">从“单轮聊天回复”到“AI Manager 结果移交”</h3>
+            <p style="margin: 0; font-size: 13px; color: var(--pipi-text-secondary);">
+              传统 Agent 把冗长的工具日志和中间报错直接抛给用户。PipiBot 在 Mac 常驻宿主内调度 Pi Core、Claude Code、Codex 与 OpenCode 派生子会话完成闭环评测，只有遇到高风险生产动作、架构权衡或主观偏好时才生成一张附带 <strong>Cloudflare R2 Before/After 证据</strong> 的「Needs You」卡片，你在 iOS 通勤途中 1 秒右滑拍板即可交付。
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="section-eyebrow">Zero-Cost Cloudflare Edge Bridge</div>
+            <h3 style="margin: 0 0 8px; font-size: 16px;">$0/月 Cloudflare Free Tier 跨端神经中枢</h3>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px;">
+              <div class="track-meter">
+                <div class="track-head"><span>Cloudflare Tunnel</span><span class="mono" style="color: var(--pipi-status-ok);">0 Open Ports</span></div>
+                <div style="color: var(--pipi-text-secondary);">Mac `launchd` 自动重连加密出站隧道</div>
+              </div>
+              <div class="track-meter">
+                <div class="track-head"><span>R2 Artifacts</span><span class="mono" style="color: var(--pipi-status-ok);">$0 Egress</span></div>
+                <div style="color: var(--pipi-text-secondary);">PR 对比录屏、网页截图与加密快照</div>
+              </div>
+              <div class="track-meter">
+                <div class="track-head"><span>Workers + D1 + KV</span><span class="mono" style="color: var(--pipi-status-ok);">100k req/day</span></div>
+                <div style="color: var(--pipi-text-secondary);">Mac 休眠离线队列与 APNs 唤醒桥接</div>
+              </div>
+              <div class="track-meter">
+                <div class="track-head"><span>Cloudflare Access</span><span class="mono" style="color: var(--pipi-status-ok);">Zero Trust</span></div>
+                <div style="color: var(--pipi-text-secondary);">Apple OIDC + mTLS Service Token</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-eyebrow">Live Interaction Log</div>
+            <div class="mono" id="ios-action-log" style="font-size: 12px; color: var(--pipi-text-secondary); min-height: 54px;">
+              [ready] 等待 iOS 灵动岛或 Needs You 审批操作...
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: 53-State Matrix Explorer -->
+    <section id="states-matrix">
+      <div class="section-head">
+        <div>
+          <div class="section-eyebrow">04 · Complete Lifecycle State Machine</div>
+          <h2 class="section-title">53 状态全生命周期矩阵探索器 (5 Groups × 9 Expressions)</h2>
+          <p class="section-desc">
+            点击下方任意状态卡片，将立即驱动顶部舞台的 <code>PipiAvatar</code> 引擎平滑变形至对应极坐标轮廓、切换表情与 6 轨编舞、并更新语义辉光色彩。
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="states-toolbar">
+          <div class="chip-row" id="group-filter-chips"></div>
+          <input class="search-input" id="state-search-input" type="search" placeholder="搜索状态 ID、中文名或形态 (e.g. shield, claude, dream)..." />
+        </div>
+        <div class="states-grid" id="states-grid"></div>
+      </div>
+    </section>
+
+    <!-- SECTION 5: Design Tokens Reference -->
+    <section id="tokens-ref">
+      <div class="section-head">
+        <div>
+          <div class="section-eyebrow">05 · Cross-Platform Design Tokens</div>
+          <h2 class="section-title">设计令牌系统（点击任一色卡复制 CSS 变量）</h2>
+          <p class="section-desc">
+            同步支持 Dark Mode (<code>Obsidian Carbon #0B0C0E</code>) 与 Light Mode (<code>Warm Vellum #F7F5F0</code>)、5 大 Harness 语义色、5 类 Fleet 节点色与 iOS CoreHaptics 触觉曲线。
+          </p>
+        </div>
+      </div>
+
+      <div class="tokens-grid" id="tokens-grid"></div>
+    </section>
+  </main>
+
+  <div class="toast mono" id="toast"></div>
+
+  <script type="module">
+    import {
+      PipiAvatar,
+      AVATAR_SHAPES,
+      CORE_EXPRESSIONS,
+      AVATAR_LIFECYCLE_PRESETS,
+      AVATAR_STATES_53,
+      STATE_BY_ID,
+    } from './pipibot-avatar.js';
+
+    const $ = (sel) => document.querySelector(sel);
+    const toastEl = $('#toast');
+    let toastTimer = null;
+
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('is-visible');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('is-visible'), 2000);
+    }
+
+    /* ------------------------------------------------------------------
+     * 1. Mount 5 Live PipiAvatar Instances Across the Workbench
+     * ---------------------------------------------------------------- */
+    const brandAvatar = new PipiAvatar($('#brand-avatar-mount'), {
+      size: 32,
+      initialState: 'idle',
+      interactive: false,
+      cursorTrack: false,
+    });
+
+    const menuBarAvatar = new PipiAvatar($('#menubar-avatar-mount'), {
+      size: 20,
+      initialState: 'pi-coding',
+      interactive: false,
+      cursorTrack: false,
+    });
+
+    const cueAvatar = new PipiAvatar($('#cue-avatar-mount'), {
+      size: 32,
+      initialState: 'manus-cue',
+      interactive: false,
+      cursorTrack: false,
+    });
+
+    const popoverAvatar = new PipiAvatar($('#popover-avatar-mount'), {
+      size: 42,
+      initialState: 'idle',
+      interactive: true,
+      cursorTrack: false,
+    });
+
+    const islandAvatar = new PipiAvatar($('#island-avatar-mount'), {
+      size: 22,
+      initialState: 'needs-you',
+      interactive: false,
+      cursorTrack: false,
+    });
+
+    // Oscilloscope buffer for 120Hz springs
+    const scopeCanvas = $('#spring-scope');
+    const scopeCtx = scopeCanvas.getContext('2d');
+    const scopeHistory = { amount: [], swap: [], spin: [] };
+    const MAX_SCOPE_PTS = 140;
+
+    const TRACK_DEFS = [
+      { key: 'x', label: 'x (px)', min: -6, max: 6 },
+      { key: 'y', label: 'y (px)', min: -8, max: 8 },
+      { key: 'rot', label: 'rot (deg)', min: -12, max: 12 },
+      { key: 'squash', label: 'squash', min: -0.15, max: 0.15 },
+      { key: 'scale', label: 'scale', min: 0.9, max: 1.12 },
+      { key: 'lids', label: 'lids (0..1)', min: 0, max: 1 },
+    ];
+
+    const tracksGrid = $('#tracks-grid');
+    tracksGrid.innerHTML = TRACK_DEFS.map((t) => `
+      <div class="track-meter">
+        <div class="track-head">
+          <span class="mono" style="color: var(--pipi-text-secondary);">${t.label}</span>
+          <span class="mono" id="track-val-${t.key}">0.00</span>
+        </div>
+        <div class="track-bar-bg">
+          <div class="track-bar-fill" id="track-bar-${t.key}" style="width: 50%"></div>
+        </div>
+      </div>
+    `).join('');
+
+    const rodriguesEl = $('#rodrigues-readout');
+
+    const mainAvatar = new PipiAvatar($('#main-avatar-mount'), {
+      size: 204,
+      initialState: 'idle',
+      onPoke: (st) => showToast(`Poked PipiAvatar in [${st}] -> 0.26s blink + Euler impulse!`),
+      onTelemetry: (tel) => updateTelemetryUI(tel),
+    });
+
+    function updateTelemetryUI(tel) {
+      // Update HUD
+      $('#hud-gaze-coords').textContent = `gaze (${tel.gaze.x.toFixed(2)}, ${tel.gaze.y.toFixed(2)})`;
+
+      // Update 6-track bars
+      for (const t of TRACK_DEFS) {
+        const val = tel.tracks[t.key];
+        const valEl = document.getElementById(`track-val-${t.key}`);
+        const barEl = document.getElementById(`track-bar-${t.key}`);
+        if (valEl) valEl.textContent = val.toFixed(3);
+        if (barEl) {
+          const pct = Math.max(0, Math.min(100, ((val - t.min) / (t.max - t.min)) * 100));
+          barEl.style.width = `${pct.toFixed(1)}%`;
+          barEl.style.background = tel.accentColor;
+        }
+      }
+
+      // Rodrigues readout
+      const l = tel.gaze.left3D;
+      const r = tel.gaze.right3D;
+      rodriguesEl.innerHTML = `
+        <div class="kv-row"><span>theta (rad)</span><span>${tel.gaze.thetaRad.toFixed(4)}</span></div>
+        <div class="kv-row"><span>blink phase</span><span>${tel.blink.active ? (tel.blink.progress * 100).toFixed(0) + '%' : 'ready'}</span></div>
+        <div class="kv-row"><span>v_rot(L)</span><span>[${l[0].toFixed(2)}, ${l[1].toFixed(2)}, ${l[2].toFixed(2)}]</span></div>
+        <div class="kv-row"><span>v_rot(R)</span><span>[${r[0].toFixed(2)}, ${r[1].toFixed(2)}, ${r[2].toFixed(2)}]</span></div>
+        <div class="kv-row"><span>spring.amount</span><span>${tel.springs.amount.toFixed(3)}</span></div>
+        <div class="kv-row"><span>spring.swap</span><span>${tel.springs.swap.toFixed(3)}</span></div>
+      `;
+
+      // Scope history
+      scopeHistory.amount.push(tel.springs.amount / 0.5);
+      scopeHistory.swap.push(tel.springs.swap * 2 - 1);
+      scopeHistory.spin.push(tel.springs.spin / 180);
+      for (const k of Object.keys(scopeHistory)) {
+        if (scopeHistory[k].length > MAX_SCOPE_PTS) scopeHistory[k].shift();
+      }
+      drawScope();
+    }
+
+    function drawScope() {
+      const w = scopeCanvas.width;
+      const h = scopeCanvas.height;
+      scopeCtx.clearRect(0, 0, w, h);
+
+      // Center hairline
+      scopeCtx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+      scopeCtx.lineWidth = 1;
+      scopeCtx.beginPath();
+      scopeCtx.moveTo(0, h / 2);
+      scopeCtx.lineTo(w, h / 2);
+      scopeCtx.stroke();
+
+      const series = [
+        { data: scopeHistory.amount, color: '#f472b6' },
+        { data: scopeHistory.swap, color: '#38bdf8' },
+        { data: scopeHistory.spin, color: '#a855f7' },
+      ];
+
+      for (const s of series) {
+        if (s.data.length < 2) continue;
+        scopeCtx.strokeStyle = s.color;
+        scopeCtx.lineWidth = 1.8;
+        scopeCtx.beginPath();
+        for (let i = 0; i < s.data.length; i++) {
+          const x = (i / (MAX_SCOPE_PTS - 1)) * w;
+          const clamped = Math.max(-1.25, Math.min(1.25, s.data[i]));
+          const y = h / 2 - clamped * (h * 0.36);
+          if (i === 0) scopeCtx.moveTo(x, y);
+          else scopeCtx.lineTo(x, y);
+        }
+        scopeCtx.stroke();
+      }
+    }
+
+    /* ------------------------------------------------------------------
+     * 2. Stage Controls & Pointer Gaze Tracking
+     * ---------------------------------------------------------------- */
+    const stageCard = $('.avatar-stage-card');
+    stageCard.addEventListener('pointermove', (e) => {
+      if (!mainAvatar.cursorTrack) return;
+      const rect = $('#avatar-podium').getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const nx = (e.clientX - cx) / (rect.width * 0.6);
+      const ny = (e.clientY - cy) / (rect.height * 0.6);
+      mainAvatar.setGazeTarget(nx, ny);
+    });
+
+    function syncStageBadges() {
+      const meta = STATE_BY_ID.get(mainAvatar.stateId);
+      $('#hud-state-pill').textContent = `state: ${mainAvatar.stateId}`;
+      $('#hud-shape-expr').textContent = `${mainAvatar.shapeId} · ${mainAvatar.expressionId}`;
+      $('#podium-aura').style.background = mainAvatar.accentColor;
+      $('#active-group-label').textContent = meta ? meta.group : mainAvatar.preset.group;
+
+      document.querySelectorAll('#preset-chips .chip').forEach((c) => {
+        c.classList.toggle('is-selected', c.dataset.preset === mainAvatar.stateId);
+      });
+      document.querySelectorAll('#shape-chips .chip').forEach((c) => {
+        c.classList.toggle('is-selected', c.dataset.shape === mainAvatar.shapeId);
+      });
+      document.querySelectorAll('#expression-chips .chip').forEach((c) => {
+        c.classList.toggle('is-selected', c.dataset.expr === mainAvatar.expressionId);
+      });
+      document.querySelectorAll('#states-grid .state-tile').forEach((tile) => {
+        tile.classList.toggle('is-active', tile.dataset.stateId === mainAvatar.stateId);
+      });
+    }
+
+    function activateState(stateId) {
+      mainAvatar.setState(stateId);
+      brandAvatar.setState(stateId);
+      syncStageBadges();
+    }
+
+    // Populate Presets
+    const presetContainer = $('#preset-chips');
+    Object.values(AVATAR_LIFECYCLE_PRESETS).forEach((preset) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip';
+      btn.dataset.preset = preset.id;
+      btn.innerHTML = `<span class="dot-indicator" style="background:${preset.color}"></span><span class="mono">${preset.id}</span>`;
+      btn.addEventListener('click', () => activateState(preset.id));
+      presetContainer.appendChild(btn);
+    });
+
+    // Populate 8 Shapes
+    const shapeContainer = $('#shape-chips');
+    Object.values(AVATAR_SHAPES).forEach((sh) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip';
+      btn.dataset.shape = sh.id;
+      btn.innerHTML = `<span class="mono">${sh.id}</span><span style="color:var(--pipi-text-muted);font-size:11px;">${sh.labelZh}</span>`;
+      btn.addEventListener('click', () => {
+        mainAvatar.setShape(sh.id);
+        syncStageBadges();
+      });
+      shapeContainer.appendChild(btn);
+    });
+
+    // Populate 9 Expressions
+    const exprContainer = $('#expression-chips');
+    Object.values(CORE_EXPRESSIONS).forEach((ex) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip';
+      btn.dataset.expr = ex.id;
+      btn.innerHTML = `<span class="mono">${ex.id}</span><span style="color:var(--pipi-text-muted);font-size:11px;">${ex.labelZh}</span>`;
+      btn.addEventListener('click', () => {
+        mainAvatar.setExpression(ex.id);
+        syncStageBadges();
+      });
+      exprContainer.appendChild(btn);
+    });
+
+    $('#poke-btn').addEventListener('click', () => mainAvatar.poke());
+    $('#blink-btn').addEventListener('click', () => mainAvatar.blink());
+    $('#random-state-btn').addEventListener('click', () => {
+      const pick = AVATAR_STATES_53[Math.floor(Math.random() * AVATAR_STATES_53.length)];
+      activateState(pick.id);
+      showToast(`Switched to ${pick.id} (${pick.nameZh})`);
+    });
+
+    // Topbar toggles
+    $('#theme-toggle-btn').addEventListener('click', () => {
+      const html = document.documentElement;
+      const isDark = html.getAttribute('data-theme') !== 'light';
+      html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+      $('#theme-toggle-btn').textContent = isDark ? 'Switch to Obsidian' : 'Switch to Light';
+    });
+
+    $('#toggle-cursor-btn').addEventListener('click', (e) => {
+      mainAvatar.cursorTrack = !mainAvatar.cursorTrack;
+      e.currentTarget.classList.toggle('is-active', mainAvatar.cursorTrack);
+      e.currentTarget.textContent = `Gaze Track: ${mainAvatar.cursorTrack ? 'ON' : 'OFF'}`;
+    });
+
+    $('#toggle-blink-btn').addEventListener('click', (e) => {
+      mainAvatar.autoBlink = !mainAvatar.autoBlink;
+      e.currentTarget.classList.toggle('is-active', mainAvatar.autoBlink);
+      e.currentTarget.textContent = `Auto Blink: ${mainAvatar.autoBlink ? 'ON' : 'OFF'}`;
+    });
+
+    /* ------------------------------------------------------------------
+     * 3. macOS Resident, Manus Cue & Dots Matrix
+     * ---------------------------------------------------------------- */
+    const CUE_CONTEXTS = [
+      {
+        id: 'xcode',
+        app: 'Xcode',
+        chip: 'Xcode · PipiHost.swift',
+        suggestion: '检测到 SwiftUI 测试未运行，建议交由 Pi + Xcode MCP 执行回归并上传录屏',
+        state: 'pi-coding',
+      },
+      {
+        id: 'terminal',
+        app: 'Terminal',
+        chip: 'Terminal · docker-compose.yml',
+        suggestion: '发现 VPS 容器重启日志，一键诊断 502 并生成零停机 reload 脚本',
+        state: 'vps-deploying',
+      },
+      {
+        id: 'mail',
+        app: 'Mail',
+        chip: 'Mail · ANA 东京航班确认单',
+        suggestion: '识别到明日 NH962 航班，自动写入日历并在起飞前 3h 推送值机提醒',
+        state: 'cue-whispering',
+      },
+      {
+        id: 'safari',
+        app: 'Safari',
+        chip: 'Safari · GitHub PR #42',
+        suggestion: 'Layout Bot 已在 R2 生成前后对比录屏，CLS 降至 0.01，点击直接批准',
+        state: 'needs-you-diff-ready',
+      },
+      {
+        id: 'homekit',
+        app: 'HomeKit',
+        chip: 'HomeKit · 卧室空调 & ESP32',
+        suggestion: '检测到你通常 00:15 入睡，是否提前 15 分钟开启夜间静音与 24°C 恒温？',
+        state: 'iot-signaling',
+      },
+    ];
+
+    const cueChipsWrap = $('#cue-context-chips');
+    CUE_CONTEXTS.forEach((ctx, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `chip ${idx === 0 ? 'is-selected' : ''}`;
+      btn.textContent = ctx.app;
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#cue-context-chips .chip').forEach((c) => c.classList.remove('is-selected'));
+        btn.classList.add('is-selected');
+        $('#mac-active-app-name').textContent = ctx.app;
+        $('#cue-chip-text').textContent = ctx.chip;
+        $('#cue-suggestion-text').textContent = ctx.suggestion;
+        cueAvatar.setState(ctx.state);
+        $('#manus-cue-pill').classList.remove('is-hidden');
+      });
+      cueChipsWrap.appendChild(btn);
+    });
+
+    $('#cue-run-btn').addEventListener('click', () => {
+      cueAvatar.setState('evolution-proud');
+      cueAvatar.poke();
+      showToast('Manus Cue action dispatched to macOS PipiCore!');
+    });
+
+    $('#toggle-cue-btn').addEventListener('click', () => {
+      $('#manus-cue-pill').classList.toggle('is-hidden');
+    });
+
+    $('#toggle-popover-btn').addEventListener('click', () => {
+      $('#mac-popover').classList.toggle('is-collapsed');
+    });
+
+    $('#mac-menubar-avatar-btn').addEventListener('click', () => {
+      $('#mac-popover').classList.toggle('is-collapsed');
+      menuBarAvatar.poke();
+    });
+
+    $('#popover-send-btn').addEventListener('click', () => {
+      const input = $('#popover-quick-cmd');
+      const val = input.value.trim() || '巡检全部节点并整理今日记忆';
+      input.value = '';
+      popoverAvatar.setState('thinking');
+      showToast(`Outcome dispatched: "${val}"`);
+      setTimeout(() => popoverAvatar.setState('idle'), 1600);
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.altKey && e.code === 'Space') || (e.key === 'c' && document.activeElement.tagName !== 'INPUT')) {
+        if (e.altKey && e.code === 'Space') e.preventDefault();
+        $('#manus-cue-pill').classList.toggle('is-hidden');
+        cueAvatar.poke();
+      }
+    });
+
+    const HARNESSES = [
+      { id: 'pi-native', label: 'Pi Native', color: 'var(--pipi-harness-pi)', state: 'pi-coding', desc: 'Pi Native Core (`@mariozechner/pi-coding-agent`): 4 核心极简工具 (read/write/edit/bash) + 嵌入式 RPC 状态流。' },
+      { id: 'claude-code', label: 'Claude Code', color: 'var(--pipi-harness-claude)', state: 'claude-routing', desc: 'Claude Code CLI 适配器: 复用本机已认证 `claude` 登录态 + `--mcp-config` 挂载 PipiBot Routed MCP Bridge。' },
+      { id: 'codex', label: 'Codex', color: 'var(--pipi-harness-codex)', state: 'codex-routing', desc: 'Codex 适配器: 复用本机 `~/.codex` / Codex CLI 鉴权，直接桥接主机文件系统、Mac 工具与 Fleet 指令。' },
+      { id: 'opencode', label: 'OpenCode', color: 'var(--pipi-harness-opencode)', state: 'opencode-routing', desc: 'OpenCode ACP 适配器: 通过本地 ACP / HTTP 服务复用多模型开源编码工作流与工具集。' },
+      { id: 'byok', label: 'BYOK Router', color: 'var(--pipi-harness-byok)', state: 'byok-streaming', desc: 'BYOK 直连路由器: 通过 `pi-ai` 无缝直连 Anthropic / OpenAI / Gemini / DeepSeek / Grok / OpenRouter / Ollama。' },
+    ];
+
+    const harnessWrap = $('#harness-chips');
+    HARNESSES.forEach((h, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `chip ${i === 0 ? 'is-selected' : ''}`;
+      btn.innerHTML = `<span class="dot-indicator" style="background:${h.color}"></span><span>${h.label}</span>`;
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#harness-chips .chip').forEach((c) => c.classList.remove('is-selected'));
+        btn.classList.add('is-selected');
+        $('#harness-route-desc').textContent = h.desc;
+        $('#top-harness-label').textContent = h.id;
+        $('#top-harness-pill .dot-indicator').style.background = h.color;
+        menuBarAvatar.setState(h.state);
+        activateState(h.state);
+      });
+      harnessWrap.appendChild(btn);
+    });
+
+    const FLEET_NODES = [
+      { id: 'mac', name: 'Mac Studio', os: 'macOS Host', color: 'var(--pipi-fleet-mac)', rtt: '2ms', status: 'healthy', pattern: [1,1,1,1,1,1,1,1,1] },
+      { id: 'ios', name: 'iPhone 16 Pro', os: 'iOS Companion', color: 'var(--pipi-fleet-ios)', rtt: '18ms', status: 'healthy', pattern: [0,1,0,1,1,1,0,1,0] },
+      { id: 'vps', name: 'Hetzner VPS', os: 'Ubuntu 24.04', color: 'var(--pipi-fleet-vps)', rtt: '34ms', status: 'busy', pattern: [1,0,1,1,1,1,1,0,1] },
+      { id: 'win', name: 'Win11 Box', os: 'WSL2 Agent', color: 'var(--pipi-fleet-windows)', rtt: '12ms', status: 'healthy', pattern: [1,1,0,1,1,0,1,1,1] },
+      { id: 'iot', name: 'Home ESP32', os: 'MQTT / RPi', color: 'var(--pipi-fleet-embedded)', rtt: '8ms', status: 'healthy', pattern: [0,1,0,1,0,1,0,1,0] },
+    ];
+
+    function renderFleetDots() {
+      const grid = $('#mac-fleet-grid');
+      grid.innerHTML = '';
+      FLEET_NODES.forEach((node) => {
+        const tile = document.createElement('div');
+        tile.className = 'fleet-node-tile';
+        const statusColor = node.status === 'degraded' ? 'var(--pipi-status-warn)' : node.color;
+        tile.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="dot-matrix-3x3" style="color:${statusColor}">
+              ${node.pattern.map((on) => `<span class="dot-cell ${on ? 'on' : ''}"></span>`).join('')}
+            </div>
+            <span class="mono" style="font-size:10px;color:${statusColor}">${node.status === 'degraded' ? 'warn' : node.rtt}</span>
+          </div>
+          <div style="font-size:11px;font-weight:700;">${node.name}</div>
+          <div class="mono" style="font-size:10px;color:var(--pipi-text-muted);">${node.os}</div>
+        `;
+        tile.addEventListener('click', () => {
+          node.status = node.status === 'degraded' ? 'healthy' : 'degraded';
+          renderFleetDots();
+          renderIosDotsStrip();
+          if (node.status === 'degraded') {
+            activateState('fleet-degraded');
+            showToast(`${node.name} degraded -> Needs You escalation triggered!`);
+          } else {
+            activateState('idle');
+            showToast(`${node.name} recovered -> All 5 nodes healthy.`);
+          }
+        });
+        grid.appendChild(tile);
+      });
+    }
+
+    function renderIosDotsStrip() {
+      const strip = $('#ios-dots-strip');
+      if (!strip) return;
+      strip.innerHTML = FLEET_NODES.map((n) => `
+        <span class="pill mono" style="padding: 3px 8px; font-size: 10px;">
+          <span class="dot-indicator ${n.status === 'degraded' ? 'is-degraded' : 'is-breathing'}" style="background:${n.status === 'degraded' ? 'var(--pipi-status-warn)' : n.color}"></span>
+          ${n.id}
+        </span>
+      `).join('');
+    }
+    renderFleetDots();
+    renderIosDotsStrip();
+
+    /* ------------------------------------------------------------------
+     * 4. iOS Companion, Dynamic Island & Devin "Needs You" Deck
+     * ---------------------------------------------------------------- */
+    const NEEDS_YOU_CARDS = [
+      {
+        id: 'pr-42',
+        tag: 'WORK · PR #42',
+        color: 'var(--pipi-harness-claude)',
+        title: 'Approve PR #42 — Checkout CLS Regression Fix',
+        summary: 'Layout Bot 在 3h 巡检中捕获结账页骨架屏高度跳变，子会话已修复并通过 14 项 Playwright 断言。',
+        before: 'CLS: 0.34 (Fail) · 骨架屏高度 0px -> 142px',
+        after: 'CLS: 0.01 (Pass) · R2 对比录屏 1080p 已验证',
+        r2: 'r2://pipibot-artifacts/pr-42-diff.mp4',
+      },
+      {
+        id: 'vps-nginx',
+        tag: 'INFRA · HETZNER VPS',
+        color: 'var(--pipi-fleet-vps)',
+        title: 'Reload VPS Nginx Worker Pool',
+        summary: 'Ops Bot 检测到 502 波动源于上游 keepalive 超时，已准备好零停机 `nginx -s reload` 补丁。',
+        before: 'Keepalive: 15s · 502 rate 1.8%',
+        after: 'Keepalive: 65s · 零停机热重载验证通过',
+        r2: 'r2://pipibot-artifacts/vps-nginx-trace.json',
+      },
+      {
+        id: 'memory-diff',
+        tag: 'EVOLUTION · NIGHTLY DREAM',
+        color: 'var(--pipi-group-evolve)',
+        title: 'Merge Nightly Memory Diff (+2 Facts, +1 Skill)',
+        summary: '昨晚反思提取了你新的代码规范与睡前物联网规则，请审阅后写入 `USER.md` 与 `skills/`。',
+        before: 'Understanding Score: 93.4%',
+        after: 'Understanding Score: 94.2% (+cf-tunnel-heal.md)',
+        r2: 'local://~/.pipibot/evolution/2026-11-18.diff',
+      },
+    ];
+
+    let remainingCards = [...NEEDS_YOU_CARDS];
+    let showAfterDiff = true;
+
+    function renderNeedsYouDeck() {
+      const deck = $('#ios-panel-needs-you');
+      $('#needs-count').textContent = String(remainingCards.length);
+
+      if (remainingCards.length === 0) {
+        deck.innerHTML = `
+          <div class="card" style="text-align:center; padding: 28px 16px; box-shadow:none;">
+            <div style="font-size: 24px; margin-bottom: 6px;">✨</div>
+            <div style="font-weight: 700; font-size: 14px;">All Caught Up — Zero Pending Decisions</div>
+            <p style="font-size: 12px; color: var(--pipi-text-secondary); margin: 6px 0 14px;">
+              Bot 舰队正在后台持续履行 Outcome 责任，有新风险或重要交付时将再唤醒你。
+            </p>
+            <button class="btn btn-primary" id="reset-deck-btn" type="button">Reset Demo Deck</button>
+          </div>
+        `;
+        $('#reset-deck-btn').addEventListener('click', () => {
+          remainingCards = [...NEEDS_YOU_CARDS];
+          islandAvatar.setState('needs-you');
+          $('#island-badge').textContent = 'Needs You';
+          $('#island-badge').style.color = '#f59e0b';
+          renderNeedsYouDeck();
+        });
+        return;
+      }
+
+      const card = remainingCards[0];
+      deck.innerHTML = `
+        <div class="needs-you-card" id="active-ny-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span class="pill mono" style="font-size:10px;color:${card.color};border-color:${card.color};">${card.tag}</span>
+            <span class="mono" style="font-size:10px;color:var(--pipi-text-muted);">${remainingCards.length} left</span>
+          </div>
+          <div style="font-weight:700;font-size:14px;line-height:1.35;">${card.title}</div>
+          <div style="font-size:12px;color:var(--pipi-text-secondary);">${card.summary}</div>
+
+          <div class="r2-diff-box">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span class="mono" style="font-size:10px;color:var(--pipi-soul-secondary);">R2 Evidence Preview</span>
+              <button class="btn" id="toggle-diff-btn" type="button" style="padding:2px 8px;font-size:10px;">
+                Viewing: ${showAfterDiff ? 'AFTER' : 'BEFORE'}
+              </button>
+            </div>
+            <div class="mono" style="color:${showAfterDiff ? 'var(--pipi-status-ok)' : 'var(--pipi-status-warn)'};font-weight:600;">
+              ${showAfterDiff ? card.after : card.before}
+            </div>
+            <div class="mono" style="font-size:10px;color:var(--pipi-text-muted);margin-top:4px;">${card.r2}</div>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <button class="btn" id="ny-defer-btn" type="button" style="flex:1;justify-content:center;">← 延后 / 驳回</button>
+            <button class="btn btn-primary" id="ny-approve-btn" type="button" style="flex:1.3;justify-content:center;">✓ 批准并交付 →</button>
+          </div>
+        </div>
+      `;
+
+      $('#toggle-diff-btn').addEventListener('click', () => {
+        showAfterDiff = !showAfterDiff;
+        renderNeedsYouDeck();
+      });
+
+      const handleDecision = (approved) => {
+        const cardEl = $('#active-ny-card');
+        cardEl.classList.add(approved ? 'swipe-right' : 'swipe-left');
+        const logEl = $('#ios-action-log');
+        logEl.textContent = `[${approved ? 'approved' : 'deferred'}] ${card.id}: ${card.title}`;
+        if (approved) {
+          islandAvatar.setState('evolution-proud');
+          activateState('git-committing');
+          showToast(`Approved: ${card.title}`);
+        } else {
+          islandAvatar.setState('idle');
+          showToast(`Deferred: ${card.title}`);
+        }
+        setTimeout(() => {
+          remainingCards.shift();
+          if (remainingCards.length === 0) {
+            $('#island-badge').textContent = 'All Clear';
+            $('#island-badge').style.color = '#10b981';
+          }
+          renderNeedsYouDeck();
+        }, 280);
+      };
+
+      $('#ny-defer-btn').addEventListener('click', () => handleDecision(false));
+      $('#ny-approve-btn').addEventListener('click', () => handleDecision(true));
+    }
+    renderNeedsYouDeck();
+
+    // iOS Tab switching
+    document.querySelectorAll('.ios-tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.ios-tab-btn').forEach((b) => b.classList.remove('is-active'));
+        btn.classList.add('is-active');
+        const tab = btn.dataset.iosTab;
+        $('#ios-panel-needs-you').style.display = tab === 'needs-you' ? 'flex' : 'none';
+        $('#ios-panel-outcomes').style.display = tab === 'outcomes' ? 'flex' : 'none';
+        $('#ios-panel-muse').style.display = tab === 'muse' ? 'flex' : 'none';
+      });
+    });
+
+    // Dynamic Island expand/collapse
+    const islandEl = $('#dynamic-island');
+    islandEl.addEventListener('click', (e) => {
+      if (e.target.id === 'island-approve-btn') {
+        e.stopPropagation();
+        if (remainingCards.length > 0 && remainingCards[0].id === 'pr-42') {
+          remainingCards.shift();
+          renderNeedsYouDeck();
+        }
+        islandAvatar.setState('evolution-proud');
+        $('#island-badge').textContent = 'Merged!';
+        $('#island-badge').style.color = '#10b981';
+        $('#ios-action-log').textContent = '[dynamic-island] Quick approved PR #42 right from iOS Lock Screen / Island!';
+        showToast('Approved PR #42 via Dynamic Island!');
+        islandEl.classList.remove('is-expanded');
+        return;
+      }
+      if (e.target.id === 'island-collapse-btn') {
+        e.stopPropagation();
+        islandEl.classList.remove('is-expanded');
+        return;
+      }
+      islandEl.classList.toggle('is-expanded');
+    });
+
+    // Muse Voice Interruption simulation
+    let voiceActive = false;
+    let voiceTimer = null;
+    $('#voice-interrupt-btn').addEventListener('click', () => {
+      voiceActive = !voiceActive;
+      const bars = document.querySelectorAll('#voice-bars .voice-bar');
+      if (voiceActive) {
+        $('#voice-interrupt-btn').textContent = '停止语音';
+        $('#voice-status-text').textContent = '正在实时打断并重定向当前 Outcome...';
+        activateState('voice-interrupted');
+        islandAvatar.setState('voice-transcribing');
+        voiceTimer = setInterval(() => {
+          bars.forEach((b) => {
+            b.style.height = `${4 + Math.floor(Math.random() * 14)}px`;
+          });
+        }, 110);
+      } else {
+        $('#voice-interrupt-btn').textContent = '语音打断';
+        $('#voice-status-text').textContent = '点击切换语音打断与空间批注模式';
+        clearInterval(voiceTimer);
+        bars.forEach((b) => { b.style.height = '5px'; });
+        activateState('idle');
+      }
+    });
+
+    /* ------------------------------------------------------------------
+     * 5. 53-State Matrix Explorer
+     * ---------------------------------------------------------------- */
+    const LIFECYCLE_GROUPS = [
+      'All (53)',
+      'Idle & Ambient',
+      'Thinking & Reasoning',
+      'Tool & Harness Execution',
+      'Cue & Needs-You Alert',
+      'Self-Evolution & Dreaming',
+    ];
+    let selectedGroup = 'All (53)';
+    let searchQuery = '';
+
+    const groupChipsWrap = $('#group-filter-chips');
+    LIFECYCLE_GROUPS.forEach((grp) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `chip ${grp === selectedGroup ? 'is-selected' : ''}`;
+      btn.textContent = grp;
+      btn.addEventListener('click', () => {
+        selectedGroup = grp;
+        document.querySelectorAll('#group-filter-chips .chip').forEach((c) => c.classList.remove('is-selected'));
+        btn.classList.add('is-selected');
+        renderStatesGrid();
+      });
+      groupChipsWrap.appendChild(btn);
+    });
+
+    $('#state-search-input').addEventListener('input', (e) => {
+      searchQuery = e.target.value.trim().toLowerCase();
+      renderStatesGrid();
+    });
+
+    function renderStatesGrid() {
+      const grid = $('#states-grid');
+      const filtered = AVATAR_STATES_53.filter((st) => {
+        if (selectedGroup !== 'All (53)' && st.group !== selectedGroup) return false;
+        if (!searchQuery) return true;
+        return (
+          st.id.toLowerCase().includes(searchQuery) ||
+          st.name.toLowerCase().includes(searchQuery) ||
+          st.nameZh.includes(searchQuery) ||
+          st.shape.toLowerCase().includes(searchQuery) ||
+          st.expression.toLowerCase().includes(searchQuery)
+        );
+      });
+
+      grid.innerHTML = '';
+      filtered.forEach((st) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `state-tile ${mainAvatar.stateId === st.id ? 'is-active' : ''}`;
+        btn.dataset.stateId = st.id;
+        btn.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+            <span class="mono" style="font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:6px;">
+              <span class="dot-indicator" style="background:${st.color}"></span>
+              ${st.id}
+            </span>
+            <span class="mono" style="font-size:10px;color:var(--pipi-text-muted);">${st.shape}</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;">${st.nameZh} <span style="color:var(--pipi-text-muted);font-weight:400;">· ${st.name}</span></div>
+          <div class="mono" style="font-size:10px;color:var(--pipi-text-secondary);">expr: ${st.expression} · haptic: ${st.haptic}</div>
+        `;
+        btn.addEventListener('click', () => {
+          activateState(st.id);
+          showToast(`Stage -> ${st.id} (${st.nameZh})`);
+        });
+        grid.appendChild(btn);
+      });
+    }
+    renderStatesGrid();
+
+    /* ------------------------------------------------------------------
+     * 6. Design Token Reference Swatches
+     * ---------------------------------------------------------------- */
+    const TOKEN_SHOWCASE = [
+      { varName: '--pipi-bg-canvas', label: 'Canvas Background', desc: '#0B0C0E / #F7F5F0' },
+      { varName: '--pipi-bg-surface', label: 'Surface Card', desc: '#171A20 / #FDFCF9' },
+      { varName: '--pipi-soul-primary', label: 'Soul Primary', desc: '#7C6CF6 / #5B4CE4' },
+      { varName: '--pipi-soul-secondary', label: 'Soul Secondary', desc: '#38BDF8 / #0284C7' },
+      { varName: '--pipi-harness-pi', label: 'Harness · Pi Native', desc: '#10B981 Emerald' },
+      { varName: '--pipi-harness-claude', label: 'Harness · Claude Code', desc: '#D97757 Terracotta' },
+      { varName: '--pipi-harness-codex', label: 'Harness · Codex', desc: '#3B82F6 Cobalt' },
+      { varName: '--pipi-harness-opencode', label: 'Harness · OpenCode', desc: '#A855F7 Violet' },
+      { varName: '--pipi-harness-byok', label: 'Harness · BYOK', desc: '#F59E0B Gold' },
+      { varName: '--pipi-fleet-mac', label: 'Fleet · Mac Host', desc: '#38BDF8 Sky Cyan' },
+      { varName: '--pipi-fleet-ios', label: 'Fleet · iOS Companion', desc: '#818CF8 Indigo' },
+      { varName: '--pipi-fleet-embedded', label: 'Fleet · Embedded IoT', desc: '#F472B6 Coral' },
+    ];
+
+    const tokensGrid = $('#tokens-grid');
+    TOKEN_SHOWCASE.forEach((t) => {
+      const card = document.createElement('div');
+      card.className = 'token-swatch';
+      card.innerHTML = `
+        <div class="swatch-box" style="background: var(${t.varName});"></div>
+        <div>
+          <div style="font-size:12px;font-weight:700;">${t.label}</div>
+          <div class="mono" style="font-size:11px;color:var(--pipi-soul-secondary);">var(${t.varName})</div>
+          <div class="mono" style="font-size:10px;color:var(--pipi-text-muted);">${t.desc}</div>
+        </div>
+      `;
+      card.addEventListener('click', () => {
+        if (navigator.clipboard) navigator.clipboard.writeText(`var(${t.varName})`).catch(() => {});
+        showToast(`Copied: var(${t.varName})`);
+      });
+      tokensGrid.appendChild(card);
+    });
+
+    syncStageBadges();
+  </script>
+</body>
+</html>

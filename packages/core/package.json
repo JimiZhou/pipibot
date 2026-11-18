@@ -1,0 +1,34 @@
+{
+  "name": "@pipibot/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PipiBot core TypeScript runtime: Pi-based Universal Harness Router, Routed MCP Bridge, 250ms Activity Pulse, Atomic Transcript Store, and 4-Tier Cognitive Memory & Self-Evolution Engine.",
+  "type": "module",
+  "main": "./src/harness-router.ts",
+  "types": "./src/harness-router.ts",
+  "exports": {
+    ".": {
+      "types": "./src/harness-router.ts",
+      "default": "./src/harness-router.ts"
+    },
+    "./harness-router": {
+      "types": "./src/harness-router.ts",
+      "default": "./src/harness-router.ts"
+    },
+    "./memory-engine": {
+      "types": "./src/memory-engine.ts",
+      "default": "./src/memory-engine.ts"
+    }
+  },
+  "dependencies": {
+    "@pipibot/protocol": "workspace:*"
+  },
+  "scripts": {
+    "check": "node --experimental-strip-types ./src/harness-router.ts && node --experimental-strip-types ./src/memory-engine.ts",
+    "check:router": "node --experimental-strip-types ./src/harness-router.ts",
+    "check:memory": "node --experimental-strip-types ./src/memory-engine.ts"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@pipibot/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zero-dependency core TypeScript protocol types, 53-state avatar catalog, cognitive memory schemas, and Cloudflare relay contracts for PipiBot.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "check": "node --experimental-strip-types ./src/index.ts"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

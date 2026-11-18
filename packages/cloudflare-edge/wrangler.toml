@@ -1,0 +1,56 @@
+# PipiBot Cloudflare Edge Relay & PipiFleet Registry
+# Designed strictly to remain within Cloudflare's $0/month Free Tier:
+# - Workers: 100,000 requests/day free
+# - D1: 5 GB storage, 5M row reads/day, 100k row writes/day free
+# - KV: 100,000 reads/day, 1,000 writes/day (throttled via smart TTLs)
+# - R2: 10 GB/month storage, 0 egress fee, 1M Class A / 10M Class B ops/month free
+# - Cloudflare Access: Free Zero Trust tier up to 50 users
+# - Cloudflare Tunnel (`cloudflared`): Free unlimited outbound tunnels
+
+name = "pipibot-edge-relay"
+main = "src/worker.ts"
+compatibility_date = "2025-11-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[observability]
+enabled = true
+
+[vars]
+CF_ACCESS_TEAM_DOMAIN = "pipibot-personal.cloudflareaccess.com"
+PRESENCE_TTL_SEC = "90"
+D1_HEARTBEAT_SYNC_MIN_SEC = "300"
+ARTIFACT_SIGNING_TTL_SEC = "900"
+MAX_ARTIFACT_BYTES = "26214400"
+R2_FREE_TIER_SOFT_CAP_BYTES = "9663676416"
+QUEUE_DEFAULT_TTL_SEC = "259200"
+ALLOW_DEV_BYPASS = "false"
+
+# Create via: `wrangler d1 create pipibot-fleet-db`
+[[d1_databases]]
+binding = "DB"
+database_name = "pipibot-fleet-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# Create via: `wrangler kv namespace create PRESENCE_KV`
+[[kv_namespaces]]
+binding = "PRESENCE_KV"
+id = "00000000000000000000000000000000"
+
+# Create via: `wrangler r2 bucket create pipibot-artifacts`
+[[r2_buckets]]
+binding = "ARTIFACTS_R2"
+bucket_name = "pipibot-artifacts"
+
+# 96 invocations/day (< 0.1% of the 100k/day Workers Free Tier)
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Required Secrets (configure via `wrangler secret put <NAME>`):
+# - CF_ACCESS_AUD          : Cloudflare Access Application Audience (AUD) tag
+# - ARTIFACT_HMAC_SECRET   : 32+ byte random secret for signing R2 download URLs
+# - NODE_SHARED_SECRET     : 32+ byte HMAC key shared with Mac/VPS/Embedded fleet nodes
+# - APNS_KEY_PEM           : Apple Push Notification (.p8) PKCS8 private key PEM
+# - APNS_KEY_ID            : Apple 10-character APNs Key ID
+# - APNS_TEAM_ID           : Apple Developer Team ID
+# - APNS_BUNDLE_ID         : iOS companion bundle ID (e.g. "ai.pipibot.companion")

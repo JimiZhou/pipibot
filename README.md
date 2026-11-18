@@ -96,9 +96,9 @@ flowchart TB
 
 ---
 
-## Quickstart: All-in-One Native `PipiBot.app`, Swift 6 iOS UI & Headless Daemon
+## Quickstart: All-in-One Native `PipiBot.app`, Dual-Mode iOS (`PipiBotIOS.app` + PWA) & Headless Daemon
 
-> **Release Status (`v0.2.0-beta`)**: Ships the **All-in-One Standalone Native macOS App (`dist/PipiBot.app`)** with built-in `PipiNativeMacRuntime` & `PipiEmbeddedBridgeSupervisor` (zero manual terminal daemon required!), Native Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp`), Live iOS Companion PWA (`apps/ios-web`), headless `@pipibot/daemon`, OpenPencil `pipibot.pen` + 5-rule design audit, and Stageshow craft (`.agents/skills/stageshow`).
+> **Release Status (`v0.2.0-beta`)**: Ships the **All-in-One Native macOS App (`dist/PipiBot.app`)**, **Dual-Mode iOS Delivery** (Native iOS System App `dist/PipiBotIOS.app` with Action Button / Siri `AppIntents`, Lock-Screen Steer notifications, Dynamic Island snapshot, `pipibot://` deep-links & CoreHaptics + Zero-Install PWA `apps/ios-web`), headless `@pipibot/daemon`, OpenPencil `pipibot.pen` + 5-rule design audit, and Stageshow craft (`.agents/skills/stageshow`).
 
 ### 1. Build & Launch the All-in-One Native macOS App (`PipiBot.app`)
 
@@ -117,17 +117,20 @@ open dist/PipiBot.app
 
 See the full walkthrough in [`06-MAC-NATIVE-APP-GUIDE.md`](docs/architecture/06-MAC-NATIVE-APP-GUIDE.md).
 
-### 2. Optional: Headless Daemon & Live iOS Companion PWA (`/ios`)
+### 2. Dual-Mode iOS: Native System App (`PipiBotIOS.app`) & Zero-Install PWA (`/ios`)
 
-For headless servers, Linux VPS nodes, or standalone browser testing without opening the macOS GUI (**Node.js `>= 22.6.0`**, zero third-party npm dependencies):
+Choose either the **Native iOS System App** (`AppIntents`, Lock-Screen `UNTextInput` Steer, Dynamic Island snapshot, `pipibot://` deep-links) or the **Zero-Install iOS PWA** (`apps/ios-web`):
 
 ```bash
-# Start standalone @pipibot/daemon (REST + 250ms SSE + static host on http://127.0.0.1:4242)
+# Mode A: Build Native iOS System App bundle (dist/PipiBotIOS.app for iOS 17+ Simulator)
+npm run app:ios
+
+# Mode B: Or start standalone headless @pipibot/daemon for PWA / Linux VPS / CLI debugging
 npm run start:daemon
 ```
 
-Once running (either standalone or auto-supervised by `PipiBot.app`), open:
-- **Live iOS Companion PWA**: **`http://127.0.0.1:4242/ios`** (Dynamic Island 120Hz `PipiAvatar`, Devin Outcomes, "Needs You" swipe deck, Muse spatial chat across `Pi` / `Claude Code` / `Codex` / `OpenCode` / `BYOK`, Dots Fleet matrix, and 4-Tier Memory Evolution Diff review).
+Once running (either standalone or auto-supervised by `PipiBot.app`), open **`http://127.0.0.1:4242/ios`** in Safari on iPhone/Desktop (or via your Cloudflare Tunnel URL) and optionally tap **Add to Home Screen** for the zero-install PWA. See [`07-IOS-APP-AND-PWA-GUIDE.md`](docs/architecture/07-IOS-APP-AND-PWA-GUIDE.md) for Simulator launch & deep-link testing commands.
+
 - **Design System & Avatar Workbench**: **`http://127.0.0.1:4242/design-system/`** (or static zero-build preview via `npm run preview:design` -> `http://127.0.0.1:8080/design-system/`).
 
 ### 3. Swift 6 Tests, OpenPencil 5-Rule Audit & Full Verification Suite
@@ -160,7 +163,8 @@ pipibot/
 │   └── skills/stageshow/                      # Stageshow visual craft skill (device-pair, dynamic-island)
 ├── scripts/
 │   ├── audit-design-system.mjs                # Automated OpenPencil 5-rule & zero-raw-hex audit
-│   └── build-mac-app.sh                       # Builds & signs All-in-One dist/PipiBot.app bundle
+│   ├── build-mac-app.sh                       # Builds & signs All-in-One dist/PipiBot.app bundle
+│   └── build-ios-app.sh                       # Builds & packages Native dist/PipiBotIOS.app (iOS Simulator)
 ├── design-system/
 │   ├── design-system.md                       # Persistent AI design memory (Rule + Reason + Date)
 │   ├── pipibot.pen                            # OpenPencil JSON (3-tier tokens, 6 blocks, 12 screens)
@@ -170,12 +174,13 @@ pipibot/
 │   └── index.html                             # Interactive UX workbench & Mac/iOS simulator
 ├── apps/
 │   ├── apple/                                 # Swift 6 Package (macOS 14+ & iOS 17+)
-│   │   ├── Package.swift                      # PipiBotKit, PipiBotIOSUI, PipiBotMacApp, PipiBotKitTests
+│   │   ├── Package.swift                      # PipiBotKit, PipiBotIOSUI, PipiBotIOSApp, PipiBotMacApp, PipiBotKitTests
 │   │   ├── Sources/PipiBotKit/                # ProtocolModels, DesignTokens, CanonicalBlocks, Avatar, PipiNativeMacRuntime, Client
-│   │   ├── Sources/PipiBotIOSUI/              # iOS Root, NeedsYouSwipeDeck, MuseCanvas, DotsFleet
+│   │   ├── Sources/PipiBotIOSUI/              # iOS Root, PipiIOSSystemIntegration (AppIntents/Notifications/DeepLink/Widget), SwipeDeck, Muse, Dots
+│   │   ├── Sources/PipiBotIOSApp/             # Native iOS System App (@main PipiBotIOSApp -> dist/PipiBotIOS.app)
 │   │   ├── Sources/PipiBotMacApp/             # All-in-One PipiBot.app (MenuBarExtra, ManusCueFloatingPanel, 8-Module Studio)
-│   │   └── Tests/PipiBotKitTests/             # Swift 6 procedural avatar, protocol & native runtime test suite
-│   └── ios-web/                               # Live iOS Companion PWA (served at /ios by daemon)
+│   │   └── Tests/PipiBotKitTests/             # Swift 6 procedural avatar, protocol, Mac runtime & iOS integration tests
+│   └── ios-web/                               # Zero-Install iOS Companion PWA (served at /ios by daemon)
 │       ├── index.html
 │       ├── styles.css                         # 100% bound to design-system/tokens.css (0 raw hex)
 │       ├── app.js                             # Live /api/v1/* + 250ms SSE client with offline demo fallback
@@ -187,7 +192,8 @@ pipibot/
 │   │   ├── 03-CLOUDFLARE-AND-FLEET-INFRA.md   # $0/mo Cloudflare stack & PipiFleet topology
 │   │   ├── 04-MEMORY-AND-SELF-EVOLUTION.md    # 4-tier cognitive memory & nightly skill synthesis
 │   │   ├── 05-MAC-AND-IOS-V1-IMPLEMENTATION.md # V1 Mac/iOS stack, Swift 6, PWA & OpenPencil spec
-│   │   └── 06-MAC-NATIVE-APP-GUIDE.md         # All-in-One PipiBot.app architecture, 8 modules & build guide
+│   │   ├── 06-MAC-NATIVE-APP-GUIDE.md         # All-in-One PipiBot.app architecture, 8 modules & build guide
+│   │   └── 07-IOS-APP-AND-PWA-GUIDE.md        # Dual-Mode iOS delivery: Native PipiBotIOS.app & Zero-Install PWA
 │   ├── design-system/
 │   │   └── 01-UIUX-DESIGN-SYSTEM.md           # Ambient Soul & Outcome Studio design specification
 │   └── roadmap/
@@ -226,6 +232,7 @@ pipibot/
 | [04-MEMORY-AND-SELF-EVOLUTION.md](docs/architecture/04-MEMORY-AND-SELF-EVOLUTION.md) | 4-Tier Memory (`L0–L3`), SQLite FTS5 + `sqlite-vec`, salience scoring, temporal superseding, Nightly Dreaming & `SOUL.md`/`USER.md`/Pi Skill synthesis | 中文 + EN Terms |
 | [05-MAC-AND-IOS-V1-IMPLEMENTATION.md](docs/architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) | V1 implementation spec: OpenPencil 5-Rule Governance, Stageshow craft, `@pipibot/daemon` REST/SSE, Swift 6 `apps/apple` & Live PWA `apps/ios-web` | 中文 + EN Terms |
 | [06-MAC-NATIVE-APP-GUIDE.md](docs/architecture/06-MAC-NATIVE-APP-GUIDE.md) | All-in-One `PipiBot.app` guide: `PipiNativeMacRuntime`, `PipiEmbeddedBridgeSupervisor`, 3 desktop surfaces, 8 modules & `npm run app:mac` packaging | 中文 + EN Terms |
+| [07-IOS-APP-AND-PWA-GUIDE.md](docs/architecture/07-IOS-APP-AND-PWA-GUIDE.md) | Dual-Mode iOS guide: Native `PipiBotIOS.app` (`AppIntents`, Lock-Screen Steer, Dynamic Island, `pipibot://`) + Zero-Install PWA & `npm run app:ios` | 中文 + EN Terms |
 | [01-UIUX-DESIGN-SYSTEM.md](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) | "Ambient Soul & Outcome Studio" tokens, `PipiAvatar` 192-ray / Rodrigues 3D / 53-state spec, OpenPencil 5-Rule & Stageshow specs | 中文 + EN Terms |
 | [design-system.md](design-system/design-system.md) | Persistent AI design memory recording 3-tier token, geometry, 6 Canonical Named Blocks & Stageshow rules (Rule + Reason + Date) | English |
 | [01-DEVELOPMENT-PLAN.md](docs/roadmap/01-DEVELOPMENT-PLAN.md) | Phase 0–5 engineering WBS, verification test suites, non-functional targets (`<15MB` node RAM, `120fps <1% CPU`, `$0/mo`), risk mitigation matrix | 中文 + EN Terms |

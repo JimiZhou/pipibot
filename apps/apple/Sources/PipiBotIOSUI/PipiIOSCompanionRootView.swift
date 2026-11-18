@@ -39,6 +39,8 @@ public struct PipiIOSCompanionRootView: View {
     @State private var domainFilter: OutcomeDomain?
     @State private var showCreateOutcomeSheet = false
     @State private var showHarnessSheet = false
+    @State private var showIntegrationsSheet = false
+    @State private var lastSnapshotSummary: String = "Ready"
     @State private var newTitle = ""
     @State private var newGoal = ""
     @State private var newDomain: OutcomeDomain = .dev
@@ -123,8 +125,25 @@ public struct PipiIOSCompanionRootView: View {
                     harnessRouterSheetContent
                 }
             }
+
+            if showIntegrationsSheet {
+                PipiSheet(
+                    title: "iOS System Integrations",
+                    subtitle: "AppIntents · Lock-Screen Steer · Dynamic Island · Deep Links",
+                    detent: .expanded,
+                    onClose: { showIntegrationsSheet = false }
+                ) {
+                    systemIntegrationsSheetContent
+                }
+            }
         }
         .preferredColorScheme(store.themeMode.colorSchemeOverride)
+        .onOpenURL { url in
+            if let action = PipiIOSDeepLinkRouter.parse(url) {
+                PipiIOSDeepLinkRouter.apply(action, to: store, selectedTab: &selectedTab)
+                triggerHaptic(.medium)
+            }
+        }
     }
 
     // MARK: - Dynamic Island Live Activity Header
@@ -174,6 +193,19 @@ public struct PipiIOSCompanionRootView: View {
                     } else {
                         PipiDotIndicator(vitality: .alive, color: PipiTokens.stateSuccess, size: 7)
                     }
+
+                    Button {
+                        showIntegrationsSheet = true
+                        triggerHaptic(.light)
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textInverse)
+                            .frame(width: 28, height: 28)
+                            .background(PipiTokens.soulPrimary.opacity(0.32))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, PipiTokens.spacing12)
             }
@@ -415,6 +447,72 @@ public struct PipiIOSCompanionRootView: View {
                     }
                 )
             }
+        }
+    }
+
+    // MARK: - Native iOS System Integrations Sheet
+
+    private var systemIntegrationsSheetContent: some View {
+        VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+            PipiListCard(
+                title: "Siri & iPhone Action Button (AppIntents)",
+                subtitle: "PipiApproveTopDecisionIntent, PipiTriggerNightlyDreamIntent, PipiAskHarnessIntent registered via PipiIOSShortcutsProvider.",
+                badgeText: "AppIntents",
+                badgeColor: PipiTokens.soulPrimary
+            )
+
+            PipiListCard(
+                title: "Lock-Screen UNTextInput Steer",
+                subtitle: "NEEDS_YOU_DECISION & EVOLUTION_DIGEST categories enable direct Approve, Steer (text input), and Reject from iOS lock screen.",
+                badgeText: "Notifications",
+                badgeColor: PipiTokens.stateWarning,
+                footer: {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        PipiActionButton("Arm Categories", systemImage: "bell.badge.fill", tone: .secondary, density: .mobile) {
+                            #if canImport(UserNotifications)
+                            Task {
+                                _ = await PipiIOSNotificationManager.requestAuthorizationIfNeeded()
+                                if let top = store.pendingDecisions.first {
+                                    await PipiIOSNotificationManager.scheduleNeedsYouNotification(for: top)
+                                }
+                                store.noticeBanner = "Lock-screen notification categories armed"
+                            }
+                            #endif
+                        }
+                    }
+                }
+            )
+
+            PipiListCard(
+                title: "Dynamic Island & Widget Snapshot Bridge",
+                subtitle: "Live Activity state: \(lastSnapshotSummary)",
+                badgeText: "ActivityKit Ready",
+                badgeColor: PipiTokens.stateSuccess,
+                footer: {
+                    PipiActionButton("Sync Snapshot Now", systemImage: "arrow.triangle.2.circlepath", tone: .primary, density: .mobile, fullWidth: true) {
+                        let snap = PipiIOSWidgetBridge.snapshot(from: store)
+                        try? PipiIOSWidgetBridge.saveSnapshot(snap)
+                        lastSnapshotSummary = "\(snap.avatarState.rawValue) · \(snap.pendingDecisionsCount) pending"
+                        triggerHaptic(.success)
+                    }
+                }
+            )
+
+            PipiListCard(
+                title: "pipibot:// Deep-Link & Tunnel Pairing",
+                subtitle: "Supports pipibot://pair?tunnel=..., pipibot://tab/needs-you, and pipibot://decision/<id>/approve.",
+                badgeText: "URL Scheme",
+                badgeColor: PipiTokens.soulSecondary,
+                footer: {
+                    PipiActionButton("Test Needs-You Deep Link", systemImage: "link", tone: .secondary, density: .mobile, fullWidth: true) {
+                        if let url = URL(string: "pipibot://tab/needs-you"),
+                           let action = PipiIOSDeepLinkRouter.parse(url) {
+                            PipiIOSDeepLinkRouter.apply(action, to: store, selectedTab: &selectedTab)
+                            showIntegrationsSheet = false
+                        }
+                    }
+                }
+            )
         }
     }
 

@@ -1,6 +1,9 @@
 import XCTest
 @testable import PipiBotKit
 @testable import PipiBotIOSUI
+#if canImport(UserNotifications)
+import UserNotifications
+#endif
 
 final class PipiBotKitTests: XCTestCase {
 
@@ -192,5 +195,71 @@ final class PipiBotKitTests: XCTestCase {
         )
         XCTAssertTrue(storeB.outcomes.contains(where: { $0.title == "All-in-One Persist Check" }))
         XCTAssertFalse(storeB.bridgeSupervisor.keepAwakeEnabled)
+    }
+
+    @MainActor
+    func testIOSSystemIntegrationDeepLinksAndLiveActivitySnapshot() throws {
+        // 1. Deep-link parser across all supported routes
+        XCTAssertNil(PipiIOSDeepLinkRouter.parse(URL(string: "https://example.com")!))
+        XCTAssertEqual(
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://pair?tunnel=https://mac-origin.pipibot.dev")!),
+            .pairTunnel(urlString: "https://mac-origin.pipibot.dev")
+        )
+        XCTAssertEqual(
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/outcomes")!),
+            .openTab(.outcomes)
+        )
+        XCTAssertEqual(
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/needs-you")!),
+            .openTab(.needsYou)
+        )
+        XCTAssertEqual(
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/muse")!),
+            .openTab(.muse)
+        )
+        XCTAssertEqual(
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/fleet")!),
+            .openTab(.fleetSoul)
+        )
+        XCTAssertEqual(
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://decision/dec_pr_142/approve")!),
+            .approveDecision(decisionId: "dec_pr_142")
+        )
+
+        // 2. Apply deep-link actions against store & active tab
+        let store = PipiAppStore(autoConnect: false)
+        var activeTab: PipiIOSTab = .outcomes
+
+        if let tabAction = PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/muse")!) {
+            PipiIOSDeepLinkRouter.apply(tabAction, to: store, selectedTab: &activeTab)
+            XCTAssertEqual(activeTab, .muse)
+        }
+        if let pairAction = PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://pair?tunnel=https://edge.pipibot.dev")!) {
+            PipiIOSDeepLinkRouter.apply(pairAction, to: store, selectedTab: &activeTab)
+            XCTAssertEqual(store.daemonEndpoint, "https://edge.pipibot.dev")
+        }
+        if let approveAction = PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://decision/dec_pr_142/approve")!) {
+            PipiIOSDeepLinkRouter.apply(approveAction, to: store, selectedTab: &activeTab)
+            XCTAssertEqual(activeTab, .needsYou)
+        }
+
+        // 3. Dynamic Island / Live Activity snapshot persistence round-trip
+        let snapshot = PipiIOSWidgetBridge.snapshot(from: store)
+        let snapUrl = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipibot-ios-snap-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: snapUrl) }
+
+        try PipiIOSWidgetBridge.saveSnapshot(snapshot, to: snapUrl)
+        let loaded = try XCTUnwrap(PipiIOSWidgetBridge.loadSnapshot(from: snapUrl))
+        XCTAssertEqual(loaded, snapshot)
+        XCTAssertEqual(loaded.pendingDecisionsCount, store.pendingDecisions.count)
+
+        // 4. Lock-screen notification categories (including UNTextInputNotificationAction)
+        #if canImport(UserNotifications)
+        let categories = PipiIOSNotificationManager.buildNotificationCategories()
+        XCTAssertEqual(categories.count, 2)
+        let needsYouCat = try XCTUnwrap(categories.first(where: { $0.identifier == PipiIOSNotificationManager.needsYouCategory }))
+        XCTAssertTrue(needsYouCat.actions.contains(where: { $0 is UNTextInputNotificationAction && $0.identifier == PipiIOSNotificationManager.steerActionId }))
+        #endif
     }
 }

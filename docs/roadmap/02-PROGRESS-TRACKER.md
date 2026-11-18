@@ -1,9 +1,9 @@
 # PipiBot 工程进度看板与架构决策记录 (Progress Tracker & ADRs)
 
-> **当前基线版本**: `v0.2.0-beta` (Wave 2 V1 全栈已验收 + Wave 3 All-in-One 原生 `PipiBot.app` 打包升级)
+> **当前基线版本**: `v0.2.0-beta` (Wave 2 V1 全栈 + Wave 3 All-in-One `PipiBot.app` + Wave 4 Native `PipiBotIOS.app` & PWA 双形态)
 > **最近更新**: `2026-11-19`
 > **开源仓库**: `https://github.com/JimiZhou/pipibot` (`main`)
-> **关联计划**: [全阶段工程开发计划 (`01-DEVELOPMENT-PLAN.md`)](./01-DEVELOPMENT-PLAN.md) · [Mac/iOS V1 实现规范 (`05-MAC-AND-IOS-V1-IMPLEMENTATION.md`)](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) · [Mac 原生应用功能指南 (`06-MAC-NATIVE-APP-GUIDE.md`)](../architecture/06-MAC-NATIVE-APP-GUIDE.md)
+> **关联计划**: [全阶段工程开发计划 (`01-DEVELOPMENT-PLAN.md`)](./01-DEVELOPMENT-PLAN.md) · [Mac/iOS V1 实现规范 (`05-MAC-AND-IOS-V1-IMPLEMENTATION.md`)](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) · [Mac 原生应用指南 (`06-MAC-NATIVE-APP-GUIDE.md`)](../architecture/06-MAC-NATIVE-APP-GUIDE.md) · [iOS 原生与 PWA 指南 (`07-IOS-APP-AND-PWA-GUIDE.md`)](../architecture/07-IOS-APP-AND-PWA-GUIDE.md)
 
 ---
 
@@ -14,7 +14,7 @@
 | **Phase 0** | 深度研究、系统架构、设计系统与核心脚手架 | `v0.1.0-alpha` | Baseline | `██████████` **100%** | ✅ 100% Verified (GitHub Initial Release) |
 | **Phase 1** | macOS 常驻守护进程、Pi SDK、多 Harness 适配器与 4 层 SQLite 记忆 | `v0.2.0-beta` | Weeks 1–2 | `███████░░░` **75%** | 🚧 Wave 2 Core Daemon Shipped (`@pipibot/daemon`) |
 | **Phase 2** | $0/月 Cloudflare 边缘隧道、Workers Relay、D1/R2 与 Zero Trust | `v0.3.0-beta` | Week 3 | `██░░░░░░░░` **20%** | 🚧 Edge Worker/D1 Schema Ready · Tunnel Wiring Next |
-| **Phase 3** | OpenPencil 5-Rule + All-in-One `PipiBot.app` (`⌥Space`) + iOS 原生 & PWA | `v0.2.0-beta` | Weeks 4–5 | `█████████░` **90%** | 🚧 Wave 3 All-in-One `PipiBot.app` (`npm run app:mac`) Added |
+| **Phase 3** | OpenPencil 5-Rule + All-in-One `PipiBot.app` + Native `PipiBotIOS.app` & PWA | `v0.2.0-beta` | Weeks 4–5 | `█████████░` **95%** | 🚧 Wave 3 Mac App & Wave 4 Native iOS App (`npm run app:ios`) Complete |
 | **Phase 4** | Devin Outcome Manager、自动评估循环与夜间自我进化/技能合成 | `v0.5.0-rc` | Week 6 | `███░░░░░░░` **30%** | 🚧 Evaluator & Dreaming APIs Live in Daemon |
 | **Phase 5** | `PipiFleet` 多节点扩展 (Linux VPS / Windows WSL2 / ESP32 & RPi IoT) | `v1.0.0` | Weeks 7–8 | `█░░░░░░░░░` **10%** | 📋 Protocol & Telemetry Matrix Defined |
 
@@ -80,6 +80,16 @@
 - **Epic W3.2 — 原生 `.app` Bundle 打包与架构文档**
   - [x] [`scripts/build-mac-app.sh`](../../scripts/build-mac-app.sh) & [`package.json`](../../package.json) — 新增 `npm run app:mac`，自动构建 Release `dist/PipiBot.app` 并执行签名
   - [x] [`docs/architecture/06-MAC-NATIVE-APP-GUIDE.md`](../architecture/06-MAC-NATIVE-APP-GUIDE.md) & [`05-MAC-AND-IOS-V1-IMPLEMENTATION.md`](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) — 详述 All-in-One `PipiBot.app` 架构、三大桌面入口、八大功能模块与打包运行指南
+
+### Wave 4 (`v0.2.0-beta` · Dual-Mode iOS): 原生系统应用 (`PipiBotIOS.app`) + 零安装 PWA (`apps/ios-web`)
+
+- **Epic W4.1 — iOS 系统级深度集成与独立原生 App (`PipiBotIOSApp`)**
+  - [x] [`apps/apple/Sources/PipiBotIOSUI/PipiIOSSystemIntegration.swift`](../../apps/apple/Sources/PipiBotIOSUI/PipiIOSSystemIntegration.swift) — Action Button & Siri `AppIntents` (`PipiIOSShortcutsProvider`)、锁屏 `UNTextInputNotificationAction` Steer 通知 (`PipiIOSNotificationManager`)、灵动岛/小组件快照桥接 (`PipiIOSLiveActivitySnapshot` / `PipiIOSWidgetBridge`) 与 `pipibot://` Tunnel 配对路由 (`PipiIOSDeepLinkRouter`)
+  - [x] [`apps/apple/Sources/PipiBotIOSUI/PipiIOSCompanionRootView.swift`](../../apps/apple/Sources/PipiBotIOSUI/PipiIOSCompanionRootView.swift) & [`apps/apple/Sources/PipiBotIOSApp/PipiBotIOSApp.swift`](../../apps/apple/Sources/PipiBotIOSApp/PipiBotIOSApp.swift) — 独立 `@main` 原生 iOS App，串联 `.onOpenURL`、`ScenePhase` 快照同步与 Native iOS System Integrations 检视抽屉
+  - [x] [`apps/apple/Package.swift`](../../apps/apple/Package.swift) & [`apps/apple/Tests/PipiBotKitTests/PipiBotKitTests.swift`](../../apps/apple/Tests/PipiBotKitTests/PipiBotKitTests.swift) — 新增 `PipiBotIOSApp` 可执行目标与深链/灵动岛快照集成单测
+- **Epic W4.2 — iOS `.app` Bundle 打包与双形态指南**
+  - [x] [`scripts/build-ios-app.sh`](../../scripts/build-ios-app.sh) & [`package.json`](../../package.json) — 新增 `npm run app:ios`，经由 `xcodebuild` 编译 iOS Simulator `arm64` 二进制并生成 `dist/PipiBotIOS.app`（`NSSupportsLiveActivities`、`pipibot://` URL Scheme、`plutil` + `codesign` 校验）
+  - [x] [`docs/architecture/07-IOS-APP-AND-PWA-GUIDE.md`](../architecture/07-IOS-APP-AND-PWA-GUIDE.md) & [`05-MAC-AND-IOS-V1-IMPLEMENTATION.md`](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) — 详述 Native `PipiBotIOS.app` 与 Zero-Install PWA 双形态架构、系统集成及运行指南
 
 ### Phase 1–5: Remaining Backlog
 
@@ -180,6 +190,7 @@
 ## 4. 变更日志 (Changelog)
 
 ### `v0.2.0-beta` (2026-11-19) — V1 Mac Daemon, Native Swift 6 Mac/iOS, Live iOS PWA & OpenPencil Design Governance (Verified)
+- **Dual-Mode Native iOS (`PipiBotIOS.app`) + Zero-Install PWA (Wave 4)**: 新增原生 iOS 可执行目标 `PipiBotIOSApp`、系统级集成 `PipiIOSSystemIntegration.swift`（Action Button/Siri `AppIntents`、锁屏 `UNTextInput` Steer 通知、灵动岛/小组件快照、`pipibot://` 深链）、`scripts/build-ios-app.sh` (`npm run app:ios` -> `dist/PipiBotIOS.app`) 与 [`07-IOS-APP-AND-PWA-GUIDE.md`](../architecture/07-IOS-APP-AND-PWA-GUIDE.md)。
 - **All-in-One Native `PipiBot.app` (Wave 3)**: 升级 `PipiBotMacApp` 为完全独立的原生桌面应用（内置 `PipiNativeMacRuntime` 与按需自动托管的 `PipiEmbeddedBridgeSupervisor`），新增 `scripts/build-mac-app.sh`、`npm run app:mac` 及 [`06-MAC-NATIVE-APP-GUIDE.md`](../architecture/06-MAC-NATIVE-APP-GUIDE.md)。
 - **OpenPencil v2.21 Scene-Graph**: 为 [`design-system/pipibot.pen`](../../design-system/pipibot.pen) 补齐 `@open-pencil/pen` v2.21 原生 `variables` 与 `children` 场景图并在 `audit-design-system.mjs` 纳入校验。
 - **Wave 2 Release Gate**: 完成 OpenPencil 五规则审计 (`scripts/audit-design-system.mjs`)、`npm run verify`（含 `@pipibot/daemon` 10/10 测试）、Swift 6 macOS 构建与测试 (`swift test` 7/7) 及 `PipiBotIOSUI` iOS Simulator 构建全量通过。

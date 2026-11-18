@@ -19,6 +19,10 @@ let package = Package(
         .executable(
             name: "PipiBotMacApp",
             targets: ["PipiBotMacApp"]
+        ),
+        .executable(
+            name: "PipiBotIOSApp",
+            targets: ["PipiBotIOSApp"]
         )
     ],
     targets: [
@@ -31,6 +35,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "PipiBotMacApp",
+            dependencies: ["PipiBotKit", "PipiBotIOSUI"]
+        ),
+        .executableTarget(
+            name: "PipiBotIOSApp",
             dependencies: ["PipiBotKit", "PipiBotIOSUI"]
         ),
         .testTarget(

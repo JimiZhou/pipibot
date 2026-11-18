@@ -96,36 +96,46 @@ flowchart TB
 
 ---
 
-## Quickstart: V1 Mac Resident Daemon, Native Apple Swift 6 & Live iOS Companion
+## Quickstart: All-in-One Native `PipiBot.app`, Swift 6 iOS UI & Headless Daemon
 
-> **Release Status (`v0.2.0-beta`)**: Wave 2 ships the runnable V1 stack — `@pipibot/daemon` HTTP REST + 250ms SSE resident server, Native Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp`), Live iOS Companion PWA (`apps/ios-web`), OpenPencil `pipibot.pen` + 5-rule design audit (`scripts/audit-design-system.mjs`), and Stageshow craft integration (`.agents/skills/stageshow`).
+> **Release Status (`v0.2.0-beta`)**: Ships the **All-in-One Standalone Native macOS App (`dist/PipiBot.app`)** with built-in `PipiNativeMacRuntime` & `PipiEmbeddedBridgeSupervisor` (zero manual terminal daemon required!), Native Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp`), Live iOS Companion PWA (`apps/ios-web`), headless `@pipibot/daemon`, OpenPencil `pipibot.pen` + 5-rule design audit, and Stageshow craft (`.agents/skills/stageshow`).
 
-### 1. Run the V1 Mac Resident Daemon & Live iOS Companion PWA
+### 1. Build & Launch the All-in-One Native macOS App (`PipiBot.app`)
 
-Requires **Node.js `>= 22.6.0`** (zero third-party npm dependencies required):
+One native app bundle handles everything on macOS — MenuBar living avatar, `⌥Space` Manus Cue floating pill, 8-module Outcome Studio, live harness/hardware/frontmost-app probing, Keep-Awake, local persistence (`~/Library/Application Support/PipiBot/resident-state.json`), and automatic embedded HTTP/SSE bridge supervision for iOS:
 
 ```bash
 git clone https://github.com/JimiZhou/pipibot.git
 cd pipibot
 
-# Start @pipibot/daemon (REST + 250ms SSE + static host on http://127.0.0.1:4242)
+# Build self-contained dist/PipiBot.app (Swift 6 Release + ad-hoc codesign)
+npm run app:mac
+
+# Launch PipiBot.app directly (no manual terminal daemon needed!)
+open dist/PipiBot.app
+```
+
+See the full walkthrough in [`06-MAC-NATIVE-APP-GUIDE.md`](docs/architecture/06-MAC-NATIVE-APP-GUIDE.md).
+
+### 2. Optional: Headless Daemon & Live iOS Companion PWA (`/ios`)
+
+For headless servers, Linux VPS nodes, or standalone browser testing without opening the macOS GUI (**Node.js `>= 22.6.0`**, zero third-party npm dependencies):
+
+```bash
+# Start standalone @pipibot/daemon (REST + 250ms SSE + static host on http://127.0.0.1:4242)
 npm run start:daemon
 ```
 
-Once running, open:
+Once running (either standalone or auto-supervised by `PipiBot.app`), open:
 - **Live iOS Companion PWA**: **`http://127.0.0.1:4242/ios`** (Dynamic Island 120Hz `PipiAvatar`, Devin Outcomes, "Needs You" swipe deck, Muse spatial chat across `Pi` / `Claude Code` / `Codex` / `OpenCode` / `BYOK`, Dots Fleet matrix, and 4-Tier Memory Evolution Diff review).
 - **Design System & Avatar Workbench**: **`http://127.0.0.1:4242/design-system/`** (or static zero-build preview via `npm run preview:design` -> `http://127.0.0.1:8080/design-system/`).
 
-### 2. Build & Test Native Swift 6 Mac / iOS Apps (`apps/apple`)
+### 3. Swift 6 Tests, OpenPencil 5-Rule Audit & Full Verification Suite
 
 ```bash
-# Compiles PipiBotKit, PipiBotIOSUI, PipiBotMacApp and runs PipiBotKitTests (macOS 14+ / Swift 6.0)
+# Compile PipiBotKit, PipiBotIOSUI, PipiBotMacApp and run PipiBotKitTests (macOS 14+ / Swift 6.0)
 npm run build:apple && npm run test:apple
-```
 
-### 3. Run OpenPencil Design Governance Audit & Full Verification Suite
-
-```bash
 # Audit OpenPencil pipibot.pen, design-system.md, apps/ios-web/styles.css & SwiftUI views
 npm run audit:design
 
@@ -149,7 +159,8 @@ pipibot/
 ├── .agents/
 │   └── skills/stageshow/                      # Stageshow visual craft skill (device-pair, dynamic-island)
 ├── scripts/
-│   └── audit-design-system.mjs                # Automated OpenPencil 5-rule & zero-raw-hex audit
+│   ├── audit-design-system.mjs                # Automated OpenPencil 5-rule & zero-raw-hex audit
+│   └── build-mac-app.sh                       # Builds & signs All-in-One dist/PipiBot.app bundle
 ├── design-system/
 │   ├── design-system.md                       # Persistent AI design memory (Rule + Reason + Date)
 │   ├── pipibot.pen                            # OpenPencil JSON (3-tier tokens, 6 blocks, 12 screens)
@@ -160,10 +171,10 @@ pipibot/
 ├── apps/
 │   ├── apple/                                 # Swift 6 Package (macOS 14+ & iOS 17+)
 │   │   ├── Package.swift                      # PipiBotKit, PipiBotIOSUI, PipiBotMacApp, PipiBotKitTests
-│   │   ├── Sources/PipiBotKit/                # ProtocolModels, DesignTokens, CanonicalBlocks, Avatar, Client
+│   │   ├── Sources/PipiBotKit/                # ProtocolModels, DesignTokens, CanonicalBlocks, Avatar, PipiNativeMacRuntime, Client
 │   │   ├── Sources/PipiBotIOSUI/              # iOS Root, NeedsYouSwipeDeck, MuseCanvas, DotsFleet
-│   │   ├── Sources/PipiBotMacApp/             # MenuBarExtra, ManusCueFloatingPanel, MacOutcomeStudioView
-│   │   └── Tests/PipiBotKitTests/             # Swift 6 procedural avatar & protocol test suite
+│   │   ├── Sources/PipiBotMacApp/             # All-in-One PipiBot.app (MenuBarExtra, ManusCueFloatingPanel, 8-Module Studio)
+│   │   └── Tests/PipiBotKitTests/             # Swift 6 procedural avatar, protocol & native runtime test suite
 │   └── ios-web/                               # Live iOS Companion PWA (served at /ios by daemon)
 │       ├── index.html
 │       ├── styles.css                         # 100% bound to design-system/tokens.css (0 raw hex)
@@ -175,7 +186,8 @@ pipibot/
 │   │   ├── 02-SYSTEM-ARCHITECTURE-AND-HARNESS.md # Pi core, multi-harness router & outcome engine
 │   │   ├── 03-CLOUDFLARE-AND-FLEET-INFRA.md   # $0/mo Cloudflare stack & PipiFleet topology
 │   │   ├── 04-MEMORY-AND-SELF-EVOLUTION.md    # 4-tier cognitive memory & nightly skill synthesis
-│   │   └── 05-MAC-AND-IOS-V1-IMPLEMENTATION.md # V1 Mac Daemon, Swift 6 Apple apps, PWA & OpenPencil spec
+│   │   ├── 05-MAC-AND-IOS-V1-IMPLEMENTATION.md # V1 Mac/iOS stack, Swift 6, PWA & OpenPencil spec
+│   │   └── 06-MAC-NATIVE-APP-GUIDE.md         # All-in-One PipiBot.app architecture, 8 modules & build guide
 │   ├── design-system/
 │   │   └── 01-UIUX-DESIGN-SYSTEM.md           # Ambient Soul & Outcome Studio design specification
 │   └── roadmap/
@@ -213,6 +225,7 @@ pipibot/
 | [03-CLOUDFLARE-AND-FLEET-INFRA.md](docs/architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md) | Mac Resident + iOS Companion, $0/mo Cloudflare Free-Tier stack (`cloudflared`, Workers, D1, R2, KV, Access), quota budget & `PipiFleet` nodes | 中文 + EN Terms |
 | [04-MEMORY-AND-SELF-EVOLUTION.md](docs/architecture/04-MEMORY-AND-SELF-EVOLUTION.md) | 4-Tier Memory (`L0–L3`), SQLite FTS5 + `sqlite-vec`, salience scoring, temporal superseding, Nightly Dreaming & `SOUL.md`/`USER.md`/Pi Skill synthesis | 中文 + EN Terms |
 | [05-MAC-AND-IOS-V1-IMPLEMENTATION.md](docs/architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) | V1 implementation spec: OpenPencil 5-Rule Governance, Stageshow craft, `@pipibot/daemon` REST/SSE, Swift 6 `apps/apple` & Live PWA `apps/ios-web` | 中文 + EN Terms |
+| [06-MAC-NATIVE-APP-GUIDE.md](docs/architecture/06-MAC-NATIVE-APP-GUIDE.md) | All-in-One `PipiBot.app` guide: `PipiNativeMacRuntime`, `PipiEmbeddedBridgeSupervisor`, 3 desktop surfaces, 8 modules & `npm run app:mac` packaging | 中文 + EN Terms |
 | [01-UIUX-DESIGN-SYSTEM.md](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) | "Ambient Soul & Outcome Studio" tokens, `PipiAvatar` 192-ray / Rodrigues 3D / 53-state spec, OpenPencil 5-Rule & Stageshow specs | 中文 + EN Terms |
 | [design-system.md](design-system/design-system.md) | Persistent AI design memory recording 3-tier token, geometry, 6 Canonical Named Blocks & Stageshow rules (Rule + Reason + Date) | English |
 | [01-DEVELOPMENT-PLAN.md](docs/roadmap/01-DEVELOPMENT-PLAN.md) | Phase 0–5 engineering WBS, verification test suites, non-functional targets (`<15MB` node RAM, `120fps <1% CPU`, `$0/mo`), risk mitigation matrix | 中文 + EN Terms |

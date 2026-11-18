@@ -2,8 +2,8 @@ import Foundation
 import Observation
 
 public enum PipiConnectionMode: String, Sendable {
-    case liveDaemon = "Live Mac Daemon"
-    case offlineDemo = "Offline Seed Studio"
+    case liveDaemon = "Embedded Bridge Live"
+    case nativeResident = "Native All-in-One"
 }
 
 @MainActor
@@ -11,9 +11,13 @@ public enum PipiConnectionMode: String, Sendable {
 public final class PipiAppStore {
     public let avatarEngine: PipiProceduralAvatarEngine
     public let client: PipiDaemonClient
+    public let bridgeSupervisor: PipiEmbeddedBridgeSupervisor
+    public let enableNativeRuntime: Bool
+    public let enableEmbeddedBridge: Bool
+    private let persistenceUrl: URL?
 
     public var themeMode: PipiThemeMode = .dark
-    public var connectionMode: PipiConnectionMode = .offlineDemo
+    public var connectionMode: PipiConnectionMode = .nativeResident
     public var daemonEndpoint: String = "http://127.0.0.1:4242"
 
     public var daemonVersion: String = "0.2.0-beta"
@@ -40,10 +44,17 @@ public final class PipiAppStore {
 
     public init(
         baseUrl: String = "http://127.0.0.1:4242",
-        autoConnect: Bool = false
+        autoConnect: Bool = false,
+        enableNativeRuntime: Bool = false,
+        enableEmbeddedBridge: Bool = false,
+        stateFileUrl: URL? = nil
     ) {
         self.daemonEndpoint = baseUrl
         self.client = PipiDaemonClient(baseUrlString: baseUrl)
+        self.bridgeSupervisor = PipiEmbeddedBridgeSupervisor()
+        self.enableNativeRuntime = enableNativeRuntime
+        self.enableEmbeddedBridge = enableEmbeddedBridge
+        self.persistenceUrl = stateFileUrl
         self.avatarEngine = PipiProceduralAvatarEngine(initialState: .idle)
 
         let seeded = Self.buildOfflineSeed()
@@ -62,9 +73,68 @@ public final class PipiAppStore {
         self.lastDigest = seeded.digest
         self.soulPreview = seeded.soul
 
+        if enableNativeRuntime || stateFileUrl != nil {
+            self.loadResidentState()
+        }
+        if enableNativeRuntime {
+            self.refreshNativeRuntimeSnapshot()
+            self.noticeBanner = "Native All-in-One Mac runtime ready"
+        }
+
         if autoConnect {
             startLiveSync()
         }
+    }
+
+    public func refreshNativeRuntimeSnapshot() {
+        let probes = PipiNativeMacRuntime.probeInstalledHarnesses()
+        self.harnessProbes = probes
+
+        let activeCount = self.subSessions.filter { $0.status == .running || $0.status == .waitingTool }.count
+        let liveMacNode = PipiNativeMacRuntime.sampleHostTelemetry(activeSessionsCount: activeCount)
+        if let idx = self.fleetNodes.firstIndex(where: { $0.nodeId == "mac-resident" }) {
+            self.fleetNodes[idx] = liveMacNode
+        } else {
+            self.fleetNodes.insert(liveMacNode, at: 0)
+        }
+
+        self.latestCue = PipiNativeMacRuntime.detectFrontmostAppContext()
+    }
+
+    public func setKeepAwake(_ enabled: Bool) {
+        bridgeSupervisor.setKeepAwake(enabled)
+        noticeBanner = enabled
+            ? "Always-On Keep-Awake enabled (system idle sleep prevented)"
+            : "Always-On Keep-Awake disabled"
+        saveResidentState()
+    }
+
+    public func saveResidentState() {
+        guard enableNativeRuntime || persistenceUrl != nil else { return }
+        let targetUrl = persistenceUrl ?? PipiNativeMacRuntime.stateFileUrl()
+        let snapshot = PipiResidentPersistedState(
+            outcomes: outcomes,
+            decisions: decisions,
+            museCards: museCards,
+            activeHarness: activeHarness,
+            themeModeRaw: themeMode.rawValue,
+            keepAwakeEnabled: bridgeSupervisor.keepAwakeEnabled,
+            updatedAt: ISO8601DateFormatter().string(from: Date())
+        )
+        PipiNativeMacRuntime.saveResidentState(snapshot, to: targetUrl)
+    }
+
+    public func loadResidentState() {
+        let targetUrl = persistenceUrl ?? PipiNativeMacRuntime.stateFileUrl()
+        guard let saved = PipiNativeMacRuntime.loadResidentState(from: targetUrl) else { return }
+        if !saved.outcomes.isEmpty { self.outcomes = saved.outcomes }
+        if !saved.decisions.isEmpty { self.decisions = saved.decisions }
+        if !saved.museCards.isEmpty { self.museCards = saved.museCards }
+        self.activeHarness = saved.activeHarness
+        if let mode = PipiThemeMode(rawValue: saved.themeModeRaw) {
+            self.themeMode = mode
+        }
+        bridgeSupervisor.setKeepAwake(saved.keepAwakeEnabled)
     }
 
     public var pendingDecisions: [NeedsYouDecision] {
@@ -79,6 +149,9 @@ public final class PipiAppStore {
         sseTask?.cancel()
         sseTask = Task { [weak self] in
             guard let self else { return }
+            if self.enableEmbeddedBridge {
+                await self.bridgeSupervisor.ensureBridgeRunning()
+            }
             await self.refreshAllFromDaemon()
             await self.listenSseLoop()
         }
@@ -87,6 +160,10 @@ public final class PipiAppStore {
     public func stopLiveSync() {
         sseTask?.cancel()
         sseTask = nil
+        if enableEmbeddedBridge {
+            bridgeSupervisor.stopBridge()
+        }
+        saveResidentState()
     }
 
     public func refreshAllFromDaemon() async {
@@ -110,7 +187,7 @@ public final class PipiAppStore {
 
             self.connectionMode = .liveDaemon
             self.daemonVersion = status.version
-            self.harnessProbes = status.harnesses
+            self.harnessProbes = enableNativeRuntime ? PipiNativeMacRuntime.probeInstalledHarnesses() : status.harnesses
             self.tunnelStatus = status.cloudflare
             self.understandingScore = status.understandingScore
             self.avatarEngine.setState(status.avatarState)
@@ -121,14 +198,26 @@ public final class PipiAppStore {
                 self.latestCue = latest
             }
             self.fleetNodes = fleetEnv.nodes
+            if enableNativeRuntime {
+                let activeCount = self.subSessions.filter { $0.status == .running || $0.status == .waitingTool }.count
+                let liveMac = PipiNativeMacRuntime.sampleHostTelemetry(activeSessionsCount: activeCount)
+                if let idx = self.fleetNodes.firstIndex(where: { $0.nodeId == "mac-resident" }) {
+                    self.fleetNodes[idx] = liveMac
+                }
+            }
             self.episodicMemories = memoryEnv.episodic
             self.synthesizedSkills = memoryEnv.skills
             self.lastDigest = memoryEnv.lastDigest ?? self.lastDigest
             self.soulPreview = soulEnv
-            self.noticeBanner = "Synced live with macOS daemon on \(daemonEndpoint)"
+            self.noticeBanner = "All-in-One Mac active · HTTP/SSE bridge synced on :4242"
         } catch {
-            self.connectionMode = .offlineDemo
-            self.noticeBanner = "Standalone demo mode active (daemon offline)"
+            self.connectionMode = .nativeResident
+            if enableNativeRuntime {
+                refreshNativeRuntimeSnapshot()
+                self.noticeBanner = "All-in-One native Mac runtime active"
+            } else {
+                self.noticeBanner = "Standalone native studio ready"
+            }
         }
     }
 
@@ -141,10 +230,17 @@ public final class PipiAppStore {
                 }
             } catch {
                 if connectionMode == .liveDaemon {
-                    connectionMode = .offlineDemo
+                    connectionMode = .nativeResident
                 }
             }
-            try? await Task.sleep(for: .seconds(3))
+            if enableNativeRuntime {
+                let activeCount = subSessions.filter { $0.status == .running || $0.status == .waitingTool }.count
+                let liveMac = PipiNativeMacRuntime.sampleHostTelemetry(activeSessionsCount: activeCount)
+                if let idx = fleetNodes.firstIndex(where: { $0.nodeId == "mac-resident" }) {
+                    fleetNodes[idx] = liveMac
+                }
+            }
+            try? await Task.sleep(for: .seconds(5))
         }
     }
 
@@ -242,6 +338,7 @@ public final class PipiAppStore {
         outcomes.insert(localOutcome, at: 0)
         avatarEngine.setState(.planStructuring)
         noticeBanner = "Created Outcome: \(trimmedTitle)"
+        saveResidentState()
     }
 
     public func evaluateOutcome(_ outcomeId: String) async {
@@ -310,6 +407,7 @@ public final class PipiAppStore {
         decisions[idx].resolvedAt = nowIso
         avatarEngine.setState(optionId.contains("reject") ? .thinking : .gitCommitting)
         noticeBanner = "Resolved: \(decisions[idx].title)"
+        saveResidentState()
     }
 
     public func executeCueAction(_ action: CueAction) async {
@@ -335,14 +433,32 @@ public final class PipiAppStore {
         noticeBanner = "Executed \(action.label)"
     }
 
-    public func refreshCueContext(appName: String = "Xcode", windowTitle: String = "PipiBotApple — Package.swift", gitBranch: String = "main") async {
+    public func refreshCueContext(appName: String? = nil, windowTitle: String? = nil, gitBranch: String? = nil) async {
         avatarEngine.setState(.cueWindowMatched)
+        if enableNativeRuntime && appName == nil {
+            let detected = PipiNativeMacRuntime.detectFrontmostAppContext()
+            latestCue = detected
+            if connectionMode == .liveDaemon {
+                if let res = try? await client.refreshCue(
+                    activeAppName: detected.activeAppName,
+                    windowTitle: detected.windowTitle,
+                    workspacePath: detected.workspacePath,
+                    gitBranch: detected.gitBranch
+                ) {
+                    latestCue = res.cue
+                }
+            }
+            return
+        }
+        let targetApp = appName ?? "Xcode"
+        let targetWindow = windowTitle ?? "PipiBotApple — Package.swift"
+        let targetBranch = gitBranch ?? "main"
         if connectionMode == .liveDaemon {
             if let res = try? await client.refreshCue(
-                activeAppName: appName,
-                windowTitle: windowTitle,
-                workspacePath: "/Users/jimizhou/Desktop/Projects/pipibot",
-                gitBranch: gitBranch
+                activeAppName: targetApp,
+                windowTitle: targetWindow,
+                workspacePath: PipiNativeMacRuntime.discoverRepoRoot() ?? "/Users/jimizhou/Desktop/Projects/pipibot",
+                gitBranch: targetBranch
             ) {
                 latestCue = res.cue
                 return
@@ -352,11 +468,11 @@ public final class PipiAppStore {
         latestCue = CueSuggestion(
             id: "cue_\(UUID().uuidString.prefix(8).lowercased())",
             nodeId: "mac-resident",
-            activeAppName: appName,
+            activeAppName: targetApp,
             activeAppBundleId: "com.apple.dt.Xcode",
-            windowTitle: windowTitle,
-            workspacePath: "/Users/jimizhou/Desktop/Projects/pipibot",
-            gitBranch: gitBranch,
+            windowTitle: targetWindow,
+            workspacePath: PipiNativeMacRuntime.discoverRepoRoot() ?? "/Users/jimizhou/Desktop/Projects/pipibot",
+            gitBranch: targetBranch,
             detectedIntent: "Review Swift 6 package diagnostics and run PipiBotKitTests",
             confidence: 0.94,
             actions: [
@@ -411,6 +527,7 @@ public final class PipiAppStore {
         museCards.insert(card, at: 0)
         avatarEngine.setState(.voiceInterrupted)
         noticeBanner = "Added Muse card: \(trimmedTitle)"
+        saveResidentState()
     }
 
     public func moveMuseCard(id: String, x: Double, y: Double) {

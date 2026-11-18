@@ -137,4 +137,60 @@ final class PipiBotKitTests: XCTestCase {
         XCTAssertEqual(decoded.tunnelUrl, store.tunnelStatus.tunnelUrl)
         XCTAssertEqual(decoded.freeTierQuota.monthlyCostUsd, 0.0)
     }
+
+    @MainActor
+    func testNativeMacRuntimeProbesTelemetryCueAndPersistence() async throws {
+        // 1. Harness binary probing across macOS search paths
+        let probes = PipiNativeMacRuntime.probeInstalledHarnesses()
+        XCTAssertEqual(probes.count, 5)
+        XCTAssertTrue(probes.contains(where: { $0.provider == .pi && $0.installed }))
+        XCTAssertTrue(probes.contains(where: { $0.provider == .byok }))
+
+        // 2. Host telemetry reading live OS metrics
+        let host = PipiNativeMacRuntime.sampleHostTelemetry(activeSessionsCount: 2)
+        XCTAssertEqual(host.nodeId, "mac-resident")
+        XCTAssertEqual(host.kind, .mac)
+        XCTAssertEqual(host.vitality, .busy)
+        XCTAssertGreaterThan(host.cpuLoadPct, 0.0)
+        XCTAssertGreaterThan(host.memoryUsedPct, 0.0)
+
+        // 3. Frontmost app & git branch Cue detection
+        let cue = PipiNativeMacRuntime.detectFrontmostAppContext(
+            workspacePath: "/Users/jimizhou/Desktop/Projects/pipibot"
+        )
+        XCTAssertFalse(cue.activeAppName.isEmpty)
+        XCTAssertEqual(cue.actions.count, 3)
+
+        // 4. All-in-one persistence round-trip in isolated temp file
+        let tempUrl = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipibot-test-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempUrl) }
+
+        let storeA = PipiAppStore(
+            autoConnect: false,
+            enableNativeRuntime: true,
+            enableEmbeddedBridge: false,
+            stateFileUrl: tempUrl
+        )
+        XCTAssertEqual(storeA.connectionMode, .nativeResident)
+        await storeA.createOutcome(
+            title: "All-in-One Persist Check",
+            domain: .work,
+            goal: "Verify resident-state.json reloads across restarts",
+            preferredHarness: .claudeCode,
+            dailyBudgetUsd: 1.5
+        )
+        storeA.setKeepAwake(true)
+        XCTAssertTrue(storeA.bridgeSupervisor.keepAwakeEnabled)
+        storeA.setKeepAwake(false)
+
+        let storeB = PipiAppStore(
+            autoConnect: false,
+            enableNativeRuntime: true,
+            enableEmbeddedBridge: false,
+            stateFileUrl: tempUrl
+        )
+        XCTAssertTrue(storeB.outcomes.contains(where: { $0.title == "All-in-One Persist Check" }))
+        XCTAssertFalse(storeB.bridgeSupervisor.keepAwakeEnabled)
+    }
 }

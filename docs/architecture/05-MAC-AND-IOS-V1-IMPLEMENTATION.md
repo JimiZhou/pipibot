@@ -1,13 +1,13 @@
 # 05 · V1 macOS 常驻宿主、iOS 原生/PWA 伴侣与 OpenPencil 设计治理实现规范 (`v0.2.0-beta`)
 
-> **版本基线**: `v0.2.0-beta` (Wave 2 V1 可运行栈交付)
-> **前置架构**: [01 产品愿景](./01-PRODUCT-VISION-AND-RESEARCH.md) · [02 系统架构与 Harness](./02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) · [03 Cloudflare 免费层与 Fleet](./03-CLOUDFLARE-AND-FLEET-INFRA.md) · [04 记忆与自我进化](./04-MEMORY-AND-SELF-EVOLUTION.md) · [UI/UX 设计系统](../design-system/01-UIUX-DESIGN-SYSTEM.md)
+> **版本基线**: `v0.2.0-beta` (Wave 2 V1 可运行栈 + Wave 3 All-in-One 原生 `PipiBot.app` 打包升级)
+> **前置与关联文档**: [01 产品愿景](./01-PRODUCT-VISION-AND-RESEARCH.md) · [02 系统架构与 Harness](./02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) · [03 Cloudflare 免费层与 Fleet](./03-CLOUDFLARE-AND-FLEET-INFRA.md) · [04 记忆与自我进化](./04-MEMORY-AND-SELF-EVOLUTION.md) · [06 Mac 原生应用功能指南](./06-MAC-NATIVE-APP-GUIDE.md) · [UI/UX 设计系统](../design-system/01-UIUX-DESIGN-SYSTEM.md)
 
 ---
 
 ## 1. V1 实现全景拓扑 (V1 Implementation Topology)
 
-在 Phase 0（`v0.1.0-alpha`）完成协议与交互工作台验证的基础上，`v0.2.0-beta` 交付完整的 **V1 可运行闭环**：以 **OpenPencil 5-Rule 设计治理 + Stageshow** 作为跨 Web/Swift 视觉唯一权威源，以 **`@pipibot/daemon` (`packages/daemon`)** 作为零外部运行时依赖的 macOS 常驻中枢，同时向上游提供 **Native Swift 6 (`apps/apple`)** 与 **Live iOS Companion PWA (`apps/ios-web`)** 双端前端体验。
+在 Phase 0（`v0.1.0-alpha`）完成协议与交互工作台验证的基础上，`v0.2.0-beta` 交付完整的 **V1 可运行闭环**：以 **OpenPencil 5-Rule 设计治理 + Stageshow** 作为跨 Web/Swift 视觉唯一权威源，在 macOS 桌面端通过 **All-in-One 原生 `PipiBot.app`**（内置 `PipiNativeMacRuntime` + 自动托管 `PipiEmbeddedBridgeSupervisor`）开箱即用运行，并按需桥接 **Native Swift 6 iOS UI (`PipiBotIOSUI`)**、**Live iOS Companion PWA (`apps/ios-web`)** 及 Headless/VPS 场景下的独立 **`@pipibot/daemon` (`packages/daemon`)**。
 
 ```mermaid
 flowchart TB
@@ -93,9 +93,11 @@ flowchart TB
 
 ---
 
-## 3. `@pipibot/daemon` (`packages/daemon`): macOS 常驻宿主守护进程
+## 3. `@pipibot/daemon` (`packages/daemon`): Headless 常驻服务与可托管 iOS/Cloudflare 桥接
 
 [`packages/daemon`](../../packages/daemon/package.json) 零第三方 npm 运行时依赖，完全基于 Node.js `>=22.6.0` 原生 `--experimental-strip-types` 与 `node:http` 构建，与 `@pipibot/protocol` 和 `@pipibot/core` 实时联动。
+
+> **桌面端与 Headless 分工**：macOS 桌面用户只需启动 All-in-One 原生 **`PipiBot.app`**（详见 [06-MAC-NATIVE-APP-GUIDE.md](./06-MAC-NATIVE-APP-GUIDE.md)），无需手动开终端运行 Daemon——App 内建 `PipiNativeMacRuntime` 与按需自拉起的 `PipiEmbeddedBridgeSupervisor`。独立运行 `@pipibot/daemon`（`npm run start:daemon`）主要用于无 GUI Headless 服务器 / Linux VPS、纯 CLI 调试或浏览器独立访问 `/ios`。
 
 ### 3.1 核心运行时组件
 
@@ -138,10 +140,10 @@ flowchart TB
 
 | Target | 类型 | 源码路径 | 核心职责 |
 | :--- | :--- | :--- | :--- |
-| **`PipiBotKit`** | Library | `apps/apple/Sources/PipiBotKit/` | **跨 Apple 平台核心套件**：<br/>• `ProtocolModels.swift`: 与 `@pipibot/protocol` 1:1 对齐，涵盖全部 53 个 kebab-case `AvatarState53`（10+11+14+10+8）、9 种 `AvatarExpression9` 与 8 种形体。<br/>• `DesignTokens.swift`: 三层设计 Token 实现，**全工程唯一允许存在颜色字面量的文件**。<br/>• `CanonicalBlocks.swift`: `PipiListCard`、`PipiSheet`、`PipiFormSheet`、`PipiDock`、`PipiBottomBar`、`PipiEmptyState`。<br/>• `PipiProceduralAvatarEngine.swift` & `PipiAvatarView.swift`: SwiftUI `Canvas` 120Hz 192 射线轮廓插值 + 6 轨道关键帧 + Euler 弹簧 + Rodrigues 3D 眼球投影 + `0.26s` 眨眼。<br/>• `PipiDaemonClient.swift` & `PipiAppStore.swift`: `URLSession` REST + SSE 客户端，断连时无缝降级为内置富演示种子数据。 |
+| **`PipiBotKit`** | Library | `apps/apple/Sources/PipiBotKit/` | **跨 Apple 平台核心套件**：<br/>• `Models/ProtocolModels.swift`: 与 `@pipibot/protocol` 1:1 对齐，涵盖全部 53 个 kebab-case `AvatarState53`（10+11+14+10+8）、9 种 `AvatarExpression9` 与 8 种形体。<br/>• `DesignSystem/DesignTokens.swift`: 三层设计 Token 实现，**全工程唯一允许存在颜色字面量的文件**。<br/>• `DesignSystem/CanonicalBlocks.swift`: `PipiListCard`、`PipiSheet`、`PipiFormSheet`、`PipiDock`、`PipiBottomBar`、`PipiEmptyState`。<br/>• `Avatar/PipiProceduralAvatarEngine.swift` & `PipiAvatarView.swift`: SwiftUI `Canvas` 120Hz 192 射线轮廓插值 + 6 轨道关键帧 + Euler 弹簧 + Rodrigues 3D 眼球投影 + `0.26s` 眨眼。<br/>• `Runtime/PipiNativeMacRuntime.swift`: 原生内置运行时（`probeInstalledHarnesses`、`sampleHostTelemetry`、`detectFrontmostAppContext`、`~/Library/Application Support/PipiBot/resident-state.json` 持久化、Keep-Awake `ProcessInfo.beginActivity`）与 `PipiEmbeddedBridgeSupervisor` 自动桥接托管。<br/>• `Networking/PipiDaemonClient.swift` & `State/PipiAppStore.swift`: `URLSession` REST + SSE 客户端与 Native All-in-One 状态管理。 |
 | **`PipiBotIOSUI`** | Library | `apps/apple/Sources/PipiBotIOSUI/` | **跨 macOS 预览与 iOS 运行的原生伴侣 UI**：<br/>• `PipiIOSCompanionRootView.swift`: 四栏主控导航与灵动岛级顶部 Avatar 锚点。<br/>• `NeedsYouSwipeDeckView.swift`: Devin 风格左滑/右滑卡片审批栈（含 R2 对比证据）。<br/>• `MuseSpatialCanvasView.swift`: Muse 自由空间卡片与语音打断控制。<br/>• `DotsFleetAndTunnelView.swift`: Dots 五端节点矩阵与 Cloudflare Tunnel 实时延迟仪表盘。<br/>（所有 UIKit Haptics 均以 `#if os(iOS)` 隔离，确保在 macOS 上同样零警告编译与实时预览。） |
-| **`PipiBotMacApp`** | Executable | `apps/apple/Sources/PipiBotMacApp/` | **macOS 常驻桌面宿主应用**：<br/>• `PipiBotMacApp.swift`: 原生 `MenuBarExtra` 活体头像 + Dots 状态微标。<br/>• `ManusCueFloatingPanel.swift`: 无边框悬浮 `NSPanel` 实现 `⌥Space` Manus Cue 上下文建议条。<br/>• `MacOutcomeStudioView.swift`: 主控制台窗口（Outcomes / Needs You / Manus Cue / PipiFleet Dots / Memory & Soul / 内嵌 `PipiBotIOSUI` 实时预览页签）。 |
-| **`PipiBotKitTests`** | Test Target | `apps/apple/Tests/PipiBotKitTests/` | `PipiBotKitTests.swift`: 校验 53 状态枚举与 9 表情完备性、Rodrigues 3D 眼球与 192 射线轮廓数学正确性、三层 Token 一致性及离线状态机流转。 |
+| **`PipiBotMacApp`** | Executable | `apps/apple/Sources/PipiBotMacApp/` | **All-in-One macOS 原生常驻桌面应用 (`dist/PipiBot.app`)**：<br/>• `PipiBotMacApp.swift`: 启动 `PipiNativeMacRuntime` 与托管桥接，提供 `MenuBarExtra` 活体头像 + Keep-Awake / Bridge 状态与 `⌥Space` 快捷键。<br/>• `ManusCueFloatingPanel.swift`: 无边框非激活悬浮 `NSPanel` 实现 `⌥Space` Manus Cue 上下文建议条。<br/>• `MacOutcomeStudioView.swift`: 八大功能模块主控制台（Outcomes / Needs You / Harnesses & Muse / Manus Cue / Fleet & Cloudflare / Memory & Soul / iOS Companion / PipiAvatar 53）。可通过 `npm run app:mac`（[`scripts/build-mac-app.sh`](../../scripts/build-mac-app.sh)）一键打包为 `dist/PipiBot.app`。 |
+| **`PipiBotKitTests`** | Test Target | `apps/apple/Tests/PipiBotKitTests/` | `PipiBotKitTests.swift`: 校验 53 状态枚举与 9 表情完备性、Rodrigues 3D 眼球与 192 射线轮廓数学正确性、三层 Token 一致性、`PipiNativeMacRuntime` 探测/遥测/Cue 感知及持久化流转。 |
 
 ---
 

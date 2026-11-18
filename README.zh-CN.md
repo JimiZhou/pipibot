@@ -98,36 +98,46 @@ flowchart TB
 
 ---
 
-## 快速体验：V1 Mac 常驻宿主、原生 Swift 6 双端与实时 iOS PWA
+## 快速体验：All-in-One 原生 `PipiBot.app`、Swift 6 双端与无头守护进程
 
-> **当前版本说明 (`v0.2.0-beta`)**：Wave 2 正式交付可运行 V1 核心栈——`@pipibot/daemon` HTTP REST + 250ms SSE 常驻服务、原生 Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp`)、实时 iOS Companion PWA (`apps/ios-web`)、OpenPencil `pipibot.pen` + 五规则设计审计 (`scripts/audit-design-system.mjs`) 与 Stageshow 展示技能 (`.agents/skills/stageshow`)。
+> **当前版本说明 (`v0.2.0-beta`)**：已正式交付 **All-in-One 独立原生 macOS 应用 (`dist/PipiBot.app`)**——内置 `PipiNativeMacRuntime` 与自动托管 `PipiEmbeddedBridgeSupervisor`（**无需手动开终端运行 Daemon**），同步包含原生 Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp`)、实时 iOS Companion PWA (`apps/ios-web`)、Headless `@pipibot/daemon`、OpenPencil `pipibot.pen` + 五规则审计与 Stageshow 技能。
 
-### 1. 启动 V1 Mac 常驻守护进程与实时 iOS 伴侣 PWA
+### 1. 构建并启动 All-in-One 原生 macOS 应用 (`PipiBot.app`)
 
-需 **Node.js `>= 22.6.0`**（零第三方 npm 依赖，即克隆即跑）：
+在 macOS 桌面端，只需一个自包含的原生 App 即可承载全部核心能力——MenuBar 活体头像、`⌥Space` Manus Cue 无焦点悬浮胶囊、八大功能工作台、本机 Harness/硬件/前台应用实时探测、防休眠锁、`~/Library/Application Support/PipiBot/resident-state.json` 本地持久化，以及为 iOS 端自动托管的 HTTP/SSE 桥接：
 
 ```bash
 git clone https://github.com/JimiZhou/pipibot.git
 cd pipibot
 
-# 启动 @pipibot/daemon (REST + 250ms SSE + 静态托管，默认端口 4242)
+# 打包自包含 Release 版 dist/PipiBot.app（Swift 6 编译 + 自签名）
+npm run app:mac
+
+# 直接启动 PipiBot.app（无需手动运行终端守护进程！）
+open dist/PipiBot.app
+```
+
+完整架构与八大模块操作指南请参阅 [`06-MAC-NATIVE-APP-GUIDE.md`](docs/architecture/06-MAC-NATIVE-APP-GUIDE.md)。
+
+### 2. 可选：Headless 无头守护进程与实时 iOS 伴侣 PWA (`/ios`)
+
+适用于无 GUI 的 Linux VPS 服务器、纯 CLI 调试或直接在浏览器独立体验 iOS 端（需 **Node.js `>= 22.6.0`**，零第三方 npm 依赖）：
+
+```bash
+# 独立启动 @pipibot/daemon (REST + 250ms SSE + 静态托管，默认端口 4242)
 npm run start:daemon
 ```
 
-启动后在浏览器打开：
+服务就绪后（无论是独立启动还是由 `PipiBot.app` 自动托管），可在浏览器打开：
 - **实时 iOS Companion PWA**：**`http://127.0.0.1:4242/ios`**（灵动岛 120Hz `PipiAvatar`、Devin Outcomes、Needs You 左右滑动审批、Muse 多 Harness 对话 `Pi`/`Claude Code`/`Codex`/`OpenCode`/`BYOK`、Dots 节点矩阵与四层记忆进化 Diff 审计）。
 - **设计系统与 120Hz 头像工作台**：**`http://127.0.0.1:4242/design-system/`**（或纯静态预览 `npm run preview:design` -> `http://127.0.0.1:8080/design-system/`）。
 
-### 2. 编译与测试原生 Swift 6 Mac / iOS 工程 (`apps/apple`)
+### 3. Swift 6 单元测试、OpenPencil 五规则审计与全仓校验
 
 ```bash
 # 编译 PipiBotKit、PipiBotIOSUI、PipiBotMacApp 并运行 PipiBotKitTests (macOS 14+ / Swift 6.0)
 npm run build:apple && npm run test:apple
-```
 
-### 3. 运行 OpenPencil 设计治理审计与全仓校验
-
-```bash
 # 审计 OpenPencil pipibot.pen、design-system.md、apps/ios-web/styles.css 与 SwiftUI 视图
 npm run audit:design
 
@@ -151,7 +161,8 @@ pipibot/
 ├── .agents/
 │   └── skills/stageshow/                      # Stageshow 视觉工艺技能 (device-pair, dynamic-island)
 ├── scripts/
-│   └── audit-design-system.mjs                # OpenPencil 五规则与零原始 hex 自动化审计器
+│   ├── audit-design-system.mjs                # OpenPencil 五规则与零原始 hex 自动化审计器
+│   └── build-mac-app.sh                       # 打包并签名 All-in-One 原生 dist/PipiBot.app
 ├── design-system/
 │   ├── design-system.md                       # 持久化 AI 设计记忆 (Rule + Reason + Date)
 │   ├── pipibot.pen                            # OpenPencil JSON (3 层 Token, 6 积木, 12 屏)
@@ -162,10 +173,10 @@ pipibot/
 ├── apps/
 │   ├── apple/                                 # Swift 6 Package (macOS 14+ & iOS 17+)
 │   │   ├── Package.swift                      # PipiBotKit, PipiBotIOSUI, PipiBotMacApp, PipiBotKitTests
-│   │   ├── Sources/PipiBotKit/                # ProtocolModels, DesignTokens, CanonicalBlocks, Avatar, Client
+│   │   ├── Sources/PipiBotKit/                # ProtocolModels, DesignTokens, CanonicalBlocks, Avatar, PipiNativeMacRuntime, Client
 │   │   ├── Sources/PipiBotIOSUI/              # iOS 主视图, NeedsYouSwipeDeck, MuseCanvas, DotsFleet
-│   │   ├── Sources/PipiBotMacApp/             # MenuBarExtra, ManusCueFloatingPanel, MacOutcomeStudioView
-│   │   └── Tests/PipiBotKitTests/             # Swift 6 程序化头像与协议测试套
+│   │   ├── Sources/PipiBotMacApp/             # All-in-One PipiBot.app (MenuBarExtra, ManusCueFloatingPanel, 8 模块工作台)
+│   │   └── Tests/PipiBotKitTests/             # Swift 6 程序化头像、协议与原生运行时测试套
 │   └── ios-web/                               # 实时 iOS 伴侣 PWA (由 Daemon 在 /ios 直出)
 │       ├── index.html
 │       ├── styles.css                         # 100% 绑定 design-system/tokens.css (0 原始 hex)
@@ -177,7 +188,8 @@ pipibot/
 │   │   ├── 02-SYSTEM-ARCHITECTURE-AND-HARNESS.md # Pi 内核、多 Harness 路由与结果引擎
 │   │   ├── 03-CLOUDFLARE-AND-FLEET-INFRA.md   # $0/月 Cloudflare 架构与 PipiFleet 节点拓扑
 │   │   ├── 04-MEMORY-AND-SELF-EVOLUTION.md    # 四层认知记忆与夜间技能自合成引擎
-│   │   └── 05-MAC-AND-IOS-V1-IMPLEMENTATION.md # V1 Mac Daemon、Swift 6、PWA 与 OpenPencil 实现规范
+│   │   ├── 05-MAC-AND-IOS-V1-IMPLEMENTATION.md # V1 Mac/iOS、Swift 6、PWA 与 OpenPencil 实现规范
+│   │   └── 06-MAC-NATIVE-APP-GUIDE.md         # All-in-One 原生 PipiBot.app 架构、8 大模块与打包运行指南
 │   ├── design-system/
 │   │   └── 01-UIUX-DESIGN-SYSTEM.md           # Ambient Soul & Outcome Studio 完整设计规范
 │   └── roadmap/
@@ -215,6 +227,7 @@ pipibot/
 | [03-CLOUDFLARE-AND-FLEET-INFRA.md](docs/architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md) | Mac 常驻宿主 + iOS 伴侣端、$0/月 Cloudflare 免费层技术栈（Tunnel/Workers/D1/R2/KV/Access）、配额预算表与 `PipiFleet` 五类节点沙盒 | 中文 + EN Terms |
 | [04-MEMORY-AND-SELF-EVOLUTION.md](docs/architecture/04-MEMORY-AND-SELF-EVOLUTION.md) | 四层记忆（L0–L3）、SQLite FTS5 + `sqlite-vec`、复合显著性评分公式、时间线覆盖、夜间做梦整合与 `SOUL.md`/`USER.md`/Pi Skill 自动合成 | 中文 + EN Terms |
 | [05-MAC-AND-IOS-V1-IMPLEMENTATION.md](docs/architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) | V1 全栈实现规范：OpenPencil 五规则治理、Stageshow 工艺、`@pipibot/daemon` REST/SSE、Swift 6 `apps/apple` 与实时 PWA `apps/ios-web` | 中文 + EN Terms |
+| [06-MAC-NATIVE-APP-GUIDE.md](docs/architecture/06-MAC-NATIVE-APP-GUIDE.md) | All-in-One 原生 `PipiBot.app` 架构与功能指南：`PipiNativeMacRuntime`、托管桥接、三大桌面入口、八大模块与 `npm run app:mac` | 中文 + EN Terms |
 | [01-UIUX-DESIGN-SYSTEM.md](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) | "Ambient Soul & Outcome Studio" 语义 Token、`PipiAvatar` 192 射线 / Rodrigues 3D / 53 状态机规范、OpenPencil 五规则与 Stageshow 规范 | 中文 + EN Terms |
 | [design-system.md](design-system/design-system.md) | 持久化 AI 设计记忆：三层 Token、几何对比度、六大规范积木与 Stageshow 约束（规则 + 原因 + 日期） | English |
 | [01-DEVELOPMENT-PLAN.md](docs/roadmap/01-DEVELOPMENT-PLAN.md) | Phase 0–5 全量 WBS、分阶段验证测试套件、非功能性硬指标（节点 `<15MB`、头像 `120fps <1% CPU`、`$0/月` 云成本）与风险缓解矩阵 | 中文 + EN Terms |

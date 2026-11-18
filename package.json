@@ -25,6 +25,7 @@
     "test:daemon": "node --experimental-strip-types --test packages/daemon/test/daemon.test.ts",
     "build:apple": "cd apps/apple && swift build",
     "test:apple": "cd apps/apple && swift test",
+    "app:mac": "bash scripts/build-mac-app.sh",
     "check:workspaces": "npm run check --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",

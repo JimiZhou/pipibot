@@ -190,9 +190,30 @@ public struct MacOutcomeStudioView: View {
             }
             .scrollContentBackground(.hidden)
 
-            // Grounded Bottom Bar for Theme & Sync
+            // Grounded Bottom Bar for Keep-Awake, Bridge, Theme & Sync
             PipiBottomBar {
+                let keepAwakeBinding = Binding<Bool>(
+                    get: { store.bridgeSupervisor.keepAwakeEnabled },
+                    set: { store.setKeepAwake($0) }
+                )
+
                 VStack(spacing: PipiTokens.spacing8) {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Toggle(isOn: keepAwakeBinding) {
+                            Text("Keep-Awake")
+                                .font(PipiTokens.fontCaption.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                        }
+                        .toggleStyle(.switch)
+
+                        Spacer()
+                    }
+
+                    Text(store.bridgeSupervisor.bridgeState.rawValue)
+                        .font(PipiTokens.fontMonoSmall)
+                        .foregroundStyle(store.connectionMode == .liveDaemon ? PipiTokens.stateSuccess : PipiTokens.soulSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
                     Picker("Theme", selection: $store.themeMode) {
                         ForEach(PipiThemeMode.allCases) { mode in
                             Text(mode.label).tag(mode)
@@ -200,8 +221,12 @@ public struct MacOutcomeStudioView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    PipiActionButton("Sync Daemon", systemImage: "arrow.triangle.2.circlepath", tone: .secondary, density: .desktopCompact, fullWidth: true) {
-                        Task { await store.refreshAllFromDaemon() }
+                    PipiActionButton("Refresh Probes & Bridge", systemImage: "arrow.triangle.2.circlepath", tone: .secondary, density: .desktopCompact, fullWidth: true) {
+                        store.refreshNativeRuntimeSnapshot()
+                        Task {
+                            await store.bridgeSupervisor.ensureBridgeRunning()
+                            await store.refreshAllFromDaemon()
+                        }
                     }
                 }
             }
@@ -352,11 +377,13 @@ public struct MacOutcomeStudioView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: PipiTokens.spacing12)], spacing: PipiTokens.spacing12) {
                 ForEach(store.harnessProbes) { probe in
                     let active = store.activeHarness == probe.provider
+                    let badgeText = active ? "Active" : (probe.authenticated ? "Authenticated" : (probe.installed ? "Installed" : "Not Found"))
+                    let badgeColor = active ? PipiTokens.color(for: probe.provider) : (probe.authenticated ? PipiTokens.stateSuccess : (probe.installed ? PipiTokens.stateWarning : PipiTokens.textMuted))
                     PipiListCard(
                         title: probe.provider.displayName,
-                        subtitle: "\(probe.binaryPath ?? "") · \(probe.authSource ?? "")",
-                        badgeText: active ? "Active" : (probe.authenticated ? "Authenticated" : "Unavailable"),
-                        badgeColor: active ? PipiTokens.color(for: probe.provider) : PipiTokens.stateSuccess,
+                        subtitle: "\(probe.binaryPath ?? "not on PATH") · \(probe.authSource ?? "")",
+                        badgeText: badgeText,
+                        badgeColor: badgeColor,
                         footer: {
                             PipiActionButton(
                                 active ? "Active Harness" : "Switch Router",
@@ -367,6 +394,7 @@ public struct MacOutcomeStudioView: View {
                             ) {
                                 store.activeHarness = probe.provider
                                 store.avatarEngine.setState(store.avatarState(for: probe.provider))
+                                store.saveResidentState()
                             }
                         }
                     )

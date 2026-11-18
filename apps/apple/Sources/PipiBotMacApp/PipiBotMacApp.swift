@@ -6,9 +6,28 @@ import AppKit
 
 @main
 struct PipiBotMacApp: App {
-    @State private var store = PipiAppStore(autoConnect: true)
+    @State private var store: PipiAppStore
     @State private var cueController = ManusCuePanelController()
     @Environment(\.openWindow) private var openWindow
+
+    init() {
+        let residentStore = PipiAppStore(
+            autoConnect: true,
+            enableNativeRuntime: true,
+            enableEmbeddedBridge: true
+        )
+        _store = State(initialValue: residentStore)
+
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                residentStore.stopLiveSync()
+            }
+        }
+    }
 
     var body: some Scene {
         WindowGroup("PipiBot Outcome Studio", id: "studio") {
@@ -24,7 +43,8 @@ struct PipiBotMacApp: App {
                 }
                 .keyboardShortcut(.space, modifiers: .option)
 
-                Button("Sync Mac Daemon") {
+                Button("Refresh Native Context & Probes") {
+                    store.refreshNativeRuntimeSnapshot()
                     Task { await store.refreshAllFromDaemon() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
@@ -46,7 +66,12 @@ struct PipiBotMacApp: App {
     }
 
     private var menuBarPopover: some View {
-        VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+        let keepAwakeBinding = Binding<Bool>(
+            get: { store.bridgeSupervisor.keepAwakeEnabled },
+            set: { store.setKeepAwake($0) }
+        )
+
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
             HStack(spacing: PipiTokens.spacing12) {
                 PipiAvatarView(engine: store.avatarEngine, size: 48)
                 VStack(alignment: .leading, spacing: 2) {
@@ -58,14 +83,35 @@ struct PipiBotMacApp: App {
                         .foregroundStyle(PipiTokens.color(for: store.avatarEngine.state))
                 }
                 Spacer()
-                Text(store.connectionMode == .liveDaemon ? "Live" : "Demo")
+                Text(store.connectionMode == .liveDaemon ? "Bridge Live" : "Native")
                     .font(PipiTokens.fontMicro)
-                    .foregroundStyle(store.connectionMode == .liveDaemon ? PipiTokens.stateSuccess : PipiTokens.textSecondary)
+                    .foregroundStyle(store.connectionMode == .liveDaemon ? PipiTokens.stateSuccess : PipiTokens.soulSecondary)
                     .padding(.horizontal, PipiTokens.spacing8)
                     .padding(.vertical, 3)
                     .background(PipiTokens.bgInset)
                     .clipShape(Capsule())
             }
+
+            // Native Resident Controls (Keep-Awake + Embedded iOS Bridge)
+            HStack(spacing: PipiTokens.spacing8) {
+                Toggle(isOn: keepAwakeBinding) {
+                    Text("Keep-Awake")
+                        .font(PipiTokens.fontCaption.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                }
+                .toggleStyle(.switch)
+
+                Spacer()
+
+                Text(store.bridgeSupervisor.bridgeState.rawValue)
+                    .font(PipiTokens.fontMonoSmall)
+                    .foregroundStyle(store.connectionMode == .liveDaemon ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, PipiTokens.spacing12)
+            .padding(.vertical, PipiTokens.spacing8)
+            .background(PipiTokens.bgSurface)
+            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD))
 
             // Dots Fleet Vitality Strip
             HStack(spacing: PipiTokens.spacing12) {
@@ -110,7 +156,7 @@ struct PipiBotMacApp: App {
             }
         }
         .padding(PipiTokens.spacing16)
-        .frame(width: 380)
+        .frame(width: 390)
         .background(PipiTokens.bgElevated)
         .preferredColorScheme(store.themeMode.colorSchemeOverride)
     }

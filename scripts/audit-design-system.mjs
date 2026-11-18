@@ -212,6 +212,67 @@ function auditPenDocument() {
   walkObj(components, 'components');
   walkObj(screens, 'screens');
 
+  // (g) Native @open-pencil/pen v2.21 scene-graph compatibility
+  if (doc.version !== '2.21') {
+    fail(`pipibot.pen version must be "2.21" for OpenPencil compatibility, found "${doc.version}"`);
+  }
+  const modeThemes = doc.themes?.Mode;
+  if (!Array.isArray(modeThemes) || !modeThemes.includes('Obsidian Dark') || !modeThemes.includes('Vellum Light')) {
+    fail('pipibot.pen themes.Mode must include "Obsidian Dark" and "Vellum Light"');
+  }
+  if (!doc.variables || typeof doc.variables !== 'object') {
+    fail('pipibot.pen missing top-level OpenPencil v2.21 variables map');
+  }
+  if (!Array.isArray(doc.children)) {
+    fail('pipibot.pen missing top-level OpenPencil v2.21 children scene-graph array');
+  } else {
+    const reusableFrames = doc.children.filter((n) => n && n.type === 'frame' && n.reusable === true);
+    const reusableIds = new Set(reusableFrames.map((n) => n.id));
+    const screenFrames = doc.children.filter((n) => n && n.type === 'frame' && !n.reusable);
+    if (reusableFrames.length < 6) {
+      fail(`pipibot.pen children must contain >= 6 reusable component frames, found ${reusableFrames.length}`);
+    }
+    if (screenFrames.length < 12) {
+      fail(`pipibot.pen children must contain >= 12 screen frames, found ${screenFrames.length}`);
+    }
+
+    let v2RefCount = 0;
+    let v2VarRefCount = 0;
+    function walkChildren(node, loc) {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        node.forEach((item, idx) => walkChildren(item, `${loc}[${idx}]`));
+        return;
+      }
+      if (node.type === 'ref') {
+        v2RefCount++;
+        if (!node.ref || !reusableIds.has(node.ref)) {
+          fail(`pipibot.pen ${loc}: ref target "${node.ref}" does not match any reusable frame id`);
+        }
+      }
+      for (const [k, v] of Object.entries(node)) {
+        if (typeof v === 'string') {
+          if (hexPattern.test(v)) {
+            fail(`pipibot.pen ${loc}.${k}: forbidden raw hex "${v}" inside native children`);
+          }
+          if (v.startsWith('$')) {
+            v2VarRefCount++;
+            const varKey = v.slice(1);
+            if (!doc.variables || !(varKey in doc.variables)) {
+              fail(`pipibot.pen ${loc}.${k}: unresolved OpenPencil variable reference "${v}"`);
+            }
+          }
+        } else if (v && typeof v === 'object') {
+          walkChildren(v, `${loc}.${k}`);
+        }
+      }
+    }
+    walkChildren(doc.children, 'children');
+    pass(
+      `pipibot.pen OpenPencil v2.21 passed: ${reusableFrames.length} reusable frames, ${screenFrames.length} screen frames, ${v2VarRefCount} $var refs, ${v2RefCount} component refs, 0 raw hexes in children.`
+    );
+  }
+
   // Verify Vellum Light brand/foreground tokens >= 4.5:1 contrast against Vellum canvas
   const lightCanvas = resolveVar('tokens.bgCanvas', 'Vellum Light');
   const lightFgTokens = [

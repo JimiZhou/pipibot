@@ -1,11 +1,305 @@
 {
   "schemaVersion": "1.0.0",
+  "version": "2.21",
+  "themes": {
+    "Mode": ["Obsidian Dark", "Vellum Light"]
+  },
   "meta": {
     "name": "PipiBot Ambient Soul & Outcome Studio",
     "version": "0.2.0-beta",
     "defaultMode": "Obsidian Dark",
     "modes": ["Obsidian Dark", "Vellum Light"],
     "updatedAt": "2026-11-19"
+  },
+  "variables": {
+    "foundations.obsidian.01": { "type": "color", "value": "#08090B" },
+    "foundations.obsidian.02": { "type": "color", "value": "#0B0C0E" },
+    "foundations.obsidian.03": { "type": "color", "value": "#121418" },
+    "foundations.obsidian.04": { "type": "color", "value": "#171A20" },
+    "foundations.obsidian.05": { "type": "color", "value": "#1E222B" },
+    "foundations.obsidian.06": { "type": "color", "value": "#262B38" },
+    "foundations.obsidian.07": { "type": "color", "value": "#363D4F" },
+    "foundations.obsidian.09": { "type": "color", "value": "#6C7382" },
+    "foundations.obsidian.10": { "type": "color", "value": "#A1A7B3" },
+    "foundations.obsidian.12": { "type": "color", "value": "#F4F5F7" },
+    "foundations.vellum.01": { "type": "color", "value": "#FFFFFF" },
+    "foundations.vellum.02": { "type": "color", "value": "#FDFCF9" },
+    "foundations.vellum.03": { "type": "color", "value": "#F7F5F0" },
+    "foundations.vellum.04": { "type": "color", "value": "#F1EDE4" },
+    "foundations.vellum.05": { "type": "color", "value": "#EBE6DC" },
+    "foundations.vellum.06": { "type": "color", "value": "#DED8CC" },
+    "foundations.vellum.07": { "type": "color", "value": "#C8C1B3" },
+    "foundations.vellum.09": { "type": "color", "value": "#8B867D" },
+    "foundations.vellum.10": { "type": "color", "value": "#5E5B55" },
+    "foundations.vellum.12": { "type": "color", "value": "#171614" },
+    "foundations.iris.dark": { "type": "color", "value": "#7C6CF6" },
+    "foundations.iris.darkBtn": { "type": "color", "value": "#6353E8" },
+    "foundations.iris.light": { "type": "color", "value": "#5B4CE4" },
+    "foundations.cyan.dark": { "type": "color", "value": "#38BDF8" },
+    "foundations.cyan.light": { "type": "color", "value": "#0369A1" },
+    "foundations.emerald.dark": { "type": "color", "value": "#10B981" },
+    "foundations.emerald.light": { "type": "color", "value": "#047857" },
+    "foundations.amber.dark": { "type": "color", "value": "#F59E0B" },
+    "foundations.amber.light": { "type": "color", "value": "#B45309" },
+    "foundations.crimson.dark": { "type": "color", "value": "#EF4444" },
+    "foundations.crimson.light": { "type": "color", "value": "#B91C1C" },
+    "foundations.terracotta.dark": { "type": "color", "value": "#D97757" },
+    "foundations.terracotta.light": { "type": "color", "value": "#B55233" },
+    "foundations.cobalt.dark": { "type": "color", "value": "#3B82F6" },
+    "foundations.cobalt.light": { "type": "color", "value": "#1D4ED8" },
+    "foundations.violet.dark": { "type": "color", "value": "#A855F7" },
+    "foundations.violet.light": { "type": "color", "value": "#7E22CE" },
+    "foundations.black": { "type": "color", "value": "#050507" },
+    "foundations.white": { "type": "color", "value": "#FFFFFF" },
+    "theme.step01": {
+      "type": "color",
+      "value": [
+        { "value": "#08090B", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#FFFFFF", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "theme.step02": {
+      "type": "color",
+      "value": [
+        { "value": "#0B0C0E", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#FDFCF9", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "theme.step03": {
+      "type": "color",
+      "value": [
+        { "value": "#121418", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#F7F5F0", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "theme.step04": {
+      "type": "color",
+      "value": [
+        { "value": "#171A20", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#F1EDE4", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "theme.step05": {
+      "type": "color",
+      "value": [
+        { "value": "#1E222B", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#EBE6DC", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "theme.step06": {
+      "type": "color",
+      "value": [
+        { "value": "#262B38", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#DED8CC", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "theme.step07": {
+      "type": "color",
+      "value": [
+        { "value": "#363D4F", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#C8C1B3", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "theme.step09": {
+      "type": "color",
+      "value": [
+        { "value": "#6C7382", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#8B867D", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "theme.step10": {
+      "type": "color",
+      "value": [
+        { "value": "#A1A7B3", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#5E5B55", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "theme.step12": {
+      "type": "color",
+      "value": [
+        { "value": "#F4F5F7", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#171614", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.bgCanvas": {
+      "type": "color",
+      "value": [
+        { "value": "#0B0C0E", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#F7F5F0", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.bgElevated": {
+      "type": "color",
+      "value": [
+        { "value": "#121418", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#FFFFFF", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.bgSurface": {
+      "type": "color",
+      "value": [
+        { "value": "#171A20", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#FDFCF9", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.bgSurfaceHover": {
+      "type": "color",
+      "value": [
+        { "value": "#1E222B", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#F1EDE4", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.bgInset": {
+      "type": "color",
+      "value": [
+        { "value": "#08090B", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#EBE6DC", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.borderSubtle": {
+      "type": "color",
+      "value": [
+        { "value": "#262B38", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#DED8CC", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.borderStrong": {
+      "type": "color",
+      "value": [
+        { "value": "#363D4F", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#C8C1B3", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.textPrimary": {
+      "type": "color",
+      "value": [
+        { "value": "#F4F5F7", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#171614", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.textSecondary": {
+      "type": "color",
+      "value": [
+        { "value": "#A1A7B3", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#5E5B55", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.textMuted": {
+      "type": "color",
+      "value": [
+        { "value": "#6C7382", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#8B867D", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.textInverse": {
+      "type": "color",
+      "value": [
+        { "value": "#0B0C0E", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#FFFFFF", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.soulPrimary": {
+      "type": "color",
+      "value": [
+        { "value": "#7C6CF6", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#5B4CE4", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.soulBtnBg": {
+      "type": "color",
+      "value": [
+        { "value": "#6353E8", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#5B4CE4", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.soulSecondary": {
+      "type": "color",
+      "value": [
+        { "value": "#38BDF8", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#0369A1", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.statusOk": {
+      "type": "color",
+      "value": [
+        { "value": "#10B981", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#047857", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.statusWarn": {
+      "type": "color",
+      "value": [
+        { "value": "#F59E0B", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#B45309", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.statusDanger": {
+      "type": "color",
+      "value": [
+        { "value": "#EF4444", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#B91C1C", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.harnessPi": {
+      "type": "color",
+      "value": [
+        { "value": "#10B981", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#047857", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.harnessClaude": {
+      "type": "color",
+      "value": [
+        { "value": "#D97757", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#B55233", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.harnessCodex": {
+      "type": "color",
+      "value": [
+        { "value": "#3B82F6", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#1D4ED8", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.harnessOpencode": {
+      "type": "color",
+      "value": [
+        { "value": "#A855F7", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#7E22CE", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.harnessByok": {
+      "type": "color",
+      "value": [
+        { "value": "#F59E0B", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#B45309", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.islandBg": {
+      "type": "color",
+      "value": [
+        { "value": "#050507", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#050507", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.islandFg": {
+      "type": "color",
+      "value": [
+        { "value": "#F4F5F7", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#F4F5F7", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.btnPrimaryFg": {
+      "type": "color",
+      "value": [
+        { "value": "#FFFFFF", "theme": { "Mode": "Obsidian Dark" } },
+        { "value": "#FFFFFF", "theme": { "Mode": "Vellum Light" } }
+      ]
+    },
+    "tokens.btnHeightMobile": { "type": "number", "value": 44 },
+    "tokens.btnHeightDesktop": { "type": "number", "value": 32 },
+    "tokens.sheetTopCompact": { "type": "number", "value": 54 },
+    "tokens.sheetTopExpanded": { "type": "number", "value": 102 }
   },
   "variableCollections": {
     "foundations": {
@@ -111,6 +405,572 @@
     "ts-mono-sm": { "fontFamily": "JetBrains Mono", "fontSize": 12, "fontWeight": 500, "lineHeight": 16 },
     "ts-mono-xs": { "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": 500, "lineHeight": 14 }
   },
+  "children": [
+    {
+      "id": "pen-comp-list-card",
+      "type": "frame",
+      "reusable": true,
+      "name": "list-card",
+      "x": 0,
+      "y": 0,
+      "width": 358,
+      "height": 88,
+      "layout": "vertical",
+      "gap": 8,
+      "padding": 12,
+      "cornerRadius": 16,
+      "fill": "$tokens.bgSurface",
+      "stroke": { "thickness": 1, "fill": "$tokens.borderSubtle" },
+      "children": [
+        {
+          "id": "pen-lc-head",
+          "type": "frame",
+          "name": "list-card-head",
+          "width": 334,
+          "height": 24,
+          "layout": "horizontal",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            { "id": "pen-lc-title", "type": "text", "name": "title", "content": "Layout Guardian Bot", "fontFamily": "SF Pro Text", "fontSize": 15, "fontWeight": "600", "fill": "$tokens.textPrimary" },
+            { "id": "pen-lc-badge", "type": "text", "name": "status", "content": "active", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.statusOk" }
+          ]
+        },
+        { "id": "pen-lc-sub", "type": "text", "name": "subtitle", "content": "Every 3h on main · CLS 0.01 verified on R2", "fontFamily": "SF Pro Text", "fontSize": 13, "fontWeight": "400", "fill": "$tokens.textSecondary" }
+      ]
+    },
+    {
+      "id": "pen-comp-sheet",
+      "type": "frame",
+      "reusable": true,
+      "name": "sheet",
+      "x": 400,
+      "y": 0,
+      "width": 390,
+      "height": 340,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 16,
+      "cornerRadius": [28, 28, 0, 0],
+      "fill": "$tokens.bgElevated",
+      "stroke": { "thickness": 1, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-sh-grab", "type": "rectangle", "name": "grabber", "width": 38, "height": 4, "cornerRadius": 2, "fill": "$tokens.borderStrong" },
+        { "id": "pen-sh-title", "type": "text", "name": "sheet-title", "content": "Select Harness Route (topEdge 102px)", "fontFamily": "SF Pro Display", "fontSize": 17, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+        { "id": "pen-sh-item-1", "type": "ref", "ref": "pen-comp-list-card", "name": "harness-item-pi" }
+      ]
+    },
+    {
+      "id": "pen-comp-form-sheet",
+      "type": "frame",
+      "reusable": true,
+      "name": "form-sheet",
+      "x": 830,
+      "y": 0,
+      "width": 390,
+      "height": 360,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 16,
+      "cornerRadius": [28, 28, 0, 0],
+      "fill": "$tokens.bgElevated",
+      "stroke": { "thickness": 1, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-fs-grab", "type": "rectangle", "name": "grabber", "width": 38, "height": 4, "cornerRadius": 2, "fill": "$tokens.borderStrong" },
+        { "id": "pen-fs-title", "type": "text", "name": "form-title", "content": "New Outcome (topEdge 54px)", "fontFamily": "SF Pro Display", "fontSize": 17, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+        { "id": "pen-fs-field", "type": "rectangle", "name": "goal-input", "width": 358, "height": 44, "cornerRadius": 10, "fill": "$tokens.bgInset", "stroke": { "thickness": 1, "fill": "$tokens.borderStrong" } },
+        {
+          "id": "pen-fs-cta",
+          "type": "frame",
+          "name": "primary-cta",
+          "width": 358,
+          "height": 44,
+          "layout": "horizontal",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "gap": 8,
+          "cornerRadius": 12,
+          "fill": "$tokens.soulBtnBg",
+          "children": [
+            { "id": "pen-fs-cta-text", "type": "text", "name": "label", "content": "Launch Outcome", "fontFamily": "SF Pro Text", "fontSize": 12, "fontWeight": "600", "fill": "$tokens.btnPrimaryFg" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pen-comp-dock",
+      "type": "frame",
+      "reusable": true,
+      "name": "dock",
+      "x": 1260,
+      "y": 0,
+      "width": 358,
+      "height": 64,
+      "layout": "horizontal",
+      "justifyContent": "space_between",
+      "alignItems": "center",
+      "gap": 12,
+      "padding": [8, 12, 8, 12],
+      "cornerRadius": 20,
+      "fill": "$tokens.bgSurface",
+      "stroke": { "thickness": 1, "fill": "$tokens.borderStrong" },
+      "children": [
+        {
+          "id": "pen-dk-left",
+          "type": "frame",
+          "name": "dock-avatar-summary",
+          "width": 220,
+          "height": 40,
+          "layout": "horizontal",
+          "alignItems": "center",
+          "gap": 10,
+          "children": [
+            { "id": "pen-dk-orb", "type": "ellipse", "name": "pipi-avatar-orb", "width": 32, "height": 32, "fill": "$tokens.soulPrimary" },
+            { "id": "pen-dk-label", "type": "text", "name": "cue-summary", "content": "Cue · Xcode · Run Tests", "fontFamily": "SF Pro Text", "fontSize": 13, "fontWeight": "600", "fill": "$tokens.textPrimary" }
+          ]
+        },
+        {
+          "id": "pen-dk-btn",
+          "type": "frame",
+          "name": "dock-cta",
+          "width": 84,
+          "height": 44,
+          "layout": "horizontal",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "gap": 8,
+          "cornerRadius": 22,
+          "fill": "$tokens.soulBtnBg",
+          "children": [
+            { "id": "pen-dk-btn-lbl", "type": "text", "name": "cta-text", "content": "Cue", "fontFamily": "SF Pro Text", "fontSize": 12, "fontWeight": "600", "fill": "$tokens.btnPrimaryFg" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pen-comp-bottom-bar",
+      "type": "frame",
+      "reusable": true,
+      "name": "bottom-bar",
+      "x": 1660,
+      "y": 0,
+      "width": 390,
+      "height": 68,
+      "layout": "horizontal",
+      "justifyContent": "space_between",
+      "alignItems": "center",
+      "gap": 4,
+      "padding": [8, 12, 12, 12],
+      "fill": "$tokens.bgElevated",
+      "stroke": { "thickness": 1, "fill": "$tokens.borderSubtle" },
+      "children": [
+        { "id": "pen-bb-t1", "type": "text", "name": "tab-outcomes", "content": "Outcomes", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.soulPrimary" },
+        { "id": "pen-bb-t2", "type": "text", "name": "tab-needs-you", "content": "Needs You", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.textMuted" },
+        { "id": "pen-bb-t3", "type": "text", "name": "tab-muse", "content": "Muse", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.textMuted" },
+        { "id": "pen-bb-t4", "type": "text", "name": "tab-fleet", "content": "Fleet", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.textMuted" },
+        { "id": "pen-bb-t5", "type": "text", "name": "tab-soul", "content": "Soul", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.textMuted" }
+      ]
+    },
+    {
+      "id": "pen-comp-empty-state",
+      "type": "frame",
+      "reusable": true,
+      "name": "empty-state",
+      "x": 2090,
+      "y": 0,
+      "width": 358,
+      "height": 220,
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "gap": 12,
+      "padding": 24,
+      "cornerRadius": 20,
+      "fill": "$tokens.bgSurface",
+      "stroke": { "thickness": 1, "fill": "$tokens.borderSubtle" },
+      "children": [
+        { "id": "pen-es-icon", "type": "ellipse", "name": "status-check", "width": 24, "height": 24, "fill": "$tokens.statusOk" },
+        { "id": "pen-es-title", "type": "text", "name": "empty-title", "content": "Zero Pending Decisions", "fontFamily": "SF Pro Display", "fontSize": 17, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+        { "id": "pen-es-sentence", "type": "text", "name": "empty-sentence", "content": "PipiFleet bots are watching your outcomes quietly.", "fontFamily": "SF Pro Text", "fontSize": 13, "fontWeight": "400", "fill": "$tokens.textSecondary" },
+        {
+          "id": "pen-es-cta",
+          "type": "frame",
+          "name": "empty-cta",
+          "width": 160,
+          "height": 44,
+          "layout": "horizontal",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "gap": 8,
+          "cornerRadius": 12,
+          "fill": "$tokens.soulBtnBg",
+          "children": [
+            { "id": "pen-es-cta-txt", "type": "text", "name": "label", "content": "Evaluate Now", "fontFamily": "SF Pro Text", "fontSize": 12, "fontWeight": "600", "fill": "$tokens.btnPrimaryFg" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pen-scr-mac-menubar-popover",
+      "type": "frame",
+      "name": "macOS MenuBar Popover",
+      "x": 0,
+      "y": 460,
+      "width": 420,
+      "height": 640,
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 20,
+      "cornerRadius": 20,
+      "fill": "$tokens.bgElevated",
+      "stroke": { "thickness": 1, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-mmp-title", "type": "text", "name": "title", "content": "Outcome Studio", "fontFamily": "SF Pro Display", "fontSize": 17, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+        { "id": "pen-mmp-rtt", "type": "text", "name": "tunnel-rtt", "content": "CF Tunnel · 18ms", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.statusOk" },
+        { "id": "pen-mmp-card1", "type": "ref", "ref": "pen-comp-list-card", "name": "outcome-card" },
+        {
+          "id": "pen-mmp-btn",
+          "type": "frame",
+          "name": "dispatch-btn",
+          "width": 140,
+          "height": 32,
+          "layout": "horizontal",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "gap": 6,
+          "cornerRadius": 10,
+          "fill": "$tokens.soulBtnBg",
+          "children": [
+            { "id": "pen-mmp-btn-lbl", "type": "text", "name": "label", "content": "Dispatch", "fontFamily": "SF Pro Text", "fontSize": 12, "fontWeight": "600", "fill": "$tokens.btnPrimaryFg" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pen-scr-mac-manus-cue-pill",
+      "type": "frame",
+      "name": "macOS Manus Cue Pill",
+      "x": 460,
+      "y": 460,
+      "width": 560,
+      "height": 48,
+      "layout": "horizontal",
+      "justifyContent": "space_between",
+      "alignItems": "center",
+      "gap": 10,
+      "padding": [8, 12, 8, 12],
+      "cornerRadius": 24,
+      "fill": "$tokens.bgElevated",
+      "stroke": { "thickness": 1, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-cue-orb", "type": "ellipse", "name": "pipi-avatar", "width": 28, "height": 28, "fill": "$tokens.soulPrimary" },
+        { "id": "pen-cue-ctx", "type": "text", "name": "context", "content": "Xcode · PipiHost.swift", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.soulSecondary" },
+        { "id": "pen-cue-msg", "type": "text", "name": "suggestion", "content": "Run SwiftUI regression via Pi + Xcode MCP", "fontFamily": "SF Pro Text", "fontSize": 13, "fontWeight": "400", "fill": "$tokens.textPrimary" },
+        {
+          "id": "pen-cue-run",
+          "type": "frame",
+          "name": "run-btn",
+          "width": 72,
+          "height": 32,
+          "layout": "horizontal",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "gap": 6,
+          "cornerRadius": 16,
+          "fill": "$tokens.soulBtnBg",
+          "children": [
+            { "id": "pen-cue-run-lbl", "type": "text", "name": "label", "content": "Run", "fontFamily": "SF Pro Text", "fontSize": 12, "fontWeight": "600", "fill": "$tokens.btnPrimaryFg" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pen-scr-stageshow-device-pair",
+      "type": "frame",
+      "name": "Stageshow Device Pair Hero",
+      "x": 1060,
+      "y": 460,
+      "width": 720,
+      "height": 420,
+      "layout": "none",
+      "cornerRadius": 20,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 1, "fill": "$tokens.borderStrong" },
+      "children": [
+        {
+          "id": "pen-sdp-mac",
+          "type": "frame",
+          "name": "mac-host-window",
+          "x": 20,
+          "y": 24,
+          "width": 520,
+          "height": 372,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "cornerRadius": 16,
+          "fill": "$tokens.bgElevated",
+          "stroke": { "thickness": 1, "fill": "$tokens.borderStrong" },
+          "children": [
+            { "id": "pen-sdp-kpi", "type": "text", "name": "cls-delta", "content": "CLS 0.34 -> 0.01", "fontFamily": "SF Pro Display", "fontSize": 24, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+            { "id": "pen-sdp-badge", "type": "text", "name": "pr-badge", "content": "PR #42 Shipped", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.statusOk" }
+          ]
+        },
+        {
+          "id": "pen-sdp-phone",
+          "type": "frame",
+          "name": "straddling-iphone",
+          "x": 460,
+          "y": 48,
+          "width": 236,
+          "height": 372,
+          "layout": "vertical",
+          "gap": 10,
+          "padding": 14,
+          "cornerRadius": 36,
+          "fill": "$tokens.bgSurface",
+          "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+          "children": [
+            { "id": "pen-sdp-sat-title", "type": "text", "name": "approved-notif", "content": "Needs You · Approved", "fontFamily": "SF Pro Text", "fontSize": 12, "fontWeight": "600", "fill": "$tokens.textPrimary" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pen-scr-ios-outcomes-dashboard",
+      "type": "frame",
+      "name": "iOS Outcomes Dashboard",
+      "x": 0,
+      "y": 1160,
+      "width": 390,
+      "height": 844,
+      "layout": "vertical",
+      "gap": 14,
+      "padding": 16,
+      "cornerRadius": 36,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-iod-head", "type": "text", "name": "screen-title", "content": "Outcomes", "fontFamily": "SF Pro Display", "fontSize": 24, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+        { "id": "pen-iod-sub", "type": "text", "name": "subtitle", "content": "4 Active · 3 Sub-Sessions", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.textSecondary" },
+        { "id": "pen-iod-card1", "type": "ref", "ref": "pen-comp-list-card", "name": "outcome-1" },
+        { "id": "pen-iod-dock", "type": "ref", "ref": "pen-comp-dock", "name": "cue-dock" },
+        { "id": "pen-iod-bar", "type": "ref", "ref": "pen-comp-bottom-bar", "name": "bottom-bar" }
+      ]
+    },
+    {
+      "id": "pen-scr-ios-needs-you-deck",
+      "type": "frame",
+      "name": "iOS Needs You Swipe Deck",
+      "x": 430,
+      "y": 1160,
+      "width": 390,
+      "height": 844,
+      "layout": "vertical",
+      "gap": 14,
+      "padding": 16,
+      "cornerRadius": 36,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-iny-head", "type": "text", "name": "card-title", "content": "Approve PR #42 · CLS Fix", "fontFamily": "SF Pro Display", "fontSize": 17, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+        { "id": "pen-iny-r2", "type": "text", "name": "r2-link", "content": "r2://pr-42-diff.mp4", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.soulSecondary" },
+        {
+          "id": "pen-iny-cta",
+          "type": "frame",
+          "name": "approve-btn",
+          "width": 358,
+          "height": 44,
+          "layout": "horizontal",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "gap": 8,
+          "cornerRadius": 12,
+          "fill": "$tokens.soulBtnBg",
+          "children": [
+            { "id": "pen-iny-cta-lbl", "type": "text", "name": "label", "content": "Approve & Ship", "fontFamily": "SF Pro Text", "fontSize": 12, "fontWeight": "600", "fill": "$tokens.btnPrimaryFg" }
+          ]
+        },
+        { "id": "pen-iny-bar", "type": "ref", "ref": "pen-comp-bottom-bar", "name": "bottom-bar" }
+      ]
+    },
+    {
+      "id": "pen-scr-ios-harness-sheet",
+      "type": "frame",
+      "name": "iOS Harness Selector Sheet",
+      "x": 860,
+      "y": 1160,
+      "width": 390,
+      "height": 844,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": [102, 0, 0, 0],
+      "cornerRadius": 36,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-ihs-sheet", "type": "ref", "ref": "pen-comp-sheet", "name": "harness-sheet" }
+      ]
+    },
+    {
+      "id": "pen-scr-ios-create-outcome-form",
+      "type": "frame",
+      "name": "iOS Create Outcome Form-Sheet",
+      "x": 1290,
+      "y": 1160,
+      "width": 390,
+      "height": 844,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": [54, 0, 0, 0],
+      "cornerRadius": 36,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-icf-sheet", "type": "ref", "ref": "pen-comp-form-sheet", "name": "outcome-form-sheet" }
+      ]
+    },
+    {
+      "id": "pen-scr-ios-muse-canvas",
+      "type": "frame",
+      "name": "iOS Muse Spatial Canvas",
+      "x": 1720,
+      "y": 1160,
+      "width": 390,
+      "height": 844,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 16,
+      "cornerRadius": 36,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-imc-title", "type": "text", "name": "muse-title", "content": "Muse Spatial Canvas", "fontFamily": "SF Pro Display", "fontSize": 17, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+        { "id": "pen-imc-card1", "type": "text", "name": "life-card", "content": "Life · Tokyo NH962 Check-in", "fontFamily": "SF Pro Text", "fontSize": 13, "fontWeight": "400", "fill": "$tokens.statusOk" },
+        { "id": "pen-imc-dock", "type": "ref", "ref": "pen-comp-dock", "name": "voice-dock" },
+        { "id": "pen-imc-bar", "type": "ref", "ref": "pen-comp-bottom-bar", "name": "bottom-bar" }
+      ]
+    },
+    {
+      "id": "pen-scr-ios-dots-fleet",
+      "type": "frame",
+      "name": "iOS Dots Fleet Vitality",
+      "x": 0,
+      "y": 2060,
+      "width": 390,
+      "height": 844,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 16,
+      "cornerRadius": 36,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-idf-title", "type": "text", "name": "fleet-title", "content": "PipiFleet · 5 Nodes Alive", "fontFamily": "SF Pro Display", "fontSize": 17, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+        { "id": "pen-idf-rtt", "type": "text", "name": "fleet-rtt", "content": "Mac 2ms · VPS 34ms · ESP32 8ms", "fontFamily": "JetBrains Mono", "fontSize": 12, "fontWeight": "500", "fill": "$tokens.soulSecondary" },
+        { "id": "pen-idf-node", "type": "ref", "ref": "pen-comp-list-card", "name": "node-card" },
+        { "id": "pen-idf-bar", "type": "ref", "ref": "pen-comp-bottom-bar", "name": "bottom-bar" }
+      ]
+    },
+    {
+      "id": "pen-scr-ios-soul-memory",
+      "type": "frame",
+      "name": "iOS Soul & Memory Evolution",
+      "x": 430,
+      "y": 2060,
+      "width": 390,
+      "height": 844,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 16,
+      "cornerRadius": 36,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-ism-title", "type": "text", "name": "soul-score", "content": "Understanding 94.2%", "fontFamily": "SF Pro Display", "fontSize": 17, "fontWeight": "700", "fill": "$tokens.textPrimary" },
+        { "id": "pen-ism-diff", "type": "text", "name": "dream-diff", "content": "USER.md +2 facts · cf-tunnel-heal.md", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.statusOk" },
+        { "id": "pen-ism-bar", "type": "ref", "ref": "pen-comp-bottom-bar", "name": "bottom-bar" }
+      ]
+    },
+    {
+      "id": "pen-scr-ios-empty-state",
+      "type": "frame",
+      "name": "iOS Empty State Inbox",
+      "x": 860,
+      "y": 2060,
+      "width": 390,
+      "height": 844,
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 16,
+      "cornerRadius": 36,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+      "children": [
+        { "id": "pen-ies-empty", "type": "ref", "ref": "pen-comp-empty-state", "name": "empty-inbox" },
+        { "id": "pen-ies-bar", "type": "ref", "ref": "pen-comp-bottom-bar", "name": "bottom-bar" }
+      ]
+    },
+    {
+      "id": "pen-scr-ios-dynamic-island",
+      "type": "frame",
+      "name": "iOS Dynamic Island Live Activity",
+      "x": 1290,
+      "y": 2060,
+      "width": 390,
+      "height": 340,
+      "layout": "none",
+      "cornerRadius": 36,
+      "fill": "$tokens.bgCanvas",
+      "stroke": { "thickness": 2, "fill": "$tokens.borderStrong" },
+      "children": [
+        {
+          "id": "pen-idi-shape",
+          "type": "frame",
+          "name": "dynamic-island-shape",
+          "x": 13,
+          "y": 14,
+          "width": 364,
+          "height": 168,
+          "cornerRadius": 44,
+          "fill": "$tokens.islandBg",
+          "stroke": { "thickness": 1, "fill": "$tokens.borderStrong" }
+        },
+        {
+          "id": "pen-idi-content",
+          "type": "frame",
+          "name": "dynamic-island-content-layer",
+          "x": 28,
+          "y": 28,
+          "width": 334,
+          "height": 140,
+          "layout": "vertical",
+          "justifyContent": "space_between",
+          "gap": 10,
+          "children": [
+            { "id": "pen-idi-title", "type": "text", "name": "island-title", "content": "Layout Bot · PR #42", "fontFamily": "SF Pro Text", "fontSize": 15, "fontWeight": "600", "fill": "$tokens.islandFg" },
+            { "id": "pen-idi-metric", "type": "text", "name": "cls-metric", "content": "CLS 0.34 -> 0.01", "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": "500", "fill": "$tokens.statusOk" },
+            {
+              "id": "pen-idi-cta",
+              "type": "frame",
+              "name": "island-approve",
+              "width": 334,
+              "height": 44,
+              "layout": "horizontal",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "gap": 8,
+              "cornerRadius": 22,
+              "fill": "$tokens.soulBtnBg",
+              "children": [
+                { "id": "pen-idi-cta-lbl", "type": "text", "name": "label", "content": "Approve PR", "fontFamily": "SF Pro Text", "fontSize": 12, "fontWeight": "600", "fill": "$tokens.btnPrimaryFg" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
   "components": [
     {
       "id": "comp-list-card",

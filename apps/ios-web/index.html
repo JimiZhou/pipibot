@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>PipiBot Companion · iOS PWA &amp; Stageshow Studio</title>
+  <script>
+    if (/^\/ios$/.test(window.location.pathname)) {
+      window.location.replace('/ios/' + window.location.search + window.location.hash);
+    }
+  </script>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="../../design-system/tokens.css" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="stage-shell">
+    <!-- Desktop Stageshow Control Bar -->
+    <header class="stage-toolbar">
+      <div class="stage-brand">
+        <div id="toolbar-avatar-mount" style="width: 32px; height: 32px;"></div>
+        <div>
+          <div class="stage-title">PipiBot Companion &amp; Stageshow Studio</div>
+          <div class="stage-sub mono" id="daemon-conn-banner">Checking http://127.0.0.1:4242/api/v1/status ...</div>
+        </div>
+      </div>
+
+      <div class="stage-actions">
+        <button class="pipi-btn pipi-btn-desktop" id="btn-toggle-theme" type="button">
+          <svg class="pipi-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"></path>
+          </svg>
+          <span>Theme: Obsidian</span>
+        </button>
+        <button class="pipi-btn pipi-btn-desktop" id="btn-toggle-pwa" type="button">
+          <svg class="pipi-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="7" y="2" width="10" height="20" rx="2"></rect>
+            <path d="M11 18h2"></path>
+          </svg>
+          <span>PWA Focus</span>
+        </button>
+        <button class="pipi-btn pipi-btn-desktop pipi-btn-primary" id="btn-open-harness-sheet" type="button">
+          <svg class="pipi-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 17l6-6-6-6"></path>
+            <path d="M12 19h8"></path>
+          </svg>
+          <span id="toolbar-harness-label">Harness: pi</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Stageshow device-pair composition -->
+    <main class="device-pair-stage">
+      <!-- Left: Quiet Mac Host Telemetry Window -->
+      <section class="mac-host-window" aria-label="macOS Resident Host Preview">
+        <div class="mac-window-chrome">
+          <div class="mac-traffic-dots">
+            <span class="mac-dot is-close"></span>
+            <span class="mac-dot is-min"></span>
+            <span class="mac-dot is-max"></span>
+          </div>
+          <div class="mac-url-pill mono" id="mac-url-pill">pipibot-daemon · 127.0.0.1:4242</div>
+          <span class="pipi-pill is-ok mono" id="mac-sse-pill">SSE Live</span>
+        </div>
+
+        <div class="mac-host-body">
+          <!-- Quiet Structural Filler Sidebar (Stageshow restraint: 3-7 focal strings) -->
+          <aside class="mac-sidebar" aria-hidden="true">
+            <div class="quiet-bar w-58"></div>
+            <div class="quiet-bar w-86"></div>
+            <div class="quiet-bar w-72"></div>
+            <div class="quiet-bar w-40"></div>
+            <div class="quiet-bar w-86"></div>
+            <div class="quiet-bar w-58"></div>
+          </aside>
+
+          <div class="mac-focal-panel">
+            <div>
+              <div class="stage-sub mono">ACTIVE AVATAR STATE · 120 HZ</div>
+              <div class="mac-kpi-row">
+                <span class="mac-kpi-figure mono" id="mac-avatar-state-label">ambient-breathe</span>
+                <span class="pipi-pill is-soul mono" id="mac-avatar-expr-label">happy</span>
+              </div>
+            </div>
+
+            <div class="pipi-list-card">
+              <div class="pipi-list-card-head">
+                <div>
+                  <div class="pipi-list-card-title" id="mac-focal-outcome">Layout Guardian Bot</div>
+                  <div class="pipi-list-card-sub" id="mac-focal-outcome-sub">CLS 0.34 -&gt; 0.01 · R2 evidence verified</div>
+                </div>
+                <span class="pipi-pill is-ok mono" id="mac-tunnel-rtt">CF 18ms</span>
+              </div>
+            </div>
+
+            <div class="pipi-list-card">
+              <div class="pipi-list-card-head">
+                <div>
+                  <div class="pipi-list-card-title">Understanding Score</div>
+                  <div class="pipi-list-card-sub" id="mac-understanding-sub">4-Tier Memory &amp; Nightly Dream Sync</div>
+                </div>
+                <span class="mac-kpi-figure mono" id="mac-understanding-score">94.2%</span>
+              </div>
+            </div>
+
+            <div class="quiet-bar w-86" aria-hidden="true"></div>
+            <div class="quiet-bar w-58" aria-hidden="true"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Straddling iPhone Companion PWA -->
+      <section class="iphone-companion" aria-label="iPhone Companion App">
+        <!-- Stageshow Dynamic Island (Single black pill shape + separate content layer) -->
+        <div class="di-stage">
+          <div class="di-pill-shape" id="dynamic-island" role="button" tabindex="0" aria-expanded="false">
+            <div class="di-content-layer">
+              <div class="di-compact-row">
+                <div class="di-leading">
+                  <div id="island-avatar-mount" style="width: 22px; height: 22px;"></div>
+                  <span id="di-compact-title">PipiBot · Ready</span>
+                </div>
+                <span class="mono" id="di-compact-badge">pi</span>
+              </div>
+
+              <div class="di-expanded-panel">
+                <div class="di-compact-row">
+                  <span class="stage-sub" id="di-expanded-subtitle">0 pending decisions · 5 nodes alive</span>
+                  <span class="mono" id="di-expanded-metric">18ms</span>
+                </div>
+                <div class="pipi-btn-row">
+                  <button class="pipi-btn pipi-btn-desktop pipi-btn-primary" id="di-quick-action-btn" type="button">
+                    <svg class="pipi-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    <span id="di-quick-action-label">Open Needs You</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ios-status-strip">
+          <span class="mono" id="ios-mode-chip">Demo Fallback</span>
+          <span class="mono" id="ios-tunnel-chip">CF Tunnel · 18ms</span>
+        </div>
+
+        <!-- Scrollable Active Tab Content -->
+        <div class="ios-scroll-body" id="ios-tab-content"></div>
+
+        <!-- Canonical Block 4: dock (summary + live PipiAvatar left, primary action right) -->
+        <div class="pipi-dock">
+          <div class="pipi-dock-left">
+            <div id="dock-avatar-mount" style="width: 34px; height: 34px; flex-shrink: 0;"></div>
+            <div class="pipi-dock-meta">
+              <div class="pipi-dock-title" id="dock-cue-title">Manus Cue · PipiBot Studio</div>
+              <div class="pipi-dock-sub" id="dock-cue-sub">Ready to evaluate active workspace</div>
+            </div>
+          </div>
+          <button class="pipi-btn pipi-btn-primary" id="dock-cue-btn" type="button">
+            <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            <span>Cue</span>
+          </button>
+        </div>
+
+        <!-- Canonical Block 5: Grounded bottom-bar -->
+        <nav class="pipi-bottom-bar" aria-label="iOS Companion Navigation">
+          <button class="pipi-tab-item is-active" data-tab="outcomes" type="button">
+            <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"></circle>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+            <span>Outcomes</span>
+          </button>
+          <button class="pipi-tab-item" data-tab="needs-you" type="button">
+            <span class="pipi-tab-badge mono" id="badge-needs-you">3</span>
+            <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+            <span>Needs You</span>
+          </button>
+          <button class="pipi-tab-item" data-tab="muse" type="button">
+            <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+              <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+              <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+              <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+            </svg>
+            <span>Muse</span>
+          </button>
+          <button class="pipi-tab-item" data-tab="fleet" type="button">
+            <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="6" cy="6" r="2"></circle>
+              <circle cx="18" cy="6" r="2"></circle>
+              <circle cx="6" cy="18" r="2"></circle>
+              <circle cx="18" cy="18" r="2"></circle>
+              <circle cx="12" cy="12" r="2"></circle>
+            </svg>
+            <span>Fleet</span>
+          </button>
+          <button class="pipi-tab-item" data-tab="soul" type="button">
+            <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+            <span>Soul</span>
+          </button>
+        </nav>
+
+        <!-- Canonical Block 2 & 3: Modal Sheet / Form-Sheet Container (topEdge 54px / 102px) -->
+        <div class="pipi-sheet-backdrop" id="sheet-backdrop">
+          <div class="pipi-sheet" id="active-sheet" role="dialog" aria-modal="true"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

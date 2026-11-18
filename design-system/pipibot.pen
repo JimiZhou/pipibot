@@ -1,0 +1,615 @@
+{
+  "schemaVersion": "1.0.0",
+  "meta": {
+    "name": "PipiBot Ambient Soul & Outcome Studio",
+    "version": "0.2.0-beta",
+    "defaultMode": "Obsidian Dark",
+    "modes": ["Obsidian Dark", "Vellum Light"],
+    "updatedAt": "2026-11-19"
+  },
+  "variableCollections": {
+    "foundations": {
+      "id": "col-foundations",
+      "modes": ["default"],
+      "variables": {
+        "foundations.obsidian.01": { "type": "COLOR", "values": { "default": "#08090B" } },
+        "foundations.obsidian.02": { "type": "COLOR", "values": { "default": "#0B0C0E" } },
+        "foundations.obsidian.03": { "type": "COLOR", "values": { "default": "#121418" } },
+        "foundations.obsidian.04": { "type": "COLOR", "values": { "default": "#171A20" } },
+        "foundations.obsidian.05": { "type": "COLOR", "values": { "default": "#1E222B" } },
+        "foundations.obsidian.06": { "type": "COLOR", "values": { "default": "#262B38" } },
+        "foundations.obsidian.07": { "type": "COLOR", "values": { "default": "#363D4F" } },
+        "foundations.obsidian.09": { "type": "COLOR", "values": { "default": "#6C7382" } },
+        "foundations.obsidian.10": { "type": "COLOR", "values": { "default": "#A1A7B3" } },
+        "foundations.obsidian.12": { "type": "COLOR", "values": { "default": "#F4F5F7" } },
+        "foundations.vellum.01": { "type": "COLOR", "values": { "default": "#FFFFFF" } },
+        "foundations.vellum.02": { "type": "COLOR", "values": { "default": "#FDFCF9" } },
+        "foundations.vellum.03": { "type": "COLOR", "values": { "default": "#F7F5F0" } },
+        "foundations.vellum.04": { "type": "COLOR", "values": { "default": "#F1EDE4" } },
+        "foundations.vellum.05": { "type": "COLOR", "values": { "default": "#EBE6DC" } },
+        "foundations.vellum.06": { "type": "COLOR", "values": { "default": "#DED8CC" } },
+        "foundations.vellum.07": { "type": "COLOR", "values": { "default": "#C8C1B3" } },
+        "foundations.vellum.09": { "type": "COLOR", "values": { "default": "#8B867D" } },
+        "foundations.vellum.10": { "type": "COLOR", "values": { "default": "#5E5B55" } },
+        "foundations.vellum.12": { "type": "COLOR", "values": { "default": "#171614" } },
+        "foundations.iris.dark": { "type": "COLOR", "values": { "default": "#7C6CF6" } },
+        "foundations.iris.darkBtn": { "type": "COLOR", "values": { "default": "#6353E8" } },
+        "foundations.iris.light": { "type": "COLOR", "values": { "default": "#5B4CE4" } },
+        "foundations.cyan.dark": { "type": "COLOR", "values": { "default": "#38BDF8" } },
+        "foundations.cyan.light": { "type": "COLOR", "values": { "default": "#0369A1" } },
+        "foundations.emerald.dark": { "type": "COLOR", "values": { "default": "#10B981" } },
+        "foundations.emerald.light": { "type": "COLOR", "values": { "default": "#047857" } },
+        "foundations.amber.dark": { "type": "COLOR", "values": { "default": "#F59E0B" } },
+        "foundations.amber.light": { "type": "COLOR", "values": { "default": "#B45309" } },
+        "foundations.crimson.dark": { "type": "COLOR", "values": { "default": "#EF4444" } },
+        "foundations.crimson.light": { "type": "COLOR", "values": { "default": "#B91C1C" } },
+        "foundations.terracotta.dark": { "type": "COLOR", "values": { "default": "#D97757" } },
+        "foundations.terracotta.light": { "type": "COLOR", "values": { "default": "#B55233" } },
+        "foundations.cobalt.dark": { "type": "COLOR", "values": { "default": "#3B82F6" } },
+        "foundations.cobalt.light": { "type": "COLOR", "values": { "default": "#1D4ED8" } },
+        "foundations.violet.dark": { "type": "COLOR", "values": { "default": "#A855F7" } },
+        "foundations.violet.light": { "type": "COLOR", "values": { "default": "#7E22CE" } },
+        "foundations.black": { "type": "COLOR", "values": { "default": "#050507" } },
+        "foundations.white": { "type": "COLOR", "values": { "default": "#FFFFFF" } }
+      }
+    },
+    "theme": {
+      "id": "col-theme",
+      "modes": ["Obsidian Dark", "Vellum Light"],
+      "variables": {
+        "theme.step01": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.01" }, "Vellum Light": { "alias": "foundations.vellum.01" } } },
+        "theme.step02": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.02" }, "Vellum Light": { "alias": "foundations.vellum.02" } } },
+        "theme.step03": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.03" }, "Vellum Light": { "alias": "foundations.vellum.03" } } },
+        "theme.step04": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.04" }, "Vellum Light": { "alias": "foundations.vellum.04" } } },
+        "theme.step05": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.05" }, "Vellum Light": { "alias": "foundations.vellum.05" } } },
+        "theme.step06": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.06" }, "Vellum Light": { "alias": "foundations.vellum.06" } } },
+        "theme.step07": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.07" }, "Vellum Light": { "alias": "foundations.vellum.07" } } },
+        "theme.step09": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.09" }, "Vellum Light": { "alias": "foundations.vellum.09" } } },
+        "theme.step10": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.10" }, "Vellum Light": { "alias": "foundations.vellum.10" } } },
+        "theme.step12": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.12" }, "Vellum Light": { "alias": "foundations.vellum.12" } } }
+      }
+    },
+    "tokens": {
+      "id": "col-tokens",
+      "modes": ["Obsidian Dark", "Vellum Light"],
+      "variables": {
+        "tokens.bgCanvas": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step02" }, "Vellum Light": { "alias": "theme.step03" } } },
+        "tokens.bgElevated": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step03" }, "Vellum Light": { "alias": "theme.step01" } } },
+        "tokens.bgSurface": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step04" }, "Vellum Light": { "alias": "theme.step02" } } },
+        "tokens.bgSurfaceHover": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step05" }, "Vellum Light": { "alias": "theme.step04" } } },
+        "tokens.bgInset": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step01" }, "Vellum Light": { "alias": "theme.step05" } } },
+        "tokens.borderSubtle": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step06" }, "Vellum Light": { "alias": "theme.step06" } } },
+        "tokens.borderStrong": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step07" }, "Vellum Light": { "alias": "theme.step07" } } },
+        "tokens.textPrimary": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step12" }, "Vellum Light": { "alias": "theme.step12" } } },
+        "tokens.textSecondary": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step10" }, "Vellum Light": { "alias": "theme.step10" } } },
+        "tokens.textMuted": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step09" }, "Vellum Light": { "alias": "theme.step09" } } },
+        "tokens.textInverse": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "theme.step02" }, "Vellum Light": { "alias": "theme.step01" } } },
+        "tokens.soulPrimary": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.iris.dark" }, "Vellum Light": { "alias": "foundations.iris.light" } } },
+        "tokens.soulBtnBg": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.iris.darkBtn" }, "Vellum Light": { "alias": "foundations.iris.light" } } },
+        "tokens.soulSecondary": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.cyan.dark" }, "Vellum Light": { "alias": "foundations.cyan.light" } } },
+        "tokens.statusOk": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.emerald.dark" }, "Vellum Light": { "alias": "foundations.emerald.light" } } },
+        "tokens.statusWarn": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.amber.dark" }, "Vellum Light": { "alias": "foundations.amber.light" } } },
+        "tokens.statusDanger": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.crimson.dark" }, "Vellum Light": { "alias": "foundations.crimson.light" } } },
+        "tokens.harnessPi": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.emerald.dark" }, "Vellum Light": { "alias": "foundations.emerald.light" } } },
+        "tokens.harnessClaude": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.terracotta.dark" }, "Vellum Light": { "alias": "foundations.terracotta.light" } } },
+        "tokens.harnessCodex": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.cobalt.dark" }, "Vellum Light": { "alias": "foundations.cobalt.light" } } },
+        "tokens.harnessOpencode": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.violet.dark" }, "Vellum Light": { "alias": "foundations.violet.light" } } },
+        "tokens.harnessByok": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.amber.dark" }, "Vellum Light": { "alias": "foundations.amber.light" } } },
+        "tokens.islandBg": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.black" }, "Vellum Light": { "alias": "foundations.black" } } },
+        "tokens.islandFg": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.obsidian.12" }, "Vellum Light": { "alias": "foundations.obsidian.12" } } },
+        "tokens.btnPrimaryFg": { "type": "COLOR", "values": { "Obsidian Dark": { "alias": "foundations.white" }, "Vellum Light": { "alias": "foundations.white" } } }
+      }
+    }
+  },
+  "textStyles": {
+    "ts-display-lg": { "fontFamily": "SF Pro Display", "fontSize": 24, "fontWeight": 700, "lineHeight": 30 },
+    "ts-title-md": { "fontFamily": "SF Pro Display", "fontSize": 17, "fontWeight": 700, "lineHeight": 22 },
+    "ts-title-sm": { "fontFamily": "SF Pro Text", "fontSize": 15, "fontWeight": 600, "lineHeight": 20 },
+    "ts-body-md": { "fontFamily": "SF Pro Text", "fontSize": 14, "fontWeight": 400, "lineHeight": 20 },
+    "ts-body-sm": { "fontFamily": "SF Pro Text", "fontSize": 13, "fontWeight": 400, "lineHeight": 18 },
+    "ts-label-sm": { "fontFamily": "SF Pro Text", "fontSize": 12, "fontWeight": 600, "lineHeight": 16 },
+    "ts-mono-sm": { "fontFamily": "JetBrains Mono", "fontSize": 12, "fontWeight": 500, "lineHeight": 16 },
+    "ts-mono-xs": { "fontFamily": "JetBrains Mono", "fontSize": 11, "fontWeight": 500, "lineHeight": 14 }
+  },
+  "components": [
+    {
+      "id": "comp-list-card",
+      "name": "list-card",
+      "type": "COMPONENT",
+      "platform": "shared",
+      "cornerRadius": 16,
+      "padding": 12,
+      "gap": 10,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgSurface", "fallbackColor": "#171A20" }],
+      "strokes": [{ "type": "SOLID", "variableId": "tokens.borderSubtle", "fallbackColor": "#262B38" }],
+      "children": [
+        { "id": "lc-icon", "type": "ICON", "name": "leading-icon", "size": 20, "strokeWeight": 1.75, "strokes": [{ "type": "SOLID", "variableId": "tokens.soulSecondary", "fallbackColor": "#38BDF8" }] },
+        { "id": "lc-title", "type": "TEXT", "textStyleId": "ts-title-sm", "content": "Layout Guardian Bot", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "lc-sub", "type": "TEXT", "textStyleId": "ts-body-sm", "content": "Every 3h on main · CLS 0.01", "fills": [{ "type": "SOLID", "variableId": "tokens.textSecondary", "fallbackColor": "#A1A7B3" }] }
+      ]
+    },
+    {
+      "id": "comp-sheet",
+      "name": "sheet",
+      "type": "COMPONENT",
+      "platform": "mobile",
+      "role": "sheet",
+      "topEdge": 102,
+      "cornerRadius": 28,
+      "padding": 16,
+      "clip": true,
+      "overflowDirection": "VERTICAL",
+      "effects": [{ "type": "DROP_SHADOW", "radius": 24 }],
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgElevated", "fallbackColor": "#121418" }],
+      "strokes": [{ "type": "SOLID", "variableId": "tokens.borderStrong", "fallbackColor": "#363D4F" }],
+      "children": [
+        { "id": "sh-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "Select Harness", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "sh-close", "type": "ICON", "name": "close-icon", "size": 20, "strokeWeight": 1.75, "strokes": [{ "type": "SOLID", "variableId": "tokens.textSecondary", "fallbackColor": "#A1A7B3" }] }
+      ]
+    },
+    {
+      "id": "comp-form-sheet",
+      "name": "form-sheet",
+      "type": "COMPONENT",
+      "platform": "mobile",
+      "role": "sheet",
+      "topEdge": 54,
+      "cornerRadius": 28,
+      "padding": 16,
+      "clip": true,
+      "overflowDirection": "VERTICAL",
+      "effects": [{ "type": "DROP_SHADOW", "radius": 24 }],
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgElevated", "fallbackColor": "#121418" }],
+      "strokes": [{ "type": "SOLID", "variableId": "tokens.borderStrong", "fallbackColor": "#363D4F" }],
+      "children": [
+        { "id": "fs-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "New Outcome Responsibility", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "fs-field-label", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Goal & Success Metric", "fills": [{ "type": "SOLID", "variableId": "tokens.textSecondary", "fallbackColor": "#A1A7B3" }] },
+        {
+          "id": "fs-submit-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "mobile",
+          "height": 44,
+          "iconSize": 18,
+          "gap": 8,
+          "cornerRadius": 12,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "fs-btn-icon", "type": "ICON", "size": 18, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "fs-btn-txt", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Launch Outcome", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "comp-dock",
+      "name": "dock",
+      "type": "COMPONENT",
+      "platform": "mobile",
+      "height": 64,
+      "cornerRadius": 20,
+      "padding": 12,
+      "gap": 12,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgSurface", "fallbackColor": "#171A20" }],
+      "strokes": [{ "type": "SOLID", "variableId": "tokens.borderStrong", "fallbackColor": "#363D4F" }],
+      "children": [
+        { "id": "dk-status", "type": "TEXT", "textStyleId": "ts-body-sm", "content": "Pi Core · Ready", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        {
+          "id": "dk-action-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "mobile",
+          "height": 44,
+          "iconSize": 18,
+          "gap": 8,
+          "cornerRadius": 9999,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "dk-btn-icon", "type": "ICON", "size": 18, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "dk-btn-txt", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Cue", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "comp-bottom-bar",
+      "name": "bottom-bar",
+      "type": "COMPONENT",
+      "platform": "mobile",
+      "height": 68,
+      "padding": 12,
+      "gap": 8,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgElevated", "fallbackColor": "#121418" }],
+      "strokes": [{ "type": "SOLID", "variableId": "tokens.borderSubtle", "fallbackColor": "#262B38" }],
+      "children": [
+        { "id": "bb-tab-icon", "type": "ICON", "size": 20, "strokeWeight": 1.75, "strokes": [{ "type": "SOLID", "variableId": "tokens.soulPrimary", "fallbackColor": "#7C6CF6" }] },
+        { "id": "bb-tab-label", "type": "TEXT", "textStyleId": "ts-mono-xs", "content": "Outcomes", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] }
+      ]
+    },
+    {
+      "id": "comp-empty-state",
+      "name": "empty-state",
+      "type": "COMPONENT",
+      "platform": "mobile",
+      "cornerRadius": 20,
+      "padding": 24,
+      "gap": 12,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgSurface", "fallbackColor": "#171A20" }],
+      "strokes": [{ "type": "SOLID", "variableId": "tokens.borderSubtle", "fallbackColor": "#262B38" }],
+      "children": [
+        { "id": "es-icon", "type": "ICON", "size": 24, "strokeWeight": 1.75, "strokes": [{ "type": "SOLID", "variableId": "tokens.statusOk", "fallbackColor": "#10B981" }] },
+        { "id": "es-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "Zero Pending Decisions", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "es-body", "type": "TEXT", "textStyleId": "ts-body-sm", "content": "PipiFleet bots are watching your outcomes quietly.", "fills": [{ "type": "SOLID", "variableId": "tokens.textSecondary", "fallbackColor": "#A1A7B3" }] },
+        {
+          "id": "es-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "mobile",
+          "height": 44,
+          "iconSize": 18,
+          "gap": 8,
+          "cornerRadius": 12,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "es-btn-icon", "type": "ICON", "size": 18, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "es-btn-txt", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Evaluate Now", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    }
+  ],
+  "screens": [
+    {
+      "id": "scr-mac-menubar-popover",
+      "name": "macOS MenuBar Popover",
+      "type": "FRAME",
+      "platform": "desktop",
+      "width": 420,
+      "height": 640,
+      "cornerRadius": 20,
+      "clip": true,
+      "effects": [{ "type": "DROP_SHADOW", "radius": 32 }],
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgElevated", "fallbackColor": "#121418" }],
+      "strokes": [{ "type": "SOLID", "variableId": "tokens.borderStrong", "fallbackColor": "#363D4F" }],
+      "children": [
+        { "id": "mmp-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "Outcome Studio", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "mmp-rtt", "type": "TEXT", "textStyleId": "ts-mono-xs", "content": "CF Tunnel · 18ms", "fills": [{ "type": "SOLID", "variableId": "tokens.statusOk", "fallbackColor": "#10B981" }] },
+        {
+          "id": "mmp-dispatch-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "desktop",
+          "height": 32,
+          "iconSize": 16,
+          "gap": 6,
+          "cornerRadius": 10,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "mmp-btn-icon", "type": "ICON", "size": 16, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "mmp-btn-lbl", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Dispatch", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scr-mac-manus-cue-pill",
+      "name": "macOS Manus Cue Pill",
+      "type": "FRAME",
+      "platform": "desktop",
+      "width": 560,
+      "height": 48,
+      "cornerRadius": 9999,
+      "clip": true,
+      "effects": [{ "type": "DROP_SHADOW", "radius": 24 }],
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgElevated", "fallbackColor": "#121418" }],
+      "strokes": [{ "type": "SOLID", "variableId": "tokens.borderStrong", "fallbackColor": "#363D4F" }],
+      "children": [
+        { "id": "cue-ctx", "type": "TEXT", "textStyleId": "ts-mono-xs", "content": "Xcode · PipiHost.swift", "fills": [{ "type": "SOLID", "variableId": "tokens.soulSecondary", "fallbackColor": "#38BDF8" }] },
+        { "id": "cue-msg", "type": "TEXT", "textStyleId": "ts-body-sm", "content": "Run SwiftUI regression via Pi + Xcode MCP", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        {
+          "id": "cue-run-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "desktop",
+          "height": 32,
+          "iconSize": 16,
+          "gap": 6,
+          "cornerRadius": 9999,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "cue-btn-icon", "type": "ICON", "size": 16, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "cue-btn-lbl", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Run", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scr-stageshow-device-pair",
+      "name": "Stageshow Device Pair Hero",
+      "type": "FRAME",
+      "platform": "desktop",
+      "pattern": "device-pair",
+      "width": 720,
+      "height": 420,
+      "cornerRadius": 20,
+      "clip": true,
+      "overflowDirection": "NONE",
+      "effects": [{ "type": "DROP_SHADOW", "radius": 36 }],
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgCanvas", "fallbackColor": "#0B0C0E" }],
+      "children": [
+        { "id": "sdp-title", "type": "TEXT", "textStyleId": "ts-display-lg", "content": "CLS 0.34 -> 0.01", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "sdp-badge", "type": "TEXT", "textStyleId": "ts-mono-xs", "content": "PR #42 Shipped", "fills": [{ "type": "SOLID", "variableId": "tokens.statusOk", "fallbackColor": "#10B981" }] },
+        { "id": "sdp-sat-title", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Needs You · Approved", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] }
+      ]
+    },
+    {
+      "id": "scr-ios-outcomes-dashboard",
+      "name": "iOS Outcomes Dashboard",
+      "type": "FRAME",
+      "platform": "mobile",
+      "width": 390,
+      "height": 844,
+      "cornerRadius": 36,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgCanvas", "fallbackColor": "#0B0C0E" }],
+      "children": [
+        { "id": "iod-head", "type": "TEXT", "textStyleId": "ts-display-lg", "content": "Outcomes", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "iod-sub", "type": "TEXT", "textStyleId": "ts-mono-xs", "content": "4 Active · 3 Sub-Sessions", "fills": [{ "type": "SOLID", "variableId": "tokens.textSecondary", "fallbackColor": "#A1A7B3" }] },
+        {
+          "id": "iod-new-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "mobile",
+          "height": 44,
+          "iconSize": 18,
+          "gap": 8,
+          "cornerRadius": 9999,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "iod-btn-icon", "type": "ICON", "size": 18, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "iod-btn-lbl", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "New Outcome", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scr-ios-needs-you-deck",
+      "name": "iOS Needs You Swipe Deck",
+      "type": "FRAME",
+      "platform": "mobile",
+      "width": 390,
+      "height": 844,
+      "cornerRadius": 36,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgCanvas", "fallbackColor": "#0B0C0E" }],
+      "children": [
+        { "id": "iny-head", "type": "TEXT", "textStyleId": "ts-title-md", "content": "Approve PR #42 · CLS Fix", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "iny-r2", "type": "TEXT", "textStyleId": "ts-mono-xs", "content": "r2://pr-42-diff.mp4", "fills": [{ "type": "SOLID", "variableId": "tokens.soulSecondary", "fallbackColor": "#38BDF8" }] },
+        {
+          "id": "iny-approve-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "mobile",
+          "height": 44,
+          "iconSize": 18,
+          "gap": 8,
+          "cornerRadius": 12,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "iny-btn-icon", "type": "ICON", "size": 18, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "iny-btn-lbl", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Approve & Ship", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scr-ios-harness-sheet",
+      "name": "iOS Harness Selector Sheet",
+      "type": "FRAME",
+      "platform": "mobile",
+      "role": "sheet",
+      "topEdge": 102,
+      "width": 390,
+      "height": 742,
+      "cornerRadius": 28,
+      "clip": true,
+      "overflowDirection": "VERTICAL",
+      "effects": [{ "type": "DROP_SHADOW", "radius": 28 }],
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgElevated", "fallbackColor": "#121418" }],
+      "children": [
+        { "id": "ihs-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "PipiRouter Harness", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "ihs-pi", "type": "TEXT", "textStyleId": "ts-body-md", "content": "Pi Core · Claude Code · Codex · OpenCode", "fills": [{ "type": "SOLID", "variableId": "tokens.harnessPi", "fallbackColor": "#10B981" }] }
+      ]
+    },
+    {
+      "id": "scr-ios-create-outcome-form",
+      "name": "iOS Create Outcome Form-Sheet",
+      "type": "FRAME",
+      "platform": "mobile",
+      "role": "sheet",
+      "topEdge": 54,
+      "width": 390,
+      "height": 790,
+      "cornerRadius": 28,
+      "clip": true,
+      "overflowDirection": "VERTICAL",
+      "effects": [{ "type": "DROP_SHADOW", "radius": 28 }],
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgElevated", "fallbackColor": "#121418" }],
+      "children": [
+        { "id": "icf-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "Assign Outcome", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        {
+          "id": "icf-submit-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "mobile",
+          "height": 44,
+          "iconSize": 18,
+          "gap": 8,
+          "cornerRadius": 12,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "icf-btn-icon", "type": "ICON", "size": 18, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "icf-btn-lbl", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Start Responsibility", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scr-ios-muse-canvas",
+      "name": "iOS Muse Spatial Canvas",
+      "type": "FRAME",
+      "platform": "mobile",
+      "width": 390,
+      "height": 844,
+      "cornerRadius": 36,
+      "clip": true,
+      "overflowDirection": "BOTH",
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgCanvas", "fallbackColor": "#0B0C0E" }],
+      "children": [
+        { "id": "imc-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "Muse Spatial Canvas", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "imc-card1", "type": "TEXT", "textStyleId": "ts-body-sm", "content": "Life · Tokyo NH962 Check-in", "fills": [{ "type": "SOLID", "variableId": "tokens.statusOk", "fallbackColor": "#10B981" }] },
+        {
+          "id": "imc-voice-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "mobile",
+          "height": 44,
+          "iconSize": 18,
+          "gap": 8,
+          "cornerRadius": 9999,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "imc-btn-icon", "type": "ICON", "size": 18, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "imc-btn-lbl", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Interrupt", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scr-ios-dots-fleet",
+      "name": "iOS Dots Fleet Vitality",
+      "type": "FRAME",
+      "platform": "mobile",
+      "width": 390,
+      "height": 844,
+      "cornerRadius": 36,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgCanvas", "fallbackColor": "#0B0C0E" }],
+      "children": [
+        { "id": "idf-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "PipiFleet · 5 Nodes Alive", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "idf-rtt", "type": "TEXT", "textStyleId": "ts-mono-sm", "content": "Mac 2ms · VPS 34ms · ESP32 8ms", "fills": [{ "type": "SOLID", "variableId": "tokens.soulSecondary", "fallbackColor": "#38BDF8" }] }
+      ]
+    },
+    {
+      "id": "scr-ios-soul-memory",
+      "name": "iOS Soul & Memory Evolution",
+      "type": "FRAME",
+      "platform": "mobile",
+      "width": 390,
+      "height": 844,
+      "cornerRadius": 36,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgCanvas", "fallbackColor": "#0B0C0E" }],
+      "children": [
+        { "id": "ism-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "Understanding 94.2%", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "ism-diff", "type": "TEXT", "textStyleId": "ts-mono-xs", "content": "USER.md +2 facts · cf-tunnel-heal.md", "fills": [{ "type": "SOLID", "variableId": "tokens.statusOk", "fallbackColor": "#10B981" }] }
+      ]
+    },
+    {
+      "id": "scr-ios-empty-state",
+      "name": "iOS Empty State Inbox",
+      "type": "FRAME",
+      "platform": "mobile",
+      "width": 390,
+      "height": 844,
+      "cornerRadius": 36,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgCanvas", "fallbackColor": "#0B0C0E" }],
+      "children": [
+        { "id": "ies-icon", "type": "ICON", "size": 24, "strokeWeight": 1.75, "strokes": [{ "type": "SOLID", "variableId": "tokens.statusOk", "fallbackColor": "#10B981" }] },
+        { "id": "ies-title", "type": "TEXT", "textStyleId": "ts-title-md", "content": "All Caught Up", "fills": [{ "type": "SOLID", "variableId": "tokens.textPrimary", "fallbackColor": "#F4F5F7" }] },
+        { "id": "ies-sentence", "type": "TEXT", "textStyleId": "ts-body-sm", "content": "Your Mac resident and VPS fleet are running autonomously.", "fills": [{ "type": "SOLID", "variableId": "tokens.textSecondary", "fallbackColor": "#A1A7B3" }] },
+        {
+          "id": "ies-cta-btn",
+          "type": "FRAME",
+          "role": "button",
+          "platform": "mobile",
+          "height": 44,
+          "iconSize": 18,
+          "gap": 8,
+          "cornerRadius": 12,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+          "children": [
+            { "id": "ies-btn-icon", "type": "ICON", "size": 18, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+            { "id": "ies-btn-lbl", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "New Outcome", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scr-ios-dynamic-island",
+      "name": "iOS Dynamic Island Live Activity",
+      "type": "FRAME",
+      "platform": "mobile",
+      "pattern": "dynamic-island",
+      "width": 390,
+      "height": 340,
+      "cornerRadius": 36,
+      "clip": false,
+      "fills": [{ "type": "SOLID", "variableId": "tokens.bgCanvas", "fallbackColor": "#0B0C0E" }],
+      "children": [
+        {
+          "id": "idi-pill-shape",
+          "type": "FRAME",
+          "layerRole": "island-shape",
+          "width": 364,
+          "height": 168,
+          "cornerRadius": 44,
+          "clip": false,
+          "fills": [{ "type": "SOLID", "variableId": "tokens.islandBg", "fallbackColor": "#050507" }],
+          "strokes": [{ "type": "SOLID", "variableId": "tokens.borderStrong", "fallbackColor": "#363D4F" }]
+        },
+        {
+          "id": "idi-content-layer",
+          "type": "FRAME",
+          "layerRole": "island-content",
+          "clip": false,
+          "children": [
+            { "id": "idi-title", "type": "TEXT", "textStyleId": "ts-title-sm", "content": "Layout Bot · PR #42", "fills": [{ "type": "SOLID", "variableId": "tokens.islandFg", "fallbackColor": "#F4F5F7" }] },
+            { "id": "idi-metric", "type": "TEXT", "textStyleId": "ts-mono-xs", "content": "CLS 0.34 -> 0.01", "fills": [{ "type": "SOLID", "variableId": "tokens.statusOk", "fallbackColor": "#10B981" }] },
+            {
+              "id": "idi-approve-btn",
+              "type": "FRAME",
+              "role": "button",
+              "platform": "mobile",
+              "height": 44,
+              "iconSize": 18,
+              "gap": 8,
+              "cornerRadius": 9999,
+              "clip": false,
+              "fills": [{ "type": "SOLID", "variableId": "tokens.soulBtnBg", "fallbackColor": "#6353E8" }],
+              "children": [
+                { "id": "idi-btn-icon", "type": "ICON", "size": 18, "strokeWeight": 1.5, "strokes": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] },
+                { "id": "idi-btn-lbl", "type": "TEXT", "textStyleId": "ts-label-sm", "content": "Approve PR", "fills": [{ "type": "SOLID", "variableId": "tokens.btnPrimaryFg", "fallbackColor": "#FFFFFF" }] }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

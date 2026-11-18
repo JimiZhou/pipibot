@@ -1,8 +1,8 @@
 # PipiBot 全阶段工程开发计划 (Engineering Development Plan & WBS)
 
-> **版本基线**: `v0.1.0-alpha` (Phase 0 开源基线已冻结，Phase 1–5 排期 8 周)
+> **版本基线**: `v0.2.0-beta` (Phase 0 已验收发布；V1 Mac 常驻 Daemon + Swift 6 Mac/iOS + iOS PWA + OpenPencil 设计治理已落地，Phase 1–5 持续演进)
 > **核心理念**: *From Tasks to Outcomes, From Chatbots to a Living Cross-Device AI Manager*
-> **相关文档**: [产品愿景与竞品研究](../architecture/01-PRODUCT-VISION-AND-RESEARCH.md) · [系统架构与 Harness](../architecture/02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) · [Cloudflare 与 PipiFleet](../architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md) · [记忆与自我进化](../architecture/04-MEMORY-AND-SELF-EVOLUTION.md) · [UI/UX 设计系统](../design-system/01-UIUX-DESIGN-SYSTEM.md) · [实时进度看板与 ADR](./02-PROGRESS-TRACKER.md)
+> **相关文档**: [产品愿景与竞品研究](../architecture/01-PRODUCT-VISION-AND-RESEARCH.md) · [系统架构与 Harness](../architecture/02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) · [Cloudflare 与 PipiFleet](../architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md) · [记忆与自我进化](../architecture/04-MEMORY-AND-SELF-EVOLUTION.md) · [Mac/iOS V1 实现规范](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) · [UI/UX 设计系统](../design-system/01-UIUX-DESIGN-SYSTEM.md) · [实时进度看板与 ADR](./02-PROGRESS-TRACKER.md)
 
 ---
 
@@ -26,11 +26,11 @@ flowchart LR
 
 | Phase | 目标版本 | 周期 | 核心交付物 (Key Deliverables) | 准出关键指标 (Exit Gate) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Phase 0** | `v0.1.0-alpha` | Baseline | 4 份架构文档、UI/UX 规范、零依赖 120Hz Avatar 交互工作台、Protocol/Core/Edge 代码骨架 | `node --check` 通过、浏览器零构建运行工作台、文档与接口契约完整 |
-| **Phase 1** | `v0.2.0-alpha` | Weeks 1–2 | `pipibot-daemon` (`launchd`)、Pi SDK 嵌入、Claude Code/Codex/OpenCode + Routed MCP Bridge、4 层 SQLite 记忆 | 4 大 Harness 端到端闭环调度、250ms 脉冲零丢帧、FTS5+vec 召回 < 20ms |
+| **Phase 0** | `v0.1.0-alpha` ✅ | Baseline | 4 份架构文档、UI/UX 规范、零依赖 120Hz Avatar 交互工作台、Protocol/Core/Edge 代码骨架 | `node --check` 通过、浏览器零构建运行工作台、文档与接口契约完整 |
+| **Phase 1** | `v0.2.0-beta` 🚧 (~75%) | Weeks 1–2 | ✅ `@pipibot/daemon` HTTP REST + 250ms SSE + `PipiOutcomeEngine` + `PipiCueSensor`/`PipiFleetManager` + `launchd` plist；⏳ 原生 SQLite FTS5/`sqlite-vec` 磁盘持久化与真实 CLI 子进程全量闭环 | `node --test packages/daemon/test/daemon.test.ts` 通过、250ms 脉冲零丢帧、FTS5+vec 召回 < 20ms |
 | **Phase 2** | `v0.3.0-beta` | Week 3 | `cloudflared` 隧道编排、Worker Relay、D1 注册表、R2 制品零出站费上传、Access Zero Trust | 全链路 $0/月 配额验证、Mac 休眠离线队列重放 100% 不丢消息 |
-| **Phase 3** | `v0.4.0-beta` | Weeks 4–5 | macOS MenuBar & Manus Cue (`⌥Space`)、`pipibot-ios` SwiftUI、Dynamic Island、Needs You 滑动收件箱 | 120fps Avatar CPU < 1%、iOS 审批指令经 Tunnel 回传执行 < 1.5s |
-| **Phase 4** | `v0.5.0-rc` | Week 6 | Devin 风格 Outcome Manager、Autonomous Evaluators、夜间做梦反思与 Pi Skill 自动合成 | 72 小时无人值守 Outcome 闭环运行、Evolution Diff 透明审计卡片 |
+| **Phase 3** | `v0.2.0-beta` -> `v0.4.0-beta` 🚧 (~80%) | Weeks 4–5 | ✅ OpenPencil `.pen` + 5-Rule 审计 + Stageshow；✅ Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp` MenuBar & Manus Cue `⌥Space`)；✅ Live iOS Companion PWA (`apps/ios-web`)；⏳ 真机 `ActivityKit` 灵动岛与全局热键签名打包 | `npm run audit:design` 0 违规、`swift build && swift test` 通过、120fps Avatar CPU < 1% |
+| **Phase 4** | `v0.5.0-rc` | Week 6 | Devin 风格 Outcome Manager 持久化循环、Autonomous Evaluators、夜间做梦反思与 Pi Skill 自动合成（原型链路已在 Daemon API 就绪） | 72 小时无人值守 Outcome 闭环运行、Evolution Diff 透明审计卡片 |
 | **Phase 5** | `v1.0.0` | Weeks 7–8 | Linux VPS `systemd`、Windows Service/WSL2、Raspberry Pi / ESP32 MQTT / Home Assistant 节点 | 单节点代理空闲内存 < 15MB、跨生活/工作/开发/IoT 统一 Fleet 协同 |
 
 ---
@@ -56,13 +56,11 @@ flowchart LR
 
 **目标**：让 PipiBot 在 macOS 本机真正“活”起来，具备永不掉线的后台进程、统一的推理调度器及持久化记忆引擎。
 
-#### WBS 1.1: macOS Always-On Resident Daemon (`pipibot-daemon`)
-- **Launchd 托管与守护 (`com.pipibot.daemon.plist`)**：
-  - 实现 `KeepAlive: true`、`RunAtLoad: true`、标准日志轮转与优雅信号处理（`SIGTERM`/`SIGINT` 时落盘 SQLite WAL checkpoint 与中断状态）。
-  - 集成 `IOPMAssertionCreateWithName`（仅在长跑关键任务期间按需阻止空闲休眠，常规待机允许进入 Dark Wake / Power Nap）。
-- **本地 IPC 与状态广播**：
-  - 暴露 Unix Domain Socket (`~/.pipibot/run/daemon.sock`) 供 MenuBar、Manus Cue 与 CLI 秒级连接；同时提供本地 loopback WebSocket (`127.0.0.1:18420`) 供给实时流视图。
-  - 实现 **250ms Activity Pulse** 心跳节拍器，将当前运行状态映射到 `AvatarState53` 并驱动前端弹簧动效。
+#### WBS 1.1: macOS Always-On Resident Daemon (`packages/daemon` / `@pipibot/daemon`)
+- **Launchd 托管与守护 (`ai.pipibot.daemon.plist`)**：
+  - `v0.2.0-beta` 已通过 [`packages/daemon/src/server.ts`](../../packages/daemon/src/server.ts) 提供 `GET /api/v1/launchd-plist` 动态生成器（含 `KeepAlive: true`、`RunAtLoad: true` 与日志轮转配置），后续将进一步绑定原生 `IOPMAssertionCreateWithName` 休眠锁控制与 SQLite WAL checkpoint 信号钩子。
+- **本地 HTTP REST + SSE 与状态广播**：
+  - `v0.2.0-beta` 已交付零外部依赖 `PipiResidentServer`（默认 `127.0.0.1:4242`，完整 REST `/api/v1/*` + `/design-system/` 与 `/ios` 静态托管）以及 **250ms Activity Pulse** SSE 事件流 (`/api/v1/events`)；后续增量补充 Unix Domain Socket (`~/.pipibot/run/daemon.sock`) 以降低本地进程间通信开销。
 
 #### WBS 1.2: Embedded Pi Harness SDK Integration (`PipiCore`)
 - **嵌入 `@mariozechner/pi-coding-agent` 与 `pi-ai`**：
@@ -119,28 +117,26 @@ flowchart LR
 
 ---
 
-### Phase 3 (Weeks 4–5): macOS MenuBar & Manus Cue (`⌥Space`) + iOS 原生伴侣端
+### Phase 3 (Weeks 4–5): OpenPencil 5-Rule 设计治理 + macOS MenuBar/Cue (`⌥Space`) + iOS 原生 & PWA 双端
 
-**目标**：将 `design-system/` 的交互灵魂转化为原生 SwiftUI / AppKit 双端产品，打造 “随手召唤、单手批阅、一眼知全局” 的人机协同体验。
+**目标**：建立机器可审计的 OpenPencil 设计治理闭环，并将 `design-system/` 的交互灵魂转化为原生 Swift 6 (`apps/apple`) 与即时可运行的 iOS Companion PWA (`apps/ios-web`)。
 
-#### WBS 3.1: macOS MenuBar & Outcome Studio Popover
-- **MenuBar Living Avatar (22×22pt)**：使用 `CAShapeLayer` / Metal 实现与 Web 工作台同源的简化轮廓呼吸与状态色点，一眼感知当前正在运行的 Harness 与活跃子会话数。
-- **Outcome Studio Popover (420×640pt)**：集成 Harness 快速切换器（`Pi` / `Claude Code` / `Codex` / `OpenCode` / `BYOK`）、当前活跃 Outcomes 进度条、Dots 节点活力矩阵以及快捷语音/文字下达界面。
+#### WBS 3.0: OpenPencil 5-Rule Design Governance & Stageshow (`v0.2.0-beta` ✅)
+- **持久化设计记忆与三层 Token**：落地 [`design-system/design-system.md`](../../design-system/design-system.md)、[`design-system/tokens.dtcg.json`](../../design-system/tokens.dtcg.json) 与 [`design-system/pipibot.pen`](../../design-system/pipibot.pen)（6 个规范命名积木 `list-card`/`sheet`/`form-sheet`/`dock`/`bottom-bar`/`empty-state` + 12 屏 Frame），集成 `.agents/skills/stageshow` 展示工艺。
+- **自动化审计器 (`scripts/audit-design-system.mjs`)**：强制校验 `.pen`、`design-system.md`、`apps/ios-web/styles.css` 与 `apps/apple/Sources/` 零原始十六进制色值泄露、变量 `fallbackColor` 精确匹配及几何/描边规范。
+
+#### WBS 3.1: macOS MenuBar & Outcome Studio (`apps/apple/Sources/PipiBotMacApp/`)
+- **MenuBar Living Avatar (`PipiBotMacApp.swift`)**：原生 `MenuBarExtra` 嵌入活体 `PipiAvatarView` 与 Dots 节点活力徽章。
+- **Outcome Studio (`MacOutcomeStudioView.swift`)**：集成 Outcomes、Needs You、Manus Cue、PipiFleet Dots、Memory & Soul 及可直接在 Mac 上实时预览 `PipiBotIOSUI` 的交互页签。
 
 #### WBS 3.2: Manus Cue Floating Ambient Overlay (`⌥Space`)
-- **零打扰环境感知**：借助 macOS Accessibility API 与 `NSWorkspace`，感知当前活跃窗口（例如 VS Code / Cursor 正在编辑报错文件、Xcode 编译失败、Safari 打开 GitHub PR、Mail 正在草拟日程邮件）。
-- **1-Click Whisper 建议条**：按下 `⌥Space` 弹出玻璃拟态悬浮胶囊，直接给出 1~3 个高上下文相关性的“下一步 Outcome 动作”（如 *"Spawn Claude Code to fix failing Swift test & open PR"* 或 *"Extract invoice PDF to Life Ledger"*），回车即派发给后台 Daemon 异步执行，不阻塞当前心流。
+- **环境感知与悬浮胶囊 (`ManusCueFloatingPanel.swift` + `PipiCueSensor`)**：借助无边框悬浮 `NSPanel` 与后台工作区/Git 分支传感器 (`packages/daemon/src/cue-fleet-sensor.ts`) 实时生成 1-Click Cue 动作，并向 `PipiMemoryEngine` 回传接受/忽略反馈。后续增量补充 macOS Accessibility 全窗口上下文权限引导与系统级全局快捷键绑定。
 
-#### WBS 3.3: iOS Native Companion App (`pipibot-ios`, SwiftUI)
-- **120Hz ProMotion 程序化头像引擎 (Swift/Metal)**：
-  - 将 [`design-system/pipibot-avatar.js`](../../design-system/pipibot-avatar.js) 的数学内核移植至 Swift `CADisplayLink`（120Hz）：192 射线极坐标轮廓插值、6 轨道 cubic-Bézier 关键帧、半隐式 Euler 弹簧 (`amount`, `swap`, `spin`) 与 Rodrigues 3D 球面眼球投影，结合 **CoreHaptics** 实现点击眨眼与状态切换的细腻触觉反馈。
-- **Dynamic Island & Lock Screen Live Activities (`ActivityKit`)**：
-  - 当长跑 Outcome 在 Mac/VPS 执行时，灵动岛实时展示紧凑态脉动微标与进度环；长按展开显示子会话数、最新日志片段与剩余预估步数。
-- **Devin-Style "Needs You" Swipe Decision Inbox**：
-  - 针对移动场景重构的卡片式决策流：展示问题背景、AI 推荐选项、风险等级（Low/Medium/High）以及 R2 拉取的 **Before/After 截图或短视频证据**。
-  - **右滑批准 (Approve & Continue)** / **左滑驳回或转人工微调** / **按住底部按钮语音追加指示**，单手 3 秒内解决阻塞。
-- **Dots Fleet Matrix & Muse Spatial Canvas**：
-  - Dots 视图以极简呼吸点阵显示 Mac、iOS、VPS、Windows、IoT 实时健康度；Muse 视图支持多模态生活/工作卡片与实时语音打断对话。
+#### WBS 3.3: iOS 原生伴侣端 (`PipiBotIOSUI`) & Live iOS PWA (`apps/ios-web`)
+- **Swift 6 原生伴侣 UI (`apps/apple/Sources/PipiBotIOSUI/`)**：
+  - `PipiProceduralAvatarEngine.swift` & `PipiAvatarView.swift` 在 SwiftUI `Canvas` 中实现 120Hz 192 射线轮廓插值、6 轨道关键帧、Euler 弹簧与 Rodrigues 3D 眼球投影。
+  - 交付 `PipiIOSCompanionRootView.swift`、`NeedsYouSwipeDeckView.swift`、`MuseSpatialCanvasView.swift` 与 `DotsFleetAndTunnelView.swift`；真机 Xcode `ActivityKit` 灵动岛 Extension 与 APNs Entitlement 签名打包将在下一子里程碑接入。
+- **零构建实时 iOS PWA (`apps/ios-web/`)**：通过 Daemon `/ios` 托管，100% 绑定 `tokens.css` 与 6 大规范积木，提供与原生端一致的 Dynamic Island 活体头像、Outcomes、Needs You 左右滑动、Muse 多后端对话、Dots 节点矩阵与记忆审计体验（支持离线演示降级）。
 
 ---
 
@@ -194,9 +190,9 @@ flowchart LR
 | Phase | 测试套件名称 | 验证方式与自动化用例 (Test Cases & Methods) | 通过标准 (Acceptance Criteria) |
 | :--- | :--- | :--- | :--- |
 | **Phase 0** | `Suite-V0: Contract & Workbench` | 1. `node --check design-system/pipibot-avatar.js`<br>2. 浏览器访问 `design-system/index.html` 验证 Dark/Light 切换、53 状态切换、鼠标眼动追踪、iOS Needs You 模拟。<br>3. 校验全部跨文档相对链接有效性。 | 零语法/控制台报错；Avatar 在浏览器 DevTools Performance 下稳定跑满显示器刷新率；所有链接可达。 |
-| **Phase 1** | `Suite-V1: Daemon, Router & Memory` | 1. 强杀 Daemon 验证 `launchd` 3 秒内重启恢复 WAL 状态。<br>2. Mock + 真实 CLI 集成测试：`Pi`、`claude-code`、`codex`、`opencode` 通过 Routed MCP Bridge 调用 `pipi_memory_recall`。<br>3. 10,000 条中英文记忆下基准测试 FTS5 + `sqlite-vec` 混合召回。 | 4 个适配器全部走通工具回调；记忆 Top-10 召回 P95 < 20ms；250ms 心跳无明显漂移。 |
+| **Phase 1** | `Suite-V1: Daemon, Router & Memory` | 1. `npm run test:daemon` (`node --test packages/daemon/test/daemon.test.ts`) 验证全套 `/api/v1/*`、SSE 250ms 脉冲、Outcome 评估、Cue、Fleet 心跳与静态托管。<br>2. Mock + 真实 CLI 集成测试：`Pi`、`claude-code`、`codex`、`opencode` 通过 Routed MCP Bridge 调用 `pipi_memory_recall`。<br>3. 10,000 条中英文记忆下基准测试 SQLite FTS5 + `sqlite-vec` 混合召回。 | `daemon.test.ts` 全量通过；4 个适配器走通工具回调；记忆 Top-10 召回 P95 < 20ms；250ms 心跳无明显漂移。 |
 | **Phase 2** | `Suite-V2: Edge Relay & Chaos` | 1. `wrangler dev` + Miniflare 本地仿真 D1/R2/KV/Access JWT 验签。<br>2. **Chaos Fault Injection**：强行合盖休眠 Mac 10 分钟，期间发送 50 条 iOS 指令与 Webhook，开盖唤醒后校验重放顺序与幂等性。<br>3. 7 天模拟流量压测配额账本。 | 离线消息 100% 顺序重放无重复；唤醒重连 Tunnel < 5s；日均 Worker 请求 < 15k，R2/D1 处于免费额 20% 以下。 |
-| **Phase 3** | `Suite-V3: Mac & iOS UX` | 1. Xcode Instruments Time Profiler & Metal/CoreAnimation 帧率采样。<br>2. XCUITest 覆盖 `Needs You` 左滑/右滑卡片、R2 图片加载、Dynamic Island 启停。<br>3. macOS `⌥Space` Manus Cue 热键端到端延迟测试。 | iOS 120Hz ProMotion 掉帧率 < 0.5%，Avatar CPU 占比 < 1%；Cue 浮窗呼出 < 80ms。 |
+| **Phase 3** | `Suite-V3: Design Audit, Mac & iOS UX` | 1. `npm run audit:design` (`scripts/audit-design-system.mjs`) 自动化审计 `.pen`、`design-system.md`、`apps/ios-web/styles.css` 与 `apps/apple/Sources/`。<br>2. `cd apps/apple && swift build && swift test` 验证 Swift 6 并发与全端编译，叠加 Xcode Instruments 帧率采样。<br>3. `npm run check:ios` 与浏览器端验证 `/ios` PWA 动态岛、`Needs You` 滑动与 SSE 同步。 | 设计审计 0 违规、`swift build && swift test` 100% 通过、120Hz ProMotion Avatar CPU 占比 < 1%；Cue 浮窗呼出 < 80ms。 |
 | **Phase 4** | `Suite-V4: Autonomy & Evolution` | 1. 构建沙盒 Git 仓库测试 Layout/PR Outcome 完整循环（发现报错 -> 子会话修复 -> 截图证据 -> Needs You -> 人工批准合并）。<br>2. 喂入 14 天仿真对话日志运行 Nightly Dreaming，校验 Temporal Superseding 准确率与 L3 Skill 生成有效性。 | 越权破坏性命令 100% 被 Guardrail 拦截进 Needs You；新合成 Pi Skill 可直接通过单元测试运行。 |
 | **Phase 5** | `Suite-V5: Multi-Node Fleet` | 1. Ubuntu VPS Docker 压测 `pipibot-node-linux` 空闲与并发内存。<br>2. Windows + WSL2 跨路径工具执行测试。<br>3. 本地 Mosquitto MQTT Mock 仿真 ESP32 温湿度告警触发 Outcome。 | 边缘 Node Agent 空闲 RSS < 15 MB；Capability Token 越权路径访问 100% 拒绝。 |
 

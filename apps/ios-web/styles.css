@@ -1,0 +1,739 @@
+/* ==========================================================================
+   PipiBot iOS Companion PWA & Stageshow Device-Pair Stylesheet
+   GOVERNANCE RULE: Zero raw #hex or rgb/rgba color literals allowed here.
+   All visual properties bind strictly to 3-tier tokens in tokens.css.
+   ========================================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: var(--pipi-font-sans);
+  font-size: var(--pipi-text-base);
+  line-height: 1.5;
+  color: var(--pipi-text-primary);
+  background: var(--pipi-bg-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+  font-family: var(--pipi-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Stageshow Device-Pair Stage Layout (Desktop host + Straddling iPhone)
+   -------------------------------------------------------------------------- */
+.stage-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.stage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pipi-space-3);
+  padding: var(--pipi-space-3) var(--pipi-space-6);
+  background: var(--pipi-bg-elevated);
+  border-bottom: 1px solid var(--pipi-border-subtle);
+  flex-wrap: wrap;
+}
+
+.stage-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--pipi-space-3);
+}
+
+.stage-title {
+  font-weight: 700;
+  font-size: var(--pipi-text-base);
+  letter-spacing: -0.015em;
+}
+
+.stage-sub {
+  font-size: var(--pipi-text-xs);
+  color: var(--pipi-text-secondary);
+}
+
+.stage-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--pipi-space-2);
+  flex-wrap: wrap;
+}
+
+.device-pair-stage {
+  flex: 1;
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--pipi-space-6);
+  display: grid;
+  grid-template-columns: 1fr 402px;
+  gap: var(--pipi-space-6);
+  align-items: start;
+}
+
+/* Quiet Mac Host Window (Left side of Stageshow device-pair) */
+.mac-host-window {
+  background: var(--pipi-bg-elevated);
+  border: 1px solid var(--pipi-border-strong);
+  border-radius: var(--pipi-radius-lg);
+  box-shadow: var(--pipi-shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.mac-window-chrome {
+  height: 38px;
+  padding: 0 var(--pipi-space-4);
+  background: var(--pipi-bg-surface);
+  border-bottom: 1px solid var(--pipi-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pipi-space-3);
+}
+
+.mac-traffic-dots {
+  display: flex;
+  align-items: center;
+  gap: var(--pipi-space-2);
+}
+
+.mac-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--pipi-radius-pill);
+  background: var(--pipi-border-strong);
+}
+
+.mac-dot.is-close { background: var(--pipi-status-danger); }
+.mac-dot.is-min { background: var(--pipi-status-warn); }
+.mac-dot.is-max { background: var(--pipi-status-ok); }
+
+.mac-url-pill {
+  padding: 3px 12px;
+  border-radius: var(--pipi-radius-pill);
+  background: var(--pipi-bg-inset);
+  border: 1px solid var(--pipi-border-subtle);
+  font-size: var(--pipi-text-2xs);
+  color: var(--pipi-text-secondary);
+}
+
+.mac-host-body {
+  padding: var(--pipi-space-5);
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: var(--pipi-space-5);
+}
+
+.mac-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pipi-space-3);
+  border-right: 1px solid var(--pipi-border-subtle);
+  padding-right: var(--pipi-space-4);
+}
+
+.quiet-bar {
+  height: 7px;
+  border-radius: var(--pipi-radius-pill);
+  background: var(--pipi-bg-surface-hover);
+}
+
+.quiet-bar.w-40 { width: 40%; }
+.quiet-bar.w-58 { width: 58%; }
+.quiet-bar.w-72 { width: 72%; }
+.quiet-bar.w-86 { width: 86%; }
+
+.mac-focal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pipi-space-4);
+}
+
+.mac-kpi-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pipi-space-3);
+  flex-wrap: wrap;
+}
+
+.mac-kpi-figure {
+  font-size: var(--pipi-text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+/* --------------------------------------------------------------------------
+   iPhone Companion Frame & Stageshow Dynamic Island (Dual-Layer Architecture)
+   -------------------------------------------------------------------------- */
+.iphone-companion {
+  width: 100%;
+  max-width: 402px;
+  height: 780px;
+  margin: 0 auto;
+  border-radius: 44px;
+  border: 5px solid var(--pipi-device-bezel);
+  background: var(--pipi-bg-canvas);
+  box-shadow: var(--pipi-shadow-lg);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Dynamic Island: Box geometry layer separate from content layer */
+.di-stage {
+  position: relative;
+  min-height: 58px;
+  padding: 10px 14px 4px;
+  display: flex;
+  justify-content: center;
+  z-index: 20;
+}
+
+.di-pill-shape {
+  background: var(--pipi-island-bg);
+  border: 1px solid var(--pipi-island-border);
+  border-radius: 26px;
+  min-width: 212px;
+  width: auto;
+  color: var(--pipi-island-fg);
+  box-shadow: var(--pipi-shadow-md);
+  cursor: pointer;
+  transition: width var(--pipi-duration-med) var(--pipi-ease-overshoot),
+              border-radius var(--pipi-duration-med) var(--pipi-ease-overshoot),
+              padding var(--pipi-duration-med) var(--pipi-ease-snappy);
+  padding: 6px 12px;
+}
+
+.di-pill-shape.is-expanded {
+  width: 100%;
+  border-radius: 24px;
+  padding: 10px 14px;
+}
+
+.di-content-layer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pipi-space-2);
+}
+
+.di-compact-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pipi-space-3);
+  font-size: var(--pipi-text-2xs);
+  font-weight: 600;
+}
+
+.di-leading {
+  display: flex;
+  align-items: center;
+  gap: var(--pipi-space-2);
+}
+
+.di-expanded-panel {
+  display: none;
+  border-top: 1px solid var(--pipi-island-border);
+  padding-top: var(--pipi-space-2);
+  gap: var(--pipi-space-2);
+  flex-direction: column;
+}
+
+.di-pill-shape.is-expanded .di-expanded-panel {
+  display: flex;
+}
+
+/* Status Telemetry Header inside iPhone */
+.ios-status-strip {
+  padding: 4px var(--pipi-space-4) var(--pipi-space-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pipi-space-2);
+  font-size: var(--pipi-text-2xs);
+  color: var(--pipi-text-secondary);
+}
+
+.ios-scroll-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--pipi-space-2) var(--pipi-space-4) var(--pipi-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pipi-space-3);
+}
+
+/* --------------------------------------------------------------------------
+   Button & Icon Rules (44px Mobile / 32px Mac, 1.5px vs 1.75px Strokes)
+   -------------------------------------------------------------------------- */
+.pipi-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pipi-btn-gap-mobile);
+  height: var(--pipi-btn-height-mobile);
+  padding: 0 var(--pipi-space-4);
+  border-radius: var(--pipi-radius-md);
+  border: 1px solid var(--pipi-border-subtle);
+  background: var(--pipi-bg-surface);
+  color: var(--pipi-text-primary);
+  font-family: var(--pipi-font-sans);
+  font-size: var(--pipi-text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform var(--pipi-duration-fast) var(--pipi-ease-overshoot),
+              background var(--pipi-duration-fast);
+}
+
+.pipi-btn:hover {
+  background: var(--pipi-bg-surface-hover);
+}
+
+.pipi-btn:active {
+  transform: scale(0.97);
+}
+
+.pipi-btn-primary {
+  background: var(--pipi-soul-btn-bg);
+  color: var(--pipi-text-inverse);
+  border-color: transparent;
+}
+
+[data-theme="dark"] .pipi-btn-primary {
+  color: var(--pipi-text-primary);
+}
+
+.pipi-btn-danger {
+  background: var(--pipi-status-danger-bg);
+  color: var(--pipi-status-danger);
+  border-color: var(--pipi-status-danger);
+}
+
+.pipi-btn-full {
+  width: 100%;
+}
+
+.pipi-btn-desktop {
+  height: var(--pipi-btn-height-desktop);
+  gap: var(--pipi-btn-gap-desktop);
+  padding: 0 var(--pipi-space-3);
+  border-radius: var(--pipi-radius-sm);
+  font-size: var(--pipi-text-xs);
+}
+
+.pipi-icon-sm {
+  width: var(--pipi-btn-icon-desktop);
+  height: var(--pipi-btn-icon-desktop);
+  stroke-width: 1.5;
+  flex-shrink: 0;
+}
+
+.pipi-icon-mobile {
+  width: var(--pipi-btn-icon-mobile);
+  height: var(--pipi-btn-icon-mobile);
+  stroke-width: 1.5;
+  flex-shrink: 0;
+}
+
+.pipi-icon-md {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.75;
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------------------
+   THE 6 CANONICAL NAMED BLOCKS
+   -------------------------------------------------------------------------- */
+
+/* 1. list-card */
+.pipi-list-card {
+  background: var(--pipi-bg-surface);
+  border: 1px solid var(--pipi-border-subtle);
+  border-radius: var(--pipi-radius-md);
+  padding: var(--pipi-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pipi-space-2);
+}
+
+.pipi-list-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pipi-space-3);
+}
+
+.pipi-list-card-title {
+  font-size: var(--pipi-text-sm);
+  font-weight: 700;
+  color: var(--pipi-text-primary);
+}
+
+.pipi-list-card-sub {
+  font-size: var(--pipi-text-xs);
+  color: var(--pipi-text-secondary);
+}
+
+/* 2. sheet & 3. form-sheet (topEdge strictly 54px or 102px) */
+.pipi-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--pipi-bg-glass);
+  backdrop-filter: var(--pipi-glass-blur-sm);
+  z-index: 40;
+  display: none;
+}
+
+.pipi-sheet-backdrop.is-open {
+  display: block;
+}
+
+.pipi-sheet,
+.pipi-form-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: var(--pipi-sheet-top-expanded);
+  background: var(--pipi-bg-elevated);
+  border-top: 1px solid var(--pipi-border-strong);
+  border-top-left-radius: var(--pipi-radius-xl);
+  border-top-right-radius: var(--pipi-radius-xl);
+  box-shadow: var(--pipi-shadow-lg);
+  padding: var(--pipi-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pipi-space-3);
+  overflow-y: auto;
+}
+
+.pipi-form-sheet {
+  top: var(--pipi-sheet-top-compact);
+}
+
+.pipi-sheet-grabber {
+  width: 38px;
+  height: 4px;
+  border-radius: var(--pipi-radius-pill);
+  background: var(--pipi-border-strong);
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.pipi-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pipi-space-3);
+}
+
+/* 4. dock (summary + live PipiAvatar left, primary action right) */
+.pipi-dock {
+  margin: 0 var(--pipi-space-4) var(--pipi-space-2);
+  background: var(--pipi-bg-surface);
+  border: 1px solid var(--pipi-border-strong);
+  border-radius: var(--pipi-radius-lg);
+  padding: var(--pipi-space-2) var(--pipi-space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pipi-space-3);
+}
+
+.pipi-dock-left {
+  display: flex;
+  align-items: center;
+  gap: var(--pipi-space-3);
+  min-width: 0;
+  flex: 1;
+}
+
+.pipi-dock-meta {
+  min-width: 0;
+}
+
+.pipi-dock-title {
+  font-size: var(--pipi-text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipi-dock-sub {
+  font-size: var(--pipi-text-2xs);
+  color: var(--pipi-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 5. bottom-bar (grounded bottom bar, never box-in-box floating card) */
+.pipi-bottom-bar {
+  border-top: 1px solid var(--pipi-border-subtle);
+  background: var(--pipi-bg-elevated);
+  padding: var(--pipi-space-2) var(--pipi-space-2) var(--pipi-space-3);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--pipi-space-1);
+  flex-shrink: 0;
+}
+
+.pipi-tab-item {
+  border: none;
+  background: transparent;
+  color: var(--pipi-text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: var(--pipi-btn-height-mobile);
+  border-radius: var(--pipi-radius-sm);
+  font-size: var(--pipi-text-2xs);
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+}
+
+.pipi-tab-item.is-active {
+  color: var(--pipi-soul-primary);
+  background: var(--pipi-soul-tint);
+}
+
+.pipi-tab-badge {
+  position: absolute;
+  top: 4px;
+  right: 12px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--pipi-radius-pill);
+  background: var(--pipi-status-warn);
+  color: var(--pipi-text-inverse);
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+/* 6. empty-state (1 icon, 1 title, 1 sentence, 1 button max) */
+.pipi-empty-state {
+  background: var(--pipi-bg-surface);
+  border: 1px solid var(--pipi-border-subtle);
+  border-radius: var(--pipi-radius-lg);
+  padding: var(--pipi-space-6) var(--pipi-space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--pipi-space-3);
+}
+
+.pipi-empty-title {
+  margin: 0;
+  font-size: var(--pipi-text-md);
+  font-weight: 700;
+}
+
+.pipi-empty-desc {
+  margin: 0;
+  font-size: var(--pipi-text-xs);
+  color: var(--pipi-text-secondary);
+  max-width: 30ch;
+}
+
+/* --------------------------------------------------------------------------
+   Shared UI Atoms (Badges, Inputs, Dots, Diff Box)
+   -------------------------------------------------------------------------- */
+.pipi-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--pipi-radius-pill);
+  font-size: var(--pipi-text-2xs);
+  font-weight: 600;
+  background: var(--pipi-bg-inset);
+  border: 1px solid var(--pipi-border-subtle);
+  color: var(--pipi-text-secondary);
+}
+
+.pipi-pill.is-ok {
+  background: var(--pipi-status-ok-bg);
+  color: var(--pipi-status-ok);
+  border-color: var(--pipi-status-ok);
+}
+
+.pipi-pill.is-warn {
+  background: var(--pipi-status-warn-bg);
+  color: var(--pipi-status-warn);
+  border-color: var(--pipi-status-warn);
+}
+
+.pipi-pill.is-soul {
+  background: var(--pipi-soul-tint);
+  color: var(--pipi-soul-primary);
+  border-color: var(--pipi-soul-primary);
+}
+
+.pipi-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pipi-field-label {
+  font-size: var(--pipi-text-xs);
+  font-weight: 600;
+  color: var(--pipi-text-secondary);
+}
+
+.pipi-input,
+.pipi-select,
+.pipi-textarea {
+  width: 100%;
+  min-height: var(--pipi-btn-height-mobile);
+  padding: 10px 12px;
+  border-radius: var(--pipi-radius-sm);
+  border: 1px solid var(--pipi-border-strong);
+  background: var(--pipi-bg-inset);
+  color: var(--pipi-text-primary);
+  font-family: var(--pipi-font-sans);
+  font-size: var(--pipi-text-sm);
+  outline: none;
+}
+
+.pipi-input:focus,
+.pipi-textarea:focus {
+  border-color: var(--pipi-border-focus);
+}
+
+.pipi-evidence-box {
+  background: var(--pipi-bg-inset);
+  border: 1px solid var(--pipi-border-subtle);
+  border-radius: var(--pipi-radius-sm);
+  padding: var(--pipi-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pipi-btn-row {
+  display: flex;
+  gap: var(--pipi-space-2);
+}
+
+.pipi-btn-row > * {
+  flex: 1;
+}
+
+.dot-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--pipi-radius-pill);
+  display: inline-block;
+  flex-shrink: 0;
+  animation: pipi-dot-breathe 2.2s ease-in-out infinite;
+}
+
+.dot-pulse.is-alive { background: var(--pipi-status-ok); }
+.dot-pulse.is-busy { background: var(--pipi-soul-secondary); animation-duration: 0.9s; }
+.dot-pulse.is-degraded { background: var(--pipi-status-warn); animation-name: pipi-dot-alert; }
+.dot-pulse.is-offline { background: var(--pipi-text-muted); animation: none; }
+
+.muse-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--pipi-space-2);
+}
+
+.chat-bubble {
+  padding: var(--pipi-space-3);
+  border-radius: var(--pipi-radius-md);
+  background: var(--pipi-bg-surface);
+  border: 1px solid var(--pipi-border-subtle);
+  font-size: var(--pipi-text-xs);
+}
+
+.chat-bubble.is-user {
+  background: var(--pipi-soul-tint);
+  border-color: var(--pipi-soul-primary);
+}
+
+.swipe-card-anim {
+  transition: transform var(--pipi-duration-med) var(--pipi-ease-overshoot),
+              opacity var(--pipi-duration-fast) var(--pipi-ease-gentle);
+}
+
+.swipe-card-anim.is-approved {
+  transform: translateX(115%) rotate(8deg);
+  opacity: 0;
+}
+
+.swipe-card-anim.is-rejected {
+  transform: translateX(-115%) rotate(-8deg);
+  opacity: 0;
+}
+
+/* Mobile / PWA Focused Mode */
+body.is-pwa-only .stage-toolbar,
+body.is-pwa-only .mac-host-window {
+  display: none;
+}
+
+body.is-pwa-only .device-pair-stage {
+  display: block;
+  padding: 0;
+  max-width: 440px;
+}
+
+body.is-pwa-only .iphone-companion {
+  max-width: 100%;
+  height: 100vh;
+  border: none;
+  border-radius: 0;
+}
+
+@media (max-width: 920px) {
+  .mac-host-window {
+    display: none;
+  }
+
+  .device-pair-stage {
+    grid-template-columns: 1fr;
+    padding: var(--pipi-space-3);
+  }
+}
+
+@media (max-width: 480px) {
+  .stage-toolbar {
+    display: none;
+  }
+
+  .device-pair-stage {
+    padding: 0;
+  }
+
+  .iphone-companion {
+    max-width: 100%;
+    height: 100dvh;
+    border: none;
+    border-radius: 0;
+  }
+}

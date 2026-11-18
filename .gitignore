@@ -54,6 +54,7 @@ wrangler.local.toml
 Thumbs.db
 
 # Swift / Xcode (pipibot-ios & macOS host)
+.build/
 DerivedData/
 *.xcuserstate
 *.xcworkspace/xcuserdata/

@@ -1,0 +1,17 @@
+{
+  "name": "PipiBot Companion",
+  "short_name": "PipiBot",
+  "description": "PipiBot iOS Companion PWA — Dynamic Island 120Hz Living Avatar, Devin Outcomes, Needs You Decision Deck, Muse Spatial Canvas & Dots Fleet.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0c0e",
+  "theme_color": "#0b0c0e",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='28' fill='%230b0c0e'/%3E%3Ccircle cx='60' cy='60' r='36' fill='%231e222b' stroke='%237c6cf6' stroke-width='3'/%3E%3Cellipse cx='48' cy='58' rx='5' ry='7' fill='%237c6cf6'/%3E%3Cellipse cx='72' cy='58' rx='5' ry='7' fill='%237c6cf6'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}

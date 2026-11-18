@@ -1,6 +1,6 @@
 {
   "name": "pipibot",
-  "version": "0.1.0-alpha",
+  "version": "0.2.0-beta",
   "description": "From Tasks to Outcomes, From Chatbots to a Living Cross-Device AI Manager powered by Pi Core, Multi-Harness BYOK Routing, 120Hz Procedural Avatar, 4-Tier Self-Evolving Memory, and $0/mo Cloudflare Edge.",
   "private": true,
   "type": "module",
@@ -19,10 +19,16 @@
   "scripts": {
     "preview:design": "python3 -m http.server 8080 --bind 127.0.0.1",
     "check:avatar": "node --check design-system/pipibot-avatar.js",
+    "check:ios": "node --check apps/ios-web/app.js",
+    "audit:design": "node scripts/audit-design-system.mjs",
+    "start:daemon": "node --experimental-strip-types packages/daemon/src/cli.ts",
+    "test:daemon": "node --experimental-strip-types --test packages/daemon/test/daemon.test.ts",
+    "build:apple": "cd apps/apple && swift build",
+    "test:apple": "cd apps/apple && swift test",
     "check:workspaces": "npm run check --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "verify": "npm run check:avatar && npm run check:workspaces && npm run typecheck"
+    "verify": "npm run check:avatar && npm run check:ios && npm run audit:design && npm run check:workspaces && npm run test:daemon && npm run typecheck"
   },
   "keywords": [
     "ai-agent",

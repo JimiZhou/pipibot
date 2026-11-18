@@ -4,7 +4,7 @@
 
 **From Tasks to Outcomes. From Chatbots to a Living Cross-Device AI Manager.**
 
-[![Version](https://img.shields.io/badge/version-v0.1.0--alpha-7C5CFF?style=flat-square)](docs/roadmap/02-PROGRESS-TRACKER.md)
+[![Version](https://img.shields.io/badge/version-v0.2.0--beta-7C5CFF?style=flat-square)](docs/roadmap/02-PROGRESS-TRACKER.md)
 [![License](https://img.shields.io/badge/license-MIT-10B981?style=flat-square)](LICENSE)
 [![Cloud Cost](https://img.shields.io/badge/Cloudflare_Edge-%240%2Fmonth-F38020?style=flat-square)](docs/architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md)
 [![Avatar Engine](https://img.shields.io/badge/Avatar-120Hz_Procedural_SVG-EC4899?style=flat-square)](design-system/index.html)
@@ -88,7 +88,7 @@ flowchart TB
 | Pillar | Architectural Synthesis | Where to Dive Deep |
 | :--- | :--- | :--- |
 | **1. Pi Core + Multi-Harness BYOK Router** | Embeds `@mariozechner/pi-coding-agent` (`read`, `write`, `edit`, `bash` + 25+ hooks) alongside a **Routed MCP Bridge** that reuses your existing local authenticated `claude`, `codex`, and `opencode` CLIs plus `pi-ai` BYOK endpoints — zero duplicate API bills. | [`02-SYSTEM-ARCHITECTURE-AND-HARNESS.md`](docs/architecture/02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) · [`harness-router.ts`](packages/core/src/harness-router.ts) |
-| **2. 120Hz Procedural Avatar + Multi-Paradigm UX** | Zero-dependency GrokBot-style SVG engine (**192-ray** polar morphing, **6-track** cubic-Bézier clips, **120Hz** Euler springs, **Rodrigues 3D** sphere eye tracking, `0.26s` blinks, **53 states / 9 expressions**), fused with **Manus Cue (`⌥Space`)**, **Dots** vitality matrix, and **Muse** spatial canvas. | [`01-UIUX-DESIGN-SYSTEM.md`](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) · [`pipibot-avatar.js`](design-system/pipibot-avatar.js) |
+| **2. 120Hz Procedural Avatar + OpenPencil 5-Rule UX** | Zero-dependency GrokBot-style SVG/SwiftUI engine (**192-ray** polar morphing, **6-track** cubic-Bézier clips, **120Hz** Euler springs, **Rodrigues 3D** sphere eye tracking, **53 states / 9 expressions**), fused with **Manus Cue (`⌥Space`)**, **Dots**, **Muse**, **Stageshow** craft, and audited via `pipibot.pen` + 6 Named Blocks. | [`01-UIUX-DESIGN-SYSTEM.md`](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) · [`design-system.md`](design-system/design-system.md) |
 | **3. Devin-Style Outcome Ownership & "Needs You"** | Replaces one-shot chat prompts with **Responsibility Specs** (Goal + Constraints + Success Metrics), Cron/Webhook/FS triggers, autonomous Evaluators, parallel child sub-sessions, and a single **"Needs You"** swipe inbox backed by before/after evidence. | [`01-PRODUCT-VISION-AND-RESEARCH.md`](docs/architecture/01-PRODUCT-VISION-AND-RESEARCH.md) · [`protocol/src/index.ts`](packages/protocol/src/index.ts) |
 | **4. 4-Tier Cognitive Memory & Nightly Self-Evolution** | **L0** sensory context -> **L1** local SQLite FTS5 + `sqlite-vec` episodes -> **L2** human-readable `SOUL.md` / `USER.md` / `MEMORY.md` with temporal superseding -> **L3** auto-synthesized `skills/*.md`. Audits changes daily via transparent **Evolution Diff** cards. | [`04-MEMORY-AND-SELF-EVOLUTION.md`](docs/architecture/04-MEMORY-AND-SELF-EVOLUTION.md) · [`memory-engine.ts`](packages/core/src/memory-engine.ts) |
 | **5. Mac Always-On + iOS over $0 Cloudflare Free Tier** | macOS `launchd` resident executes locally; `cloudflared` outbound tunnel, **Workers**, **D1**, **KV**, **R2** (0 egress for screenshots/videos/encrypted backups), and **Cloudflare Access** connect your iPhone everywhere at **$0/month**. | [`03-CLOUDFLARE-AND-FLEET-INFRA.md`](docs/architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md) · [`worker.ts`](packages/cloudflare-edge/src/worker.ts) |
@@ -96,29 +96,42 @@ flowchart TB
 
 ---
 
-## Quickstart: Interactive Design System & 120Hz Avatar Workbench
+## Quickstart: V1 Mac Resident Daemon, Native Apple Swift 6 & Live iOS Companion
 
-> **Release Status (`v0.1.0-alpha`)**: This initial open-source release delivers the complete architecture specifications, UI/UX design system, interactive browser workbench, `@pipibot/protocol` contracts, `@pipibot/core` router/memory scaffolds, and `@pipibot/cloudflare-edge` templates. Native macOS `launchd` daemon and `pipibot-ios` SwiftUI binaries follow in [Phases 1–5](docs/roadmap/01-DEVELOPMENT-PLAN.md).
+> **Release Status (`v0.2.0-beta`)**: Wave 2 ships the runnable V1 stack — `@pipibot/daemon` HTTP REST + 250ms SSE resident server, Native Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp`), Live iOS Companion PWA (`apps/ios-web`), OpenPencil `pipibot.pen` + 5-rule design audit (`scripts/audit-design-system.mjs`), and Stageshow craft integration (`.agents/skills/stageshow`).
 
-You can run the **zero-build, zero-dependency** interactive Design System & Procedural Avatar Workbench in 10 seconds using Python's built-in HTTP server:
+### 1. Run the V1 Mac Resident Daemon & Live iOS Companion PWA
+
+Requires **Node.js `>= 22.6.0`** (zero third-party npm dependencies required):
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/JimiZhou/pipibot.git
 cd pipibot
 
-# 2. Verify procedural avatar engine syntax (Node >= 22)
-node --check design-system/pipibot-avatar.js
-
-# 3. Start local static server
-python3 -m http.server 8080 --bind 127.0.0.1
+# Start @pipibot/daemon (REST + 250ms SSE + static host on http://127.0.0.1:4242)
+npm run start:daemon
 ```
 
-Open **`http://127.0.0.1:8080/design-system/`** in your browser to explore:
-- **Live 120Hz `PipiAvatar` Stage**: Move your cursor for 3D Rodrigues eye tracking, click to trigger `0.26s` blinks, morph radial shapes, switch lifecycle states, and inspect live Euler spring telemetry.
-- **Obsidian Dark / Warm Vellum Light Theme Switcher** & complete **53-State Matrix Explorer**.
-- **macOS Resident & Manus Cue (`⌥Space`) Simulator**: Toggle active harnesses (`Pi`, `Claude Code`, `Codex`, `OpenCode`, `BYOK`) and trigger contextual Cue whispers.
-- **iOS Companion & Devin "Needs You" Simulator**: Interactive Dynamic Island, swipeable PR/VPS/Memory approval cards, Muse spatial cards, and Dots fleet vitality indicators.
+Once running, open:
+- **Live iOS Companion PWA**: **`http://127.0.0.1:4242/ios`** (Dynamic Island 120Hz `PipiAvatar`, Devin Outcomes, "Needs You" swipe deck, Muse spatial chat across `Pi` / `Claude Code` / `Codex` / `OpenCode` / `BYOK`, Dots Fleet matrix, and 4-Tier Memory Evolution Diff review).
+- **Design System & Avatar Workbench**: **`http://127.0.0.1:4242/design-system/`** (or static zero-build preview via `npm run preview:design` -> `http://127.0.0.1:8080/design-system/`).
+
+### 2. Build & Test Native Swift 6 Mac / iOS Apps (`apps/apple`)
+
+```bash
+# Compiles PipiBotKit, PipiBotIOSUI, PipiBotMacApp and runs PipiBotKitTests (macOS 14+ / Swift 6.0)
+npm run build:apple && npm run test:apple
+```
+
+### 3. Run OpenPencil Design Governance Audit & Full Verification Suite
+
+```bash
+# Audit OpenPencil pipibot.pen, design-system.md, apps/ios-web/styles.css & SwiftUI views
+npm run audit:design
+
+# Run full repo verification (avatar + iOS PWA syntax + design audit + workspace checks + daemon tests)
+npm run verify
+```
 
 ---
 
@@ -130,24 +143,44 @@ pipibot/
 ├── README.zh-CN.md                            # 简体中文旗舰文档
 ├── CONTRIBUTING.md                            # Contributor guide & engineering standards
 ├── LICENSE                                    # MIT License (Copyright 2026 JimiZhou & Contributors)
-├── package.json                               # Root npm workspace manifest
+├── package.json                               # Root npm workspace manifest (v0.2.0-beta)
 ├── tsconfig.base.json                         # Shared strict TypeScript configuration
 ├── .gitignore                                 # Ignores node_modules, dist, .wrangler, *.sqlite, .env*
+├── .agents/
+│   └── skills/stageshow/                      # Stageshow visual craft skill (device-pair, dynamic-island)
+├── scripts/
+│   └── audit-design-system.mjs                # Automated OpenPencil 5-rule & zero-raw-hex audit
 ├── design-system/
-│   ├── index.html                             # Interactive UX workbench & Mac/iOS simulator
+│   ├── design-system.md                       # Persistent AI design memory (Rule + Reason + Date)
+│   ├── pipibot.pen                            # OpenPencil JSON (3-tier tokens, 6 blocks, 12 screens)
+│   ├── tokens.dtcg.json                       # W3C DTCG token export
+│   ├── tokens.css                             # Obsidian Dark / Warm Vellum Light CSS tokens
 │   ├── pipibot-avatar.js                      # Zero-dep 192-ray 120Hz procedural SVG engine
-│   └── tokens.css                             # Obsidian Dark / Warm Vellum Light semantic tokens
+│   └── index.html                             # Interactive UX workbench & Mac/iOS simulator
+├── apps/
+│   ├── apple/                                 # Swift 6 Package (macOS 14+ & iOS 17+)
+│   │   ├── Package.swift                      # PipiBotKit, PipiBotIOSUI, PipiBotMacApp, PipiBotKitTests
+│   │   ├── Sources/PipiBotKit/                # ProtocolModels, DesignTokens, CanonicalBlocks, Avatar, Client
+│   │   ├── Sources/PipiBotIOSUI/              # iOS Root, NeedsYouSwipeDeck, MuseCanvas, DotsFleet
+│   │   ├── Sources/PipiBotMacApp/             # MenuBarExtra, ManusCueFloatingPanel, MacOutcomeStudioView
+│   │   └── Tests/PipiBotKitTests/             # Swift 6 procedural avatar & protocol test suite
+│   └── ios-web/                               # Live iOS Companion PWA (served at /ios by daemon)
+│       ├── index.html
+│       ├── styles.css                         # 100% bound to design-system/tokens.css (0 raw hex)
+│       ├── app.js                             # Live /api/v1/* + 250ms SSE client with offline demo fallback
+│       └── manifest.json                      # PWA manifest
 ├── docs/
 │   ├── architecture/
 │   │   ├── 01-PRODUCT-VISION-AND-RESEARCH.md  # Comparative research & unified vision
 │   │   ├── 02-SYSTEM-ARCHITECTURE-AND-HARNESS.md # Pi core, multi-harness router & outcome engine
 │   │   ├── 03-CLOUDFLARE-AND-FLEET-INFRA.md   # $0/mo Cloudflare stack & PipiFleet topology
-│   │   └── 04-MEMORY-AND-SELF-EVOLUTION.md    # 4-tier cognitive memory & nightly skill synthesis
+│   │   ├── 04-MEMORY-AND-SELF-EVOLUTION.md    # 4-tier cognitive memory & nightly skill synthesis
+│   │   └── 05-MAC-AND-IOS-V1-IMPLEMENTATION.md # V1 Mac Daemon, Swift 6 Apple apps, PWA & OpenPencil spec
 │   ├── design-system/
 │   │   └── 01-UIUX-DESIGN-SYSTEM.md           # Ambient Soul & Outcome Studio design specification
 │   └── roadmap/
 │       ├── 01-DEVELOPMENT-PLAN.md             # Phase 0-5 WBS, test suites, SLAs & risk matrix
-│       └── 02-PROGRESS-TRACKER.md             # Live progress dashboard, ADR-001~008 & changelog
+│       └── 02-PROGRESS-TRACKER.md             # Live progress dashboard, ADR-001~009 & changelog
 └── packages/
     ├── protocol/
     │   ├── package.json                       # @pipibot/protocol package manifest
@@ -156,6 +189,13 @@ pipibot/
     │   ├── package.json                       # @pipibot/core package manifest
     │   ├── src/harness-router.ts              # PipiHarnessRouter & RoutedMcpBridge
     │   └── src/memory-engine.ts               # 4-tier PipiMemoryEngine & PipiEvolutionLoop
+    ├── daemon/
+    │   ├── package.json                       # @pipibot/daemon V1 resident host manifest
+    │   ├── src/outcome-engine.ts              # PipiOutcomeEngine (2-stage evaluator + NeedsYou)
+    │   ├── src/cue-fleet-sensor.ts            # PipiCueSensor & PipiFleetManager telemetry
+    │   ├── src/server.ts                      # REST /api/v1/* + 250ms SSE + static /design-system & /ios
+    │   ├── src/cli.ts                         # Daemon CLI entrypoint
+    │   └── test/daemon.test.ts                # Full REST/SSE/static integration test suite
     └── cloudflare-edge/
         ├── wrangler.toml                      # Cloudflare Workers / D1 / R2 / KV bindings
         ├── schema.sql                         # D1 fleet registry & offline queue schema
@@ -172,20 +212,22 @@ pipibot/
 | [02-SYSTEM-ARCHITECTURE-AND-HARNESS.md](docs/architecture/02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) | `PipiCore` (Pi SDK), `PipiRouter` (`pi`, `claude-code`, `codex`, `opencode`, `byok`), Routed MCP Bridge, Client-Side Tool Relay & `PipiOutcomeEngine` | 中文 + EN Terms |
 | [03-CLOUDFLARE-AND-FLEET-INFRA.md](docs/architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md) | Mac Resident + iOS Companion, $0/mo Cloudflare Free-Tier stack (`cloudflared`, Workers, D1, R2, KV, Access), quota budget & `PipiFleet` nodes | 中文 + EN Terms |
 | [04-MEMORY-AND-SELF-EVOLUTION.md](docs/architecture/04-MEMORY-AND-SELF-EVOLUTION.md) | 4-Tier Memory (`L0–L3`), SQLite FTS5 + `sqlite-vec`, salience scoring, temporal superseding, Nightly Dreaming & `SOUL.md`/`USER.md`/Pi Skill synthesis | 中文 + EN Terms |
-| [01-UIUX-DESIGN-SYSTEM.md](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) | "Ambient Soul & Outcome Studio" tokens, `PipiAvatar` 192-ray / Rodrigues 3D / 53-state spec, macOS Cue & iOS Dynamic Island / Needs You specs | 中文 + EN Terms |
+| [05-MAC-AND-IOS-V1-IMPLEMENTATION.md](docs/architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) | V1 implementation spec: OpenPencil 5-Rule Governance, Stageshow craft, `@pipibot/daemon` REST/SSE, Swift 6 `apps/apple` & Live PWA `apps/ios-web` | 中文 + EN Terms |
+| [01-UIUX-DESIGN-SYSTEM.md](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) | "Ambient Soul & Outcome Studio" tokens, `PipiAvatar` 192-ray / Rodrigues 3D / 53-state spec, OpenPencil 5-Rule & Stageshow specs | 中文 + EN Terms |
+| [design-system.md](design-system/design-system.md) | Persistent AI design memory recording 3-tier token, geometry, 6 Canonical Named Blocks & Stageshow rules (Rule + Reason + Date) | English |
 | [01-DEVELOPMENT-PLAN.md](docs/roadmap/01-DEVELOPMENT-PLAN.md) | Phase 0–5 engineering WBS, verification test suites, non-functional targets (`<15MB` node RAM, `120fps <1% CPU`, `$0/mo`), risk mitigation matrix | 中文 + EN Terms |
-| [02-PROGRESS-TRACKER.md](docs/roadmap/02-PROGRESS-TRACKER.md) | Live milestone completion tracker, **ADR-001 through ADR-008**, and `v0.1.0-alpha` changelog | 中文 + EN Terms |
+| [02-PROGRESS-TRACKER.md](docs/roadmap/02-PROGRESS-TRACKER.md) | Live milestone completion tracker, **ADR-001 through ADR-009**, and `v0.1.0-alpha` / `v0.2.0-beta` changelog | 中文 + EN Terms |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Monorepo workflows, harness/avatar/fleet contribution rules & PR checklist | English |
 
 ---
 
 ## Engineering Roadmap Snapshot
 
-- **Phase 0 (`v0.1.0-alpha`) — Completed**: Architecture blueprints, UI/UX design system, interactive 120Hz SVG workbench, protocol/core/edge scaffolds, roadmap & ADRs.
-- **Phase 1 (Weeks 1–2)**: macOS `launchd` Resident Daemon, embedded Pi SDK, local `claude-code`/`codex`/`opencode` + Routed MCP Bridge, SQLite FTS5 + `sqlite-vec` store.
-- **Phase 2 (Week 3)**: `$0/mo` Cloudflare Free-Tier auto-tunnel (`cloudflared`), Worker relay + offline inbox, D1, R2 zero-egress artifacts, Access Zero Trust.
-- **Phase 3 (Weeks 4–5)**: macOS MenuBar & Manus Cue (`⌥Space`) + `pipibot-ios` SwiftUI app (120Hz Metal/Canvas Avatar, Dynamic Island, Needs You swipe deck, Muse canvas).
-- **Phase 4 (Week 6)**: Devin-style Outcome Responsibility loops, Autonomous Evaluators & Nightly Self-Evolution / Skill Synthesis engine.
+- **Phase 0 (`v0.1.0-alpha`) — 100% Verified**: Architecture blueprints, UI/UX design system, interactive 120Hz SVG workbench, protocol/core/edge scaffolds, roadmap & ADRs.
+- **Phase 1 (Weeks 1–2) — ~75% (`v0.2.0-beta`)**: `@pipibot/daemon` HTTP REST + 250ms SSE + `PipiOutcomeEngine` + `PipiCueSensor` + `launchd` plist shipped; native SQLite FTS5/`sqlite-vec` persistence & live CLI subprocess plumbing next.
+- **Phase 2 (Week 3) — ~20%**: Cloudflare Worker/D1/R2 edge templates ready; `cloudflared` sleep/wake tunnel wiring & live APNs next.
+- **Phase 3 (Weeks 4–5) — ~80% (`v0.2.0-beta`)**: OpenPencil `.pen` + 5-rule design audit + Stageshow, Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp`) & Live iOS PWA (`apps/ios-web`) shipped; Xcode hardware ActivityKit signing next.
+- **Phase 4 (Week 6) — ~30%**: Two-stage Evaluator & Nightly Dreaming diff APIs live in daemon; disk skill synthesis & cron watchers next.
 - **Phase 5 (Weeks 7–8)**: Multi-node `PipiFleet` expansion to Linux VPS (`<15MB`), Windows/WSL2, and Embedded/IoT (Raspberry Pi, ESP32/MQTT, Home Assistant).
 
 See the full breakdown in [01-DEVELOPMENT-PLAN.md](docs/roadmap/01-DEVELOPMENT-PLAN.md) and live status in [02-PROGRESS-TRACKER.md](docs/roadmap/02-PROGRESS-TRACKER.md).

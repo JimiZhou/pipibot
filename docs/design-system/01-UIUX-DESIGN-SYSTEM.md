@@ -272,7 +272,7 @@ $$\text{blinkClosure}(u) = \begin{cases} \left(\frac{u}{0.45}\right)^{1.55}, & 0
 | `--pipi-text-muted` | `#6C7382` | `#8B867D` | 遥测单位、时间戳、占位符 |
 | `--pipi-border-subtle` | `rgba(255, 255, 255, 0.08)` | `rgba(23, 22, 20, 0.09)` | 极细发丝分割线 |
 | `--pipi-soul-primary` | `#7C6CF6` | `#5B4CE4` | PipiBot 核心灵魂强调色（Electric Iris） |
-| `--pipi-soul-secondary` | `#38BDF8` | `#0284C7` | 信息流、连接延迟与信号高亮 |
+| `--pipi-soul-secondary` | `#38BDF8` | `#0369A1` | 信息流、连接延迟与信号高亮（Light 模式下满足 WCAG ≥ 4.5:1） |
 
 ### 3.2 Harness 引擎语义色与 Fleet 节点色
 
@@ -384,3 +384,49 @@ $$\text{blinkClosure}(u) = \begin{cases} \left(\frac{u}{0.45}\right)^{1.55}, & 0
 - **Compact Trailing**：活动任务进度环，或需要人工确认时高亮琥珀色 `Needs You` 圆点。
 - **Expanded Island（长按/点击展开）**：顶部显示任务名（如 `Layout Bot · PR #42`）与 R2 评测指标（`CLS 0.34 → 0.01`），底部直接提供一键 `[Approve]` 与 `[View Diff]` 快捷按钮，无需解锁进入 App 即可完成审批。
 - **Lock Screen Live Activity**：Obsidian 深色玻璃卡片，展示当前隧道连接状态、子会话并发数与 R2 证据缩略图。
+
+---
+
+## 5. OpenPencil 5-Rule AI 设计治理、6 大标准块与 Stageshow 集成
+
+从 `v0.2.0-beta` 起，PipiBot 引入借鉴 Marcel Kargul「5-Rule AI Design Governance」与 **OpenPencil / Stageshow** 工作流的跨端设计治理闭环，确保 AI 辅助生成或演进 Web PWA 与 Native SwiftUI 界面时零漂移、零硬编码颜色与像素级一致性：
+
+### 5.1 持久化设计记忆与 3 层令牌资产
+
+| 资产路径 | 职责与定位 |
+| :--- | :--- |
+| [`design-system/design-system.md`](../../design-system/design-system.md) | 持久化 AI 设计记忆文件：每条规则严格遵循「**一句话规则 + 原因 + 日期 (2026-11-19)**」。 |
+| [`design-system/tokens.dtcg.json`](../../design-system/tokens.dtcg.json) | W3C DTCG 3 层令牌数据源（`foundations` → `theme` 12 级色阶 → 语义 `tokens`）。 |
+| [`design-system/tokens.css`](../../design-system/tokens.css) | 浏览器与 PWA 运行时 CSS 变量实现（保留全部 `--pipi-*` 并显式分层）。 |
+| [`design-system/pipibot.pen`](../../design-system/pipibot.pen) | OpenPencil 结构化矢量文档：包含 `Obsidian Dark` / `Vellum Light` 双模式变量集、8 个 `textStyles`、6 大可复用命名组件块与 12 套桌面/移动端屏幕 `FRAME`。 |
+| [`scripts/audit-design-system.mjs`](../../scripts/audit-design-system.mjs) | 自动化静态审计门禁（`npm run audit:design`），在提交前强制校验 `.pen`、`design-system.md`、`apps/ios-web/styles.css` 与 `apps/apple/Sources/`。 |
+
+### 5.2 OpenPencil 5 项核心治理红线
+
+1. **零裸 Hex（Zero Raw Hex）**：除 `tokens.*` 定义文件（`tokens.css`、`tokens.dtcg.json`、`pipibot.pen` 的 `variableCollections`、`DesignTokens.swift`）之外，任何组件、屏幕节点、`apps/ios-web/styles.css` 与 SwiftUI 视图严禁出现 `#RRGGBB` 或颜色型 `0x...` 字面量。
+2. **变量绑定 `fallbackColor` 精确对齐**：`.pen` 中所有颜色绑定必须附带等于默认模式（`Obsidian Dark`）解析结果的 `fallbackColor`，严禁使用错误兜底 `#000000`。
+3. **几何尺寸与对比度铁律**：
+   - 移动端按钮高度 `44px`、`18px` 图标、`8px` 间距；macOS 紧凑按钮高度 `32px`、`16px` 图标、`6px` 间距；
+   - `sheet` / `form-sheet` 顶部边缘 `topEdge` 仅允许 `54px` 或 `102px`（绝不允许中间态随机值）；
+   - `Warm Vellum` 浅色模式下所有品牌/状态前景色对比度严格 `>= 4.5:1`（WCAG AA）；
+   - 矢量图标 `16–18px` 统一 `1.5px` 描边，`20–24px` 统一 `1.75px` 描边。
+4. **文本样式与智能裁剪**：`.pen` 内每个 `TEXT` 节点必须绑定合法 `textStyleId`；仅在具备 `effects` 投影/模糊或存在溢出滚动（`overflowDirection !== "NONE"`）的 `FRAME` 上设置 `clip: true`。
+5. **6 大标准命名块（Canonical Named Blocks）**：跨 `pipibot.pen`、`apps/ios-web/` 与 SwiftUI `CanonicalBlocks.swift` 统一收敛为：
+   - `list-card`：所有 Outcome、节点与记忆条目的标准化行容器；
+   - `sheet`：底部/居中模态面板（`topEdge: 54` 或 `102`）；
+   - `form-sheet`：带标注输入域与全宽主 CTA 按钮的表单面板；
+   - `dock`：左侧活体 `PipiAvatar` + 状态摘要、右侧单一主行动按钮的驻留条；
+   - `bottom-bar`：贴底全宽导航栏（Grounded Bottom Bar），彻底取代卡片套卡片的悬浮药丸；
+   - `empty-state`：严格「1 图标 + 1 标题 + 1 句话 + 至多 1 个按钮」的零焦虑空状态。
+
+### 5.3 Stageshow 技能集成与产品展示规范
+
+PipiBot 已通过 `.agents/skills/stageshow/`（参见 [`SKILL.md`](../../.agents/skills/stageshow/SKILL.md)）集成 **Stageshow** 产品级交互展示准则，并直接落地于桌面/移动双端演示中：
+- **`device-pair` 双端跨边构图**：macOS Outcome Studio 窗口锚定左上舞台，companion iPhone 跨骑在右侧留白与低噪占位行之上，核心指标（如 `CLS 0.34 -> 0.01`）永不被遮挡。
+- **`dynamic-island` 分层形变**：灵动岛使用单一黑色药丸外形层与独立前景内容层分离渲染，确保在 `compact` ↔ `expanded` 弹簧展开期间文字不拉伸、不抖动。
+- **克制信息密度与反套路 AI 视觉**：单屏聚焦 `3–7` 条真实高价值文本，辅以静默结构占位条；彻底禁用泛滥的紫色魔法星星（Stock AI Sparkles），以 120 Hz 活体 `PipiAvatar` 与 Cloudflare R2 实证体现智能。
+
+### 5.4 Live iOS Companion WebApp / PWA（`apps/ios-web`）
+
+[`apps/ios-web/index.html`](../../apps/ios-web/index.html) 基于上述 6 大命名块与 3 层 CSS Token 构建，可通过 `@pipibot/daemon`（`http://127.0.0.1:4242/ios`）实时接入 Mac 宿主 SSE 事件流（`/api/v1/events`），或在离线状态下无缝切换本地演示模式，完整交互体验 **Dynamic Island 120Hz 头像同步、Devin Outcomes、Needs You 滑动审批栈、Muse 空间画布 + 多 Harness 路由、Dots 节点矩阵与四层记忆演进审阅**。
+

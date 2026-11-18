@@ -6,7 +6,7 @@
 
 *From Tasks to Outcomes. From Chatbots to a Living Cross-Device AI Manager.*
 
-[![Version](https://img.shields.io/badge/version-v0.1.0--alpha-7C5CFF?style=flat-square)](docs/roadmap/02-PROGRESS-TRACKER.md)
+[![Version](https://img.shields.io/badge/version-v0.2.0--beta-7C5CFF?style=flat-square)](docs/roadmap/02-PROGRESS-TRACKER.md)
 [![License](https://img.shields.io/badge/license-MIT-10B981?style=flat-square)](LICENSE)
 [![Cloud Cost](https://img.shields.io/badge/Cloudflare_Edge-%240%2Fmonth-F38020?style=flat-square)](docs/architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md)
 [![Avatar Engine](https://img.shields.io/badge/Avatar-120Hz_Procedural_SVG-EC4899?style=flat-square)](design-system/index.html)
@@ -90,7 +90,7 @@ flowchart TB
 | 核心支柱 | 技术方案与核心亮点 | 深入阅读 |
 | :--- | :--- | :--- |
 | **1. Pi 内核 + 多 Harness BYOK 路由器** | 嵌入极简 4 工具 `@mariozechner/pi-coding-agent`（`read`/`write`/`edit`/`bash` + 25+ 钩子），并通过 **Routed MCP Bridge** 复用本地已登录的 `claude`、`codex`、`opencode` CLI 与 `pi-ai` BYOK 接口，零重复计费。 | [`02-SYSTEM-ARCHITECTURE-AND-HARNESS.md`](docs/architecture/02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) · [`harness-router.ts`](packages/core/src/harness-router.ts) |
-| **2. 120Hz 程序化活体头像 + 多范式 UX** | 借鉴 GrokBot 的零依赖 SVG 引擎（**192 射线**轮廓插值、**6 轨道**贝塞尔关键帧、**120Hz** Euler 弹簧、**Rodrigues 3D** 眼球追踪、`0.26s` 眨眼、**53 状态 / 9 表情**），融合 **Manus Cue (`⌥Space`)**、**Dots** 点阵与 **Muse** 空间画布。 | [`01-UIUX-DESIGN-SYSTEM.md`](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) · [`pipibot-avatar.js`](design-system/pipibot-avatar.js) |
+| **2. 120Hz 程序化活体头像 + OpenPencil 五规则 UX** | 借鉴 GrokBot 的零依赖 SVG/SwiftUI 引擎（**192 射线**轮廓插值、**6 轨道**贝塞尔关键帧、**120Hz** Euler 弹簧、**Rodrigues 3D** 眼球追踪、**53 状态 / 9 表情**），融合 **Manus Cue (`⌥Space`)**、**Dots**、**Muse**、**Stageshow** 工艺与 `pipibot.pen` 六大积木审计体系。 | [`01-UIUX-DESIGN-SYSTEM.md`](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) · [`design-system.md`](design-system/design-system.md) |
 | **3. Devin 式结果负责制与 "Needs You" 收件箱** | 以 **Responsibility Spec**（目标 + 约束 + 成功指标）和 Cron/Webhook/FS 触发器取代被动聊天，内置独立 Evaluator 自检与并行子会话，仅将高信号决策附带前后对比证据送入 **"Needs You"**。 | [`01-PRODUCT-VISION-AND-RESEARCH.md`](docs/architecture/01-PRODUCT-VISION-AND-RESEARCH.md) · [`protocol/src/index.ts`](packages/protocol/src/index.ts) |
 | **4. 四层认知记忆与夜间自我进化** | **L0** 瞬时上下文 -> **L1** SQLite FTS5 + `sqlite-vec` 情景日志 -> **L2** 人类可读的 `SOUL.md` / `USER.md` / `MEMORY.md`（支持时间线覆盖） -> **L3** 自动合成 Pi `skills/*.md`，每日呈现 **Evolution Diff** 透明审计。 | [`04-MEMORY-AND-SELF-EVOLUTION.md`](docs/architecture/04-MEMORY-AND-SELF-EVOLUTION.md) · [`memory-engine.ts`](packages/core/src/memory-engine.ts) |
 | **5. Mac 常驻 + iOS 伴侣 × $0/月 Cloudflare 边缘** | Mac `launchd` 主机承担重执行与隐私存储；`cloudflared` 出站隧道、**Workers**、**D1**、**KV**、**R2**（零出站费传输截图/录屏/加密备份）与 **Access** 实现 **$0/月** 零公网暴露跨网互联。 | [`03-CLOUDFLARE-AND-FLEET-INFRA.md`](docs/architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md) · [`worker.ts`](packages/cloudflare-edge/src/worker.ts) |
@@ -98,29 +98,42 @@ flowchart TB
 
 ---
 
-## 快速体验：交互式设计系统与 120Hz 程序化头像工作台
+## 快速体验：V1 Mac 常驻宿主、原生 Swift 6 双端与实时 iOS PWA
 
-> **当前版本说明 (`v0.1.0-alpha`)**：本开源初始基线包含完整的系统架构文档、UI/UX 设计规范、可直接在浏览器运行的零依赖设计系统工作台、`@pipibot/protocol` 契约、`@pipibot/core` 路由与记忆引擎骨架及 `@pipibot/cloudflare-edge` 边缘模板。原生 macOS `launchd` 守护进程与 `pipibot-ios` SwiftUI 客户端将在 [Phase 1–5 路线图](docs/roadmap/01-DEVELOPMENT-PLAN.md) 中分阶段交付。
+> **当前版本说明 (`v0.2.0-beta`)**：Wave 2 正式交付可运行 V1 核心栈——`@pipibot/daemon` HTTP REST + 250ms SSE 常驻服务、原生 Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp`)、实时 iOS Companion PWA (`apps/ios-web`)、OpenPencil `pipibot.pen` + 五规则设计审计 (`scripts/audit-design-system.mjs`) 与 Stageshow 展示技能 (`.agents/skills/stageshow`)。
 
-无需安装任何前端打包工具或第三方依赖，10 秒即可在本地运行交互式工作台：
+### 1. 启动 V1 Mac 常驻守护进程与实时 iOS 伴侣 PWA
+
+需 **Node.js `>= 22.6.0`**（零第三方 npm 依赖，即克隆即跑）：
 
 ```bash
-# 1. 克隆仓库
 git clone https://github.com/JimiZhou/pipibot.git
 cd pipibot
 
-# 2. 校验程序化头像引擎语法 (需 Node >= 22)
-node --check design-system/pipibot-avatar.js
-
-# 3. 启动本地静态服务
-python3 -m http.server 8080 --bind 127.0.0.1
+# 启动 @pipibot/daemon (REST + 250ms SSE + 静态托管，默认端口 4242)
+npm run start:daemon
 ```
 
-随后在浏览器打开 **`http://127.0.0.1:8080/design-system/`**，即可实时把玩：
-- **120Hz `PipiAvatar` 交互舞台**：移动鼠标体验 Rodrigues 3D 眼球跟随、点击头像触发 `0.26s` 眨眼、动态极坐标形变并实时观测 Euler 弹簧遥测曲线。
-- **Obsidian Dark / Warm Vellum Light 双主题切换** 与完整 **53 状态矩阵浏览器**。
-- **macOS 宿主与 Manus Cue (`⌥Space`) 模拟器**：一键切换 `Pi` / `Claude Code` / `Codex` / `OpenCode` / `BYOK` 并体验上下文悬浮建议胶囊。
-- **iOS 伴侣端与 Devin "Needs You" 模拟器**：可交互灵动岛 (Dynamic Island)、左右滑动的 PR/VPS/夜间记忆审计审批卡片、Muse 空间卡片与 Dots 节点呼吸矩阵。
+启动后在浏览器打开：
+- **实时 iOS Companion PWA**：**`http://127.0.0.1:4242/ios`**（灵动岛 120Hz `PipiAvatar`、Devin Outcomes、Needs You 左右滑动审批、Muse 多 Harness 对话 `Pi`/`Claude Code`/`Codex`/`OpenCode`/`BYOK`、Dots 节点矩阵与四层记忆进化 Diff 审计）。
+- **设计系统与 120Hz 头像工作台**：**`http://127.0.0.1:4242/design-system/`**（或纯静态预览 `npm run preview:design` -> `http://127.0.0.1:8080/design-system/`）。
+
+### 2. 编译与测试原生 Swift 6 Mac / iOS 工程 (`apps/apple`)
+
+```bash
+# 编译 PipiBotKit、PipiBotIOSUI、PipiBotMacApp 并运行 PipiBotKitTests (macOS 14+ / Swift 6.0)
+npm run build:apple && npm run test:apple
+```
+
+### 3. 运行 OpenPencil 设计治理审计与全仓校验
+
+```bash
+# 审计 OpenPencil pipibot.pen、design-system.md、apps/ios-web/styles.css 与 SwiftUI 视图
+npm run audit:design
+
+# 运行全链路校验 (头像引擎 + iOS PWA 语法 + 设计审计 + Workspace 检查 + Daemon 集成测试)
+npm run verify
+```
 
 ---
 
@@ -132,24 +145,44 @@ pipibot/
 ├── README.zh-CN.md                            # 简体中文旗舰文档 (当前文件)
 ├── CONTRIBUTING.md                            # 开源贡献指南与代码规范
 ├── LICENSE                                    # MIT 开源协议 (Copyright 2026 JimiZhou & Contributors)
-├── package.json                               # 根 npm Monorepo 配置
+├── package.json                               # 根 npm Monorepo 配置 (v0.2.0-beta)
 ├── tsconfig.base.json                         # 共享 TypeScript 严格编译配置
 ├── .gitignore                                 # 忽略 node_modules, dist, .wrangler, *.sqlite, .env* 等
+├── .agents/
+│   └── skills/stageshow/                      # Stageshow 视觉工艺技能 (device-pair, dynamic-island)
+├── scripts/
+│   └── audit-design-system.mjs                # OpenPencil 五规则与零原始 hex 自动化审计器
 ├── design-system/
-│   ├── index.html                             # 交互式 UI/UX 工作台与 Mac/iOS 模拟器
+│   ├── design-system.md                       # 持久化 AI 设计记忆 (Rule + Reason + Date)
+│   ├── pipibot.pen                            # OpenPencil JSON (3 层 Token, 6 积木, 12 屏)
+│   ├── tokens.dtcg.json                       # W3C DTCG 标准 Token 导出
+│   ├── tokens.css                             # Obsidian Dark / Warm Vellum Light 设计 Token
 │   ├── pipibot-avatar.js                      # 零依赖 192 射线 120Hz 程序化 SVG 头像引擎
-│   └── tokens.css                             # Obsidian Dark / Warm Vellum Light 设计 Token
+│   └── index.html                             # 交互式 UI/UX 工作台与 Mac/iOS 模拟器
+├── apps/
+│   ├── apple/                                 # Swift 6 Package (macOS 14+ & iOS 17+)
+│   │   ├── Package.swift                      # PipiBotKit, PipiBotIOSUI, PipiBotMacApp, PipiBotKitTests
+│   │   ├── Sources/PipiBotKit/                # ProtocolModels, DesignTokens, CanonicalBlocks, Avatar, Client
+│   │   ├── Sources/PipiBotIOSUI/              # iOS 主视图, NeedsYouSwipeDeck, MuseCanvas, DotsFleet
+│   │   ├── Sources/PipiBotMacApp/             # MenuBarExtra, ManusCueFloatingPanel, MacOutcomeStudioView
+│   │   └── Tests/PipiBotKitTests/             # Swift 6 程序化头像与协议测试套
+│   └── ios-web/                               # 实时 iOS 伴侣 PWA (由 Daemon 在 /ios 直出)
+│       ├── index.html
+│       ├── styles.css                         # 100% 绑定 design-system/tokens.css (0 原始 hex)
+│       ├── app.js                             # /api/v1/* + 250ms SSE 实时连接器 (含离线演示降级)
+│       └── manifest.json                      # PWA 清单文件
 ├── docs/
 │   ├── architecture/
 │   │   ├── 01-PRODUCT-VISION-AND-RESEARCH.md  # 深度竞品拆解与产品愿景
 │   │   ├── 02-SYSTEM-ARCHITECTURE-AND-HARNESS.md # Pi 内核、多 Harness 路由与结果引擎
 │   │   ├── 03-CLOUDFLARE-AND-FLEET-INFRA.md   # $0/月 Cloudflare 架构与 PipiFleet 节点拓扑
-│   │   └── 04-MEMORY-AND-SELF-EVOLUTION.md    # 四层认知记忆与夜间技能自合成引擎
+│   │   ├── 04-MEMORY-AND-SELF-EVOLUTION.md    # 四层认知记忆与夜间技能自合成引擎
+│   │   └── 05-MAC-AND-IOS-V1-IMPLEMENTATION.md # V1 Mac Daemon、Swift 6、PWA 与 OpenPencil 实现规范
 │   ├── design-system/
 │   │   └── 01-UIUX-DESIGN-SYSTEM.md           # Ambient Soul & Outcome Studio 完整设计规范
 │   └── roadmap/
 │       ├── 01-DEVELOPMENT-PLAN.md             # Phase 0-5 工程 WBS、验证测试套、SLA 与风险矩阵
-│       └── 02-PROGRESS-TRACKER.md             # 实时进度看板、ADR-001~008 与变更日志
+│       └── 02-PROGRESS-TRACKER.md             # 实时进度看板、ADR-001~009 与变更日志
 └── packages/
     ├── protocol/
     │   ├── package.json                       # @pipibot/protocol 包清单
@@ -158,6 +191,13 @@ pipibot/
     │   ├── package.json                       # @pipibot/core 包清单
     │   ├── src/harness-router.ts              # PipiHarnessRouter 与 RoutedMcpBridge
     │   └── src/memory-engine.ts               # 四层 PipiMemoryEngine 与 PipiEvolutionLoop
+    ├── daemon/
+    │   ├── package.json                       # @pipibot/daemon V1 常驻宿主包清单
+    │   ├── src/outcome-engine.ts              # PipiOutcomeEngine (两阶段评估器 + NeedsYou)
+    │   ├── src/cue-fleet-sensor.ts            # PipiCueSensor 与 PipiFleetManager 实机遥测
+    │   ├── src/server.ts                      # REST /api/v1/* + 250ms SSE + 静态 /design-system & /ios
+    │   ├── src/cli.ts                         # Daemon CLI 启动入口
+    │   └── test/daemon.test.ts                # 全路由 REST/SSE/静态托管集成测试套
     └── cloudflare-edge/
         ├── wrangler.toml                      # Cloudflare Workers / D1 / R2 / KV 绑定配置
         ├── schema.sql                         # D1 Fleet 注册表与离线队列 SQL Schema
@@ -174,20 +214,22 @@ pipibot/
 | [02-SYSTEM-ARCHITECTURE-AND-HARNESS.md](docs/architecture/02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) | `PipiCore` (Pi SDK)、`PipiRouter` (`pi`, `claude-code`, `codex`, `opencode`, `byok`)、Routed MCP Bridge、客户端工具中继与 `PipiOutcomeEngine` | 中文 + EN Terms |
 | [03-CLOUDFLARE-AND-FLEET-INFRA.md](docs/architecture/03-CLOUDFLARE-AND-FLEET-INFRA.md) | Mac 常驻宿主 + iOS 伴侣端、$0/月 Cloudflare 免费层技术栈（Tunnel/Workers/D1/R2/KV/Access）、配额预算表与 `PipiFleet` 五类节点沙盒 | 中文 + EN Terms |
 | [04-MEMORY-AND-SELF-EVOLUTION.md](docs/architecture/04-MEMORY-AND-SELF-EVOLUTION.md) | 四层记忆（L0–L3）、SQLite FTS5 + `sqlite-vec`、复合显著性评分公式、时间线覆盖、夜间做梦整合与 `SOUL.md`/`USER.md`/Pi Skill 自动合成 | 中文 + EN Terms |
-| [01-UIUX-DESIGN-SYSTEM.md](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) | "Ambient Soul & Outcome Studio" 语义 Token、`PipiAvatar` 192 射线 / Rodrigues 3D / 53 状态机规范、Mac Cue 与 iOS 灵动岛/Needs You 交互规范 | 中文 + EN Terms |
+| [05-MAC-AND-IOS-V1-IMPLEMENTATION.md](docs/architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) | V1 全栈实现规范：OpenPencil 五规则治理、Stageshow 工艺、`@pipibot/daemon` REST/SSE、Swift 6 `apps/apple` 与实时 PWA `apps/ios-web` | 中文 + EN Terms |
+| [01-UIUX-DESIGN-SYSTEM.md](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) | "Ambient Soul & Outcome Studio" 语义 Token、`PipiAvatar` 192 射线 / Rodrigues 3D / 53 状态机规范、OpenPencil 五规则与 Stageshow 规范 | 中文 + EN Terms |
+| [design-system.md](design-system/design-system.md) | 持久化 AI 设计记忆：三层 Token、几何对比度、六大规范积木与 Stageshow 约束（规则 + 原因 + 日期） | English |
 | [01-DEVELOPMENT-PLAN.md](docs/roadmap/01-DEVELOPMENT-PLAN.md) | Phase 0–5 全量 WBS、分阶段验证测试套件、非功能性硬指标（节点 `<15MB`、头像 `120fps <1% CPU`、`$0/月` 云成本）与风险缓解矩阵 | 中文 + EN Terms |
-| [02-PROGRESS-TRACKER.md](docs/roadmap/02-PROGRESS-TRACKER.md) | 实时里程碑追踪看板、**ADR-001 至 ADR-008** 关键架构决策记录及 `v0.1.0-alpha` 变更日志 | 中文 + EN Terms |
+| [02-PROGRESS-TRACKER.md](docs/roadmap/02-PROGRESS-TRACKER.md) | 实时里程碑追踪看板、**ADR-001 至 ADR-009** 关键架构决策记录及 `v0.1.0-alpha` / `v0.2.0-beta` 变更日志 | 中文 + EN Terms |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Monorepo 本地开发环境、新增 Harness/Avatar 状态/Fleet 节点指南与 PR 自检清单 | English |
 
 ---
 
 ## 工程路线图概览 (Roadmap Snapshot)
 
-- **Phase 0 (`v0.1.0-alpha`) — 已完成**：深度研究与系统架构文档、UI/UX 设计系统与可交互 120Hz SVG 工作台、Protocol/Core/Edge 代码骨架、全量开发计划与 ADR 基线。
-- **Phase 1 (Weeks 1–2)**：macOS `launchd` 常驻守护进程、Pi SDK 嵌入、本地 `claude-code` / `codex` / `opencode` + Routed MCP Bridge、SQLite FTS5 + `sqlite-vec` 四层记忆库。
-- **Phase 2 (Week 3)**：`$0/月` Cloudflare 免费层自动隧道 (`cloudflared`)、Worker 中继与离线消息重放、D1、R2 零出站费制品及 Access Zero Trust。
-- **Phase 3 (Weeks 4–5)**：macOS MenuBar 与 Manus Cue (`⌥Space`) 悬浮胶囊 + `pipibot-ios` SwiftUI 原生端（120Hz 头像、Dynamic Island 灵动岛、Needs You 滑动审批、Muse 画布）。
-- **Phase 4 (Week 6)**：Devin 式 Outcome 责任闭环引擎、Autonomous Evaluators 与夜间自我进化 / Pi Skill 自动合成。
+- **Phase 0 (`v0.1.0-alpha`) — 100% 已验收**：深度研究与系统架构文档、UI/UX 设计系统与可交互 120Hz SVG 工作台、Protocol/Core/Edge 代码骨架、全量开发计划与 ADR 基线。
+- **Phase 1 (Weeks 1–2) — ~75% (`v0.2.0-beta`)**：`@pipibot/daemon` HTTP REST + 250ms SSE + `PipiOutcomeEngine` + `PipiCueSensor` + `launchd` plist 已交付；真实 SQLite FTS5/`sqlite-vec` 磁盘持久化与本地 CLI 子进程闭环持续补齐。
+- **Phase 2 (Week 3) — ~20%**：Cloudflare Worker/D1/R2 边缘模板已就绪；`cloudflared` 休眠唤醒自愈隧道与 APNs 实测待上线。
+- **Phase 3 (Weeks 4–5) — ~80% (`v0.2.0-beta`)**：OpenPencil `.pen` + 五规则审计 + Stageshow、Swift 6 `apps/apple` (`PipiBotKit`, `PipiBotIOSUI`, `PipiBotMacApp`) 与实时 iOS PWA (`apps/ios-web`) 已交付；真机 `ActivityKit` 灵动岛签名打包待补。
+- **Phase 4 (Week 6) — ~30%**：两阶段 Evaluator 与夜间做梦 Diff API 已在 Daemon 就绪；磁盘 Pi Skill 自动合成与定时 Watchers 后续完善。
 - **Phase 5 (Weeks 7–8)**：`PipiFleet` 扩展至 Linux VPS (`<15MB`)、Windows/WSL2 与 Embedded/IoT（树莓派、ESP32/MQTT、Home Assistant）。
 
 详细拆解请查阅 [`docs/roadmap/01-DEVELOPMENT-PLAN.md`](docs/roadmap/01-DEVELOPMENT-PLAN.md)，实时追踪请查阅 [`docs/roadmap/02-PROGRESS-TRACKER.md`](docs/roadmap/02-PROGRESS-TRACKER.md)。

@@ -1,128 +1,248 @@
 /* ==========================================================================
-   PipiBot Design System Tokens — "Ambient Soul & Outcome Studio"
-   Zero-dependency CSS Custom Properties supporting Obsidian Carbon (Dark)
-   and Warm Vellum (Light), Harness semantics, Fleet Dots, and Spring Motion.
+   PipiBot 3-Tier Design System Tokens — "Ambient Soul & Outcome Studio"
+   Tier 1: Foundations (Raw Palette & Primitives)
+   Tier 2: Theme (Obsidian Dark & Warm Vellum Light 12-Step Scales)
+   Tier 3: Semantic Tokens (Surfaces, Typography, Geometry, Harnesses, Fleet)
    ========================================================================== */
 
+/* --------------------------------------------------------------------------
+   TIER 1: FOUNDATIONS (Primitive Palette & Metrics)
+   -------------------------------------------------------------------------- */
+:root {
+  /* Obsidian 12-Step Foundation */
+  --pipi-f-obsidian-01: #08090b;
+  --pipi-f-obsidian-02: #0b0c0e;
+  --pipi-f-obsidian-03: #121418;
+  --pipi-f-obsidian-04: #171a20;
+  --pipi-f-obsidian-05: #1e222b;
+  --pipi-f-obsidian-06: #262b38;
+  --pipi-f-obsidian-07: #363d4f;
+  --pipi-f-obsidian-08: #525b70;
+  --pipi-f-obsidian-09: #6c7382;
+  --pipi-f-obsidian-10: #a1a7b3;
+  --pipi-f-obsidian-11: #d4d7df;
+  --pipi-f-obsidian-12: #f4f5f7;
+
+  /* Vellum 12-Step Foundation */
+  --pipi-f-vellum-01: #ffffff;
+  --pipi-f-vellum-02: #fdfcf9;
+  --pipi-f-vellum-03: #f7f5f0;
+  --pipi-f-vellum-04: #f1ede4;
+  --pipi-f-vellum-05: #ebe6dc;
+  --pipi-f-vellum-06: #ded8cc;
+  --pipi-f-vellum-07: #c8c1b3;
+  --pipi-f-vellum-08: #a69f91;
+  --pipi-f-vellum-09: #8b867d;
+  --pipi-f-vellum-10: #5e5b55;
+  --pipi-f-vellum-11: #34322e;
+  --pipi-f-vellum-12: #171614;
+
+  /* Brand & Semantic Chromatics (Dark & Contrast-Safe Light >= 4.5:1) */
+  --pipi-f-iris-400: #7c6cf6;
+  --pipi-f-iris-500: #6353e8;
+  --pipi-f-iris-600: #5b4ce4;
+  --pipi-f-cyan-400: #38bdf8;
+  --pipi-f-cyan-700: #0369a1;
+  --pipi-f-emerald-400: #10b981;
+  --pipi-f-emerald-700: #047857;
+  --pipi-f-amber-400: #f59e0b;
+  --pipi-f-amber-700: #b45309;
+  --pipi-f-crimson-400: #ef4444;
+  --pipi-f-crimson-700: #b91c1c;
+  --pipi-f-terracotta-400: #d97757;
+  --pipi-f-terracotta-700: #b55233;
+  --pipi-f-cobalt-400: #3b82f6;
+  --pipi-f-cobalt-700: #1d4ed8;
+  --pipi-f-violet-400: #a855f7;
+  --pipi-f-violet-700: #7e22ce;
+  --pipi-f-indigo-400: #818cf8;
+  --pipi-f-azure-400: #60a5fa;
+  --pipi-f-coral-400: #f472b6;
+  --pipi-f-orchid-400: #c084fc;
+  --pipi-f-black: #050507;
+  --pipi-f-white: #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   TIER 2 & TIER 3: OBSIDIAN DARK THEME (Default)
+   -------------------------------------------------------------------------- */
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* --- Surface & Canvas Hierarchy (Obsidian Carbon) --- */
-  --pipi-bg-canvas: #0b0c0e;
-  --pipi-bg-elevated: #121418;
-  --pipi-bg-surface: #171a20;
-  --pipi-bg-surface-hover: #1e222b;
-  --pipi-bg-inset: #08090b;
-  --pipi-bg-glass: rgba(23, 26, 32, 0.74);
-  --pipi-bg-glass-strong: rgba(18, 20, 24, 0.88);
+  /* Tier 2: 12-Step Theme Scale */
+  --pipi-t-01: var(--pipi-f-obsidian-01);
+  --pipi-t-02: var(--pipi-f-obsidian-02);
+  --pipi-t-03: var(--pipi-f-obsidian-03);
+  --pipi-t-04: var(--pipi-f-obsidian-04);
+  --pipi-t-05: var(--pipi-f-obsidian-05);
+  --pipi-t-06: var(--pipi-f-obsidian-06);
+  --pipi-t-07: var(--pipi-f-obsidian-07);
+  --pipi-t-08: var(--pipi-f-obsidian-08);
+  --pipi-t-09: var(--pipi-f-obsidian-09);
+  --pipi-t-10: var(--pipi-f-obsidian-10);
+  --pipi-t-11: var(--pipi-f-obsidian-11);
+  --pipi-t-12: var(--pipi-f-obsidian-12);
 
-  /* --- Typography & Foreground --- */
-  --pipi-text-primary: #f4f5f7;
-  --pipi-text-secondary: #a1a7b3;
-  --pipi-text-muted: #6c7382;
-  --pipi-text-inverse: #0b0c0e;
+  /* Tier 3: Surface & Canvas Hierarchy */
+  --pipi-bg-canvas: var(--pipi-t-02);
+  --pipi-bg-elevated: var(--pipi-t-03);
+  --pipi-bg-surface: var(--pipi-t-04);
+  --pipi-bg-surface-hover: var(--pipi-t-05);
+  --pipi-bg-inset: var(--pipi-t-01);
+  --pipi-bg-glass: rgba(23, 26, 32, 0.76);
+  --pipi-bg-glass-strong: rgba(18, 20, 24, 0.90);
 
-  /* --- Hairlines & Elevation Borders --- */
+  /* Tier 3: Typography & Foreground */
+  --pipi-text-primary: var(--pipi-t-12);
+  --pipi-text-secondary: var(--pipi-t-10);
+  --pipi-text-muted: var(--pipi-t-09);
+  --pipi-text-inverse: var(--pipi-t-02);
+
+  /* Tier 3: Hairlines & Borders */
   --pipi-border-subtle: rgba(255, 255, 255, 0.08);
   --pipi-border-strong: rgba(255, 255, 255, 0.16);
   --pipi-border-focus: rgba(124, 108, 246, 0.55);
 
-  /* --- Brand & Soul Accents --- */
-  --pipi-soul-primary: #7c6cf6;
-  --pipi-soul-secondary: #38bdf8;
+  /* Tier 3: Brand & Soul Accents */
+  --pipi-soul-primary: var(--pipi-f-iris-400);
+  --pipi-soul-btn-bg: var(--pipi-f-iris-500);
+  --pipi-soul-secondary: var(--pipi-f-cyan-400);
   --pipi-soul-glow: rgba(124, 108, 246, 0.36);
-  --pipi-avatar-shell-top: #262b38;
-  --pipi-avatar-shell-bottom: #12151c;
+  --pipi-soul-tint: rgba(124, 108, 246, 0.16);
+  --pipi-info-tint: rgba(56, 189, 248, 0.14);
+  --pipi-avatar-shell-top: var(--pipi-t-06);
+  --pipi-avatar-shell-bottom: var(--pipi-t-03);
   --pipi-avatar-rim: rgba(255, 255, 255, 0.22);
 
-  /* --- Shadows & Ambient Glow --- */
+  /* Tier 3: Hardware & Bezel */
+  --pipi-island-bg: var(--pipi-f-black);
+  --pipi-island-fg: var(--pipi-f-obsidian-12);
+  --pipi-island-border: rgba(255, 255, 255, 0.14);
+  --pipi-device-bezel: var(--pipi-t-06);
+
+  /* Tier 3: Shadows */
   --pipi-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
   --pipi-shadow-md: 0 12px 32px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.06);
   --pipi-shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --pipi-shadow-cue: 0 18px 48px rgba(0, 0, 0, 0.62), 0 0 32px rgba(124, 108, 246, 0.18);
 
-  /* --- Semantic Outcome Status --- */
-  --pipi-status-ok: #10b981;
+  /* Tier 3: Semantic Status */
+  --pipi-status-ok: var(--pipi-f-emerald-400);
   --pipi-status-ok-bg: rgba(16, 185, 129, 0.14);
-  --pipi-status-warn: #f59e0b;
+  --pipi-status-warn: var(--pipi-f-amber-400);
   --pipi-status-warn-bg: rgba(245, 158, 11, 0.14);
-  --pipi-status-danger: #ef4444;
+  --pipi-status-danger: var(--pipi-f-crimson-400);
   --pipi-status-danger-bg: rgba(239, 68, 68, 0.15);
-  --pipi-status-info: #38bdf8;
+  --pipi-status-info: var(--pipi-f-cyan-400);
   --pipi-status-info-bg: rgba(56, 189, 248, 0.14);
+
+  /* Tier 3: Harness Identity Colors */
+  --pipi-harness-pi: var(--pipi-f-emerald-400);
+  --pipi-harness-claude: var(--pipi-f-terracotta-400);
+  --pipi-harness-codex: var(--pipi-f-cobalt-400);
+  --pipi-harness-opencode: var(--pipi-f-violet-400);
+  --pipi-harness-byok: var(--pipi-f-amber-400);
 }
 
+/* --------------------------------------------------------------------------
+   TIER 2 & TIER 3: WARM VELLUM LIGHT THEME (WCAG >= 4.5:1 Tuned)
+   -------------------------------------------------------------------------- */
 [data-theme="light"] {
   color-scheme: light;
 
-  /* --- Surface & Canvas Hierarchy (Warm Vellum) --- */
-  --pipi-bg-canvas: #f7f5f0;
-  --pipi-bg-elevated: #ffffff;
-  --pipi-bg-surface: #fdfcf9;
-  --pipi-bg-surface-hover: #f1ede4;
-  --pipi-bg-inset: #ebe6dc;
-  --pipi-bg-glass: rgba(253, 252, 249, 0.80);
-  --pipi-bg-glass-strong: rgba(255, 255, 255, 0.92);
+  /* Tier 2: 12-Step Theme Scale */
+  --pipi-t-01: var(--pipi-f-vellum-01);
+  --pipi-t-02: var(--pipi-f-vellum-02);
+  --pipi-t-03: var(--pipi-f-vellum-03);
+  --pipi-t-04: var(--pipi-f-vellum-04);
+  --pipi-t-05: var(--pipi-f-vellum-05);
+  --pipi-t-06: var(--pipi-f-vellum-06);
+  --pipi-t-07: var(--pipi-f-vellum-07);
+  --pipi-t-08: var(--pipi-f-vellum-08);
+  --pipi-t-09: var(--pipi-f-vellum-09);
+  --pipi-t-10: var(--pipi-f-vellum-10);
+  --pipi-t-11: var(--pipi-f-vellum-11);
+  --pipi-t-12: var(--pipi-f-vellum-12);
 
-  /* --- Typography & Foreground --- */
-  --pipi-text-primary: #171614;
-  --pipi-text-secondary: #5e5b55;
-  --pipi-text-muted: #8b867d;
-  --pipi-text-inverse: #ffffff;
+  /* Tier 3: Surface & Canvas Hierarchy */
+  --pipi-bg-canvas: var(--pipi-t-03);
+  --pipi-bg-elevated: var(--pipi-t-01);
+  --pipi-bg-surface: var(--pipi-t-02);
+  --pipi-bg-surface-hover: var(--pipi-t-04);
+  --pipi-bg-inset: var(--pipi-t-05);
+  --pipi-bg-glass: rgba(253, 252, 249, 0.84);
+  --pipi-bg-glass-strong: rgba(255, 255, 255, 0.94);
 
-  /* --- Hairlines & Elevation Borders --- */
+  /* Tier 3: Typography & Foreground */
+  --pipi-text-primary: var(--pipi-t-12);
+  --pipi-text-secondary: var(--pipi-t-10);
+  --pipi-text-muted: var(--pipi-t-09);
+  --pipi-text-inverse: var(--pipi-t-01);
+
+  /* Tier 3: Hairlines & Borders */
   --pipi-border-subtle: rgba(23, 22, 20, 0.09);
   --pipi-border-strong: rgba(23, 22, 20, 0.18);
   --pipi-border-focus: rgba(91, 76, 228, 0.45);
 
-  /* --- Brand & Soul Accents --- */
-  --pipi-soul-primary: #5b4ce4;
-  --pipi-soul-secondary: #0284c7;
+  /* Tier 3: Brand & Soul Accents (All >= 4.5:1 on Warm Vellum) */
+  --pipi-soul-primary: var(--pipi-f-iris-600);
+  --pipi-soul-btn-bg: var(--pipi-f-iris-600);
+  --pipi-soul-secondary: var(--pipi-f-cyan-700);
   --pipi-soul-glow: rgba(91, 76, 228, 0.24);
-  --pipi-avatar-shell-top: #262936;
-  --pipi-avatar-shell-bottom: #14161e;
+  --pipi-soul-tint: rgba(91, 76, 228, 0.12);
+  --pipi-info-tint: rgba(3, 105, 161, 0.11);
+  --pipi-avatar-shell-top: var(--pipi-f-obsidian-06);
+  --pipi-avatar-shell-bottom: var(--pipi-f-obsidian-03);
   --pipi-avatar-rim: rgba(255, 255, 255, 0.28);
 
-  /* --- Shadows & Ambient Glow --- */
+  /* Tier 3: Hardware & Bezel */
+  --pipi-island-bg: var(--pipi-f-black);
+  --pipi-island-fg: var(--pipi-f-obsidian-12);
+  --pipi-island-border: rgba(255, 255, 255, 0.16);
+  --pipi-device-bezel: var(--pipi-t-11);
+
+  /* Tier 3: Shadows */
   --pipi-shadow-sm: 0 2px 8px rgba(23, 22, 20, 0.06);
   --pipi-shadow-md: 0 12px 30px rgba(23, 22, 20, 0.09), 0 0 0 1px rgba(23, 22, 20, 0.06);
   --pipi-shadow-lg: 0 24px 60px rgba(23, 22, 20, 0.14), 0 0 0 1px rgba(23, 22, 20, 0.07);
   --pipi-shadow-cue: 0 18px 42px rgba(23, 22, 20, 0.15), 0 0 28px rgba(91, 76, 228, 0.12);
 
-  /* --- Semantic Outcome Status --- */
-  --pipi-status-ok: #059669;
-  --pipi-status-ok-bg: rgba(5, 150, 105, 0.12);
-  --pipi-status-warn: #d97706;
-  --pipi-status-warn-bg: rgba(217, 119, 6, 0.12);
-  --pipi-status-danger: #dc2626;
-  --pipi-status-danger-bg: rgba(220, 38, 38, 0.12);
-  --pipi-status-info: #0284c7;
-  --pipi-status-info-bg: rgba(2, 132, 199, 0.12);
+  /* Tier 3: Semantic Status (>= 4.5:1 on Warm Vellum) */
+  --pipi-status-ok: var(--pipi-f-emerald-700);
+  --pipi-status-ok-bg: rgba(4, 120, 87, 0.11);
+  --pipi-status-warn: var(--pipi-f-amber-700);
+  --pipi-status-warn-bg: rgba(180, 83, 9, 0.11);
+  --pipi-status-danger: var(--pipi-f-crimson-700);
+  --pipi-status-danger-bg: rgba(185, 28, 28, 0.11);
+  --pipi-status-info: var(--pipi-f-cyan-700);
+  --pipi-status-info-bg: rgba(3, 105, 161, 0.11);
+
+  /* Tier 3: Harness Identity Colors (Contrast-Tuned for Light Surfaces) */
+  --pipi-harness-pi: var(--pipi-f-emerald-700);
+  --pipi-harness-claude: var(--pipi-f-terracotta-700);
+  --pipi-harness-codex: var(--pipi-f-cobalt-700);
+  --pipi-harness-opencode: var(--pipi-f-violet-700);
+  --pipi-harness-byok: var(--pipi-f-amber-700);
 }
 
-/* --- Theme-Invariant Semantic & Architecture Tokens --- */
+/* --------------------------------------------------------------------------
+   THEME-INVARIANT SEMANTIC & GEOMETRY TOKENS
+   -------------------------------------------------------------------------- */
 :root {
-  /* Harness Identity Colors */
-  --pipi-harness-pi: #10b981;
-  --pipi-harness-claude: #d97757;
-  --pipi-harness-codex: #3b82f6;
-  --pipi-harness-opencode: #a855f7;
-  --pipi-harness-byok: #f59e0b;
-
   /* Fleet Node Colors (Dots Matrix) */
-  --pipi-fleet-mac: #38bdf8;
-  --pipi-fleet-ios: #818cf8;
-  --pipi-fleet-vps: #10b981;
-  --pipi-fleet-windows: #60a5fa;
-  --pipi-fleet-embedded: #f472b6;
+  --pipi-fleet-mac: var(--pipi-f-cyan-400);
+  --pipi-fleet-ios: var(--pipi-f-indigo-400);
+  --pipi-fleet-vps: var(--pipi-f-emerald-400);
+  --pipi-fleet-windows: var(--pipi-f-azure-400);
+  --pipi-fleet-embedded: var(--pipi-f-coral-400);
 
   /* Lifecycle Group Colors */
-  --pipi-group-idle: #7c6cf6;
-  --pipi-group-thinking: #38bdf8;
-  --pipi-group-harness: #10b981;
-  --pipi-group-cue: #f59e0b;
-  --pipi-group-evolve: #c084fc;
+  --pipi-group-idle: var(--pipi-f-iris-400);
+  --pipi-group-thinking: var(--pipi-f-cyan-400);
+  --pipi-group-harness: var(--pipi-f-emerald-400);
+  --pipi-group-cue: var(--pipi-f-amber-400);
+  --pipi-group-evolve: var(--pipi-f-orchid-400);
 
   /* Typography Families */
   --pipi-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Geist", "Inter", "PingFang SC", system-ui, sans-serif;
@@ -171,6 +291,18 @@
   --pipi-duration-fast: 160ms;
   --pipi-duration-med: 280ms;
   --pipi-duration-slow: 460ms;
+
+  /* OpenPencil 5-Rule Canonical Geometry & Sheet Tokens */
+  --pipi-btn-height-mobile: 44px;
+  --pipi-btn-icon-mobile: 18px;
+  --pipi-btn-gap-mobile: 8px;
+  --pipi-btn-height-desktop: 32px;
+  --pipi-btn-icon-desktop: 16px;
+  --pipi-btn-gap-desktop: 6px;
+  --pipi-sheet-top-compact: 54px;
+  --pipi-sheet-top-expanded: 102px;
+  --pipi-icon-stroke-sm: 1.5px;
+  --pipi-icon-stroke-md: 1.75px;
 
   /* Cross-Platform Fixed Metrics */
   --pipi-menubar-size: 22px;

@@ -1,0 +1,210 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "meta": {
+    "name": "PipiBot Design System Tokens",
+    "version": "0.2.0-beta",
+    "architecture": "3-tier (foundations -> theme 12-step -> semantic tokens)",
+    "updatedAt": "2026-11-19"
+  },
+  "foundations": {
+    "obsidian": {
+      "01": { "$type": "color", "$value": "#08090B" },
+      "02": { "$type": "color", "$value": "#0B0C0E" },
+      "03": { "$type": "color", "$value": "#121418" },
+      "04": { "$type": "color", "$value": "#171A20" },
+      "05": { "$type": "color", "$value": "#1E222B" },
+      "06": { "$type": "color", "$value": "#262B38" },
+      "07": { "$type": "color", "$value": "#363D4F" },
+      "08": { "$type": "color", "$value": "#525B70" },
+      "09": { "$type": "color", "$value": "#6C7382" },
+      "10": { "$type": "color", "$value": "#A1A7B3" },
+      "11": { "$type": "color", "$value": "#D4D7DF" },
+      "12": { "$type": "color", "$value": "#F4F5F7" }
+    },
+    "vellum": {
+      "01": { "$type": "color", "$value": "#FFFFFF" },
+      "02": { "$type": "color", "$value": "#FDFCF9" },
+      "03": { "$type": "color", "$value": "#F7F5F0" },
+      "04": { "$type": "color", "$value": "#F1EDE4" },
+      "05": { "$type": "color", "$value": "#EBE6DC" },
+      "06": { "$type": "color", "$value": "#DED8CC" },
+      "07": { "$type": "color", "$value": "#C8C1B3" },
+      "08": { "$type": "color", "$value": "#A69F91" },
+      "09": { "$type": "color", "$value": "#8B867D" },
+      "10": { "$type": "color", "$value": "#5E5B55" },
+      "11": { "$type": "color", "$value": "#34322E" },
+      "12": { "$type": "color", "$value": "#171614" }
+    },
+    "iris": {
+      "dark": { "$type": "color", "$value": "#7C6CF6" },
+      "darkBtn": { "$type": "color", "$value": "#6353E8" },
+      "light": { "$type": "color", "$value": "#5B4CE4" }
+    },
+    "cyan": {
+      "dark": { "$type": "color", "$value": "#38BDF8" },
+      "light": { "$type": "color", "$value": "#0369A1" }
+    },
+    "emerald": {
+      "dark": { "$type": "color", "$value": "#10B981" },
+      "light": { "$type": "color", "$value": "#047857" }
+    },
+    "amber": {
+      "dark": { "$type": "color", "$value": "#F59E0B" },
+      "light": { "$type": "color", "$value": "#B45309" }
+    },
+    "crimson": {
+      "dark": { "$type": "color", "$value": "#EF4444" },
+      "light": { "$type": "color", "$value": "#B91C1C" }
+    },
+    "terracotta": {
+      "dark": { "$type": "color", "$value": "#D97757" },
+      "light": { "$type": "color", "$value": "#B55233" }
+    },
+    "cobalt": {
+      "dark": { "$type": "color", "$value": "#3B82F6" },
+      "light": { "$type": "color", "$value": "#1D4ED8" }
+    },
+    "violet": {
+      "dark": { "$type": "color", "$value": "#A855F7" },
+      "light": { "$type": "color", "$value": "#7E22CE" }
+    },
+    "indigo": {
+      "dark": { "$type": "color", "$value": "#818CF8" },
+      "light": { "$type": "color", "$value": "#4338CA" }
+    },
+    "azure": {
+      "dark": { "$type": "color", "$value": "#60A5FA" },
+      "light": { "$type": "color", "$value": "#1E40AF" }
+    },
+    "coral": {
+      "dark": { "$type": "color", "$value": "#F472B6" },
+      "light": { "$type": "color", "$value": "#BE185D" }
+    },
+    "orchid": {
+      "dark": { "$type": "color", "$value": "#C084FC" },
+      "light": { "$type": "color", "$value": "#7E22CE" }
+    },
+    "space": {
+      "4": { "$type": "dimension", "$value": "4px" },
+      "6": { "$type": "dimension", "$value": "6px" },
+      "8": { "$type": "dimension", "$value": "8px" },
+      "12": { "$type": "dimension", "$value": "12px" },
+      "16": { "$type": "dimension", "$value": "16px" },
+      "20": { "$type": "dimension", "$value": "20px" },
+      "24": { "$type": "dimension", "$value": "24px" },
+      "32": { "$type": "dimension", "$value": "32px" },
+      "44": { "$type": "dimension", "$value": "44px" },
+      "54": { "$type": "dimension", "$value": "54px" },
+      "102": { "$type": "dimension", "$value": "102px" }
+    },
+    "radius": {
+      "xs": { "$type": "dimension", "$value": "6px" },
+      "sm": { "$type": "dimension", "$value": "10px" },
+      "md": { "$type": "dimension", "$value": "14px" },
+      "lg": { "$type": "dimension", "$value": "20px" },
+      "xl": { "$type": "dimension", "$value": "28px" },
+      "2xl": { "$type": "dimension", "$value": "36px" },
+      "pill": { "$type": "dimension", "$value": "9999px" }
+    }
+  },
+  "theme": {
+    "obsidianDark": {
+      "step01": { "$type": "color", "$value": "{foundations.obsidian.01}" },
+      "step02": { "$type": "color", "$value": "{foundations.obsidian.02}" },
+      "step03": { "$type": "color", "$value": "{foundations.obsidian.03}" },
+      "step04": { "$type": "color", "$value": "{foundations.obsidian.04}" },
+      "step05": { "$type": "color", "$value": "{foundations.obsidian.05}" },
+      "step06": { "$type": "color", "$value": "{foundations.obsidian.06}" },
+      "step07": { "$type": "color", "$value": "{foundations.obsidian.07}" },
+      "step08": { "$type": "color", "$value": "{foundations.obsidian.08}" },
+      "step09": { "$type": "color", "$value": "{foundations.obsidian.09}" },
+      "step10": { "$type": "color", "$value": "{foundations.obsidian.10}" },
+      "step11": { "$type": "color", "$value": "{foundations.obsidian.11}" },
+      "step12": { "$type": "color", "$value": "{foundations.obsidian.12}" }
+    },
+    "vellumLight": {
+      "step01": { "$type": "color", "$value": "{foundations.vellum.01}" },
+      "step02": { "$type": "color", "$value": "{foundations.vellum.02}" },
+      "step03": { "$type": "color", "$value": "{foundations.vellum.03}" },
+      "step04": { "$type": "color", "$value": "{foundations.vellum.04}" },
+      "step05": { "$type": "color", "$value": "{foundations.vellum.05}" },
+      "step06": { "$type": "color", "$value": "{foundations.vellum.06}" },
+      "step07": { "$type": "color", "$value": "{foundations.vellum.07}" },
+      "step08": { "$type": "color", "$value": "{foundations.vellum.08}" },
+      "step09": { "$type": "color", "$value": "{foundations.vellum.09}" },
+      "step10": { "$type": "color", "$value": "{foundations.vellum.10}" },
+      "step11": { "$type": "color", "$value": "{foundations.vellum.11}" },
+      "step12": { "$type": "color", "$value": "{foundations.vellum.12}" }
+    }
+  },
+  "tokens": {
+    "bgCanvas": {
+      "dark": { "$type": "color", "$value": "{theme.obsidianDark.step02}" },
+      "light": { "$type": "color", "$value": "{theme.vellumLight.step03}" }
+    },
+    "bgElevated": {
+      "dark": { "$type": "color", "$value": "{theme.obsidianDark.step03}" },
+      "light": { "$type": "color", "$value": "{theme.vellumLight.step01}" }
+    },
+    "bgSurface": {
+      "dark": { "$type": "color", "$value": "{theme.obsidianDark.step04}" },
+      "light": { "$type": "color", "$value": "{theme.vellumLight.step02}" }
+    },
+    "bgSurfaceHover": {
+      "dark": { "$type": "color", "$value": "{theme.obsidianDark.step05}" },
+      "light": { "$type": "color", "$value": "{theme.vellumLight.step04}" }
+    },
+    "bgInset": {
+      "dark": { "$type": "color", "$value": "{theme.obsidianDark.step01}" },
+      "light": { "$type": "color", "$value": "{theme.vellumLight.step05}" }
+    },
+    "textPrimary": {
+      "dark": { "$type": "color", "$value": "{theme.obsidianDark.step12}" },
+      "light": { "$type": "color", "$value": "{theme.vellumLight.step12}" }
+    },
+    "textSecondary": {
+      "dark": { "$type": "color", "$value": "{theme.obsidianDark.step10}" },
+      "light": { "$type": "color", "$value": "{theme.vellumLight.step10}" }
+    },
+    "textMuted": {
+      "dark": { "$type": "color", "$value": "{theme.obsidianDark.step09}" },
+      "light": { "$type": "color", "$value": "{theme.vellumLight.step09}" }
+    },
+    "soulPrimary": {
+      "dark": { "$type": "color", "$value": "{foundations.iris.dark}" },
+      "light": { "$type": "color", "$value": "{foundations.iris.light}" }
+    },
+    "soulBtnBg": {
+      "dark": { "$type": "color", "$value": "{foundations.iris.darkBtn}" },
+      "light": { "$type": "color", "$value": "{foundations.iris.light}" }
+    },
+    "soulSecondary": {
+      "dark": { "$type": "color", "$value": "{foundations.cyan.dark}" },
+      "light": { "$type": "color", "$value": "{foundations.cyan.light}" }
+    },
+    "statusOk": {
+      "dark": { "$type": "color", "$value": "{foundations.emerald.dark}" },
+      "light": { "$type": "color", "$value": "{foundations.emerald.light}" }
+    },
+    "statusWarn": {
+      "dark": { "$type": "color", "$value": "{foundations.amber.dark}" },
+      "light": { "$type": "color", "$value": "{foundations.amber.light}" }
+    },
+    "statusDanger": {
+      "dark": { "$type": "color", "$value": "{foundations.crimson.dark}" },
+      "light": { "$type": "color", "$value": "{foundations.crimson.light}" }
+    },
+    "geometry": {
+      "buttonHeightMobile": { "$type": "dimension", "$value": "{foundations.space.44}" },
+      "buttonIconMobile": { "$type": "dimension", "$value": "18px" },
+      "buttonGapMobile": { "$type": "dimension", "$value": "{foundations.space.8}" },
+      "buttonHeightDesktop": { "$type": "dimension", "$value": "{foundations.space.32}" },
+      "buttonIconDesktop": { "$type": "dimension", "$value": "16px" },
+      "buttonGapDesktop": { "$type": "dimension", "$value": "{foundations.space.6}" },
+      "sheetTopEdgeCompact": { "$type": "dimension", "$value": "{foundations.space.54}" },
+      "sheetTopEdgeExpanded": { "$type": "dimension", "$value": "{foundations.space.102}" },
+      "iconStrokeSmall": { "$type": "dimension", "$value": "1.5px" },
+      "iconStrokeMedium": { "$type": "dimension", "$value": "1.75px" }
+    }
+  }
+}

@@ -1,9 +1,9 @@
 # PipiBot 工程进度看板与架构决策记录 (Progress Tracker & ADRs)
 
-> **当前基线版本**: `v0.1.0-alpha` (Initial Open-Source Foundation · 100% Verified)
+> **当前基线版本**: `v0.2.0-beta` (Wave 2 V1 Mac 常驻宿主 + 原生 Swift 6 / PWA 双端 + OpenPencil 设计治理)
 > **最近更新**: `2026-11-19`
 > **开源仓库**: `https://github.com/JimiZhou/pipibot` (`main`)
-> **关联计划**: [全阶段工程开发计划 (`01-DEVELOPMENT-PLAN.md`)](./01-DEVELOPMENT-PLAN.md)
+> **关联计划**: [全阶段工程开发计划 (`01-DEVELOPMENT-PLAN.md`)](./01-DEVELOPMENT-PLAN.md) · [Mac/iOS V1 实现规范 (`05-MAC-AND-IOS-V1-IMPLEMENTATION.md`)](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md)
 
 ---
 
@@ -12,11 +12,11 @@
 | 阶段 (Phase) | 史诗主题 (Epic Theme) | 目标版本 | 周期 | 进度 (Progress) | 状态 (Status) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Phase 0** | 深度研究、系统架构、设计系统与核心脚手架 | `v0.1.0-alpha` | Baseline | `██████████` **100%** | ✅ 100% Verified (GitHub Initial Release) |
-| **Phase 1** | macOS 常驻守护进程、Pi SDK、多 Harness 适配器与 4 层 SQLite 记忆 | `v0.2.0-alpha` | Weeks 1–2 | `░░░░░░░░░░` **0%** | 🗓️ Next Up |
-| **Phase 2** | $0/月 Cloudflare 边缘隧道、Workers Relay、D1/R2 与 Zero Trust | `v0.3.0-beta` | Week 3 | `░░░░░░░░░░` **0%** | 📋 Planned |
-| **Phase 3** | macOS MenuBar & Manus Cue (`⌥Space`) + iOS 原生伴侣端 (`pipibot-ios`) | `v0.4.0-beta` | Weeks 4–5 | `░░░░░░░░░░` **0%** | 📋 Planned |
-| **Phase 4** | Devin Outcome Manager、自动评估循环与夜间自我进化/技能合成 | `v0.5.0-rc` | Week 6 | `░░░░░░░░░░` **0%** | 📋 Planned |
-| **Phase 5** | `PipiFleet` 多节点扩展 (Linux VPS / Windows WSL2 / ESP32 & RPi IoT) | `v1.0.0` | Weeks 7–8 | `░░░░░░░░░░` **0%** | 📋 Planned |
+| **Phase 1** | macOS 常驻守护进程、Pi SDK、多 Harness 适配器与 4 层 SQLite 记忆 | `v0.2.0-beta` | Weeks 1–2 | `███████░░░` **75%** | 🚧 Wave 2 Core Daemon Shipped (`@pipibot/daemon`) |
+| **Phase 2** | $0/月 Cloudflare 边缘隧道、Workers Relay、D1/R2 与 Zero Trust | `v0.3.0-beta` | Week 3 | `██░░░░░░░░` **20%** | 🚧 Edge Worker/D1 Schema Ready · Tunnel Wiring Next |
+| **Phase 3** | OpenPencil 5-Rule + macOS MenuBar/Cue (`⌥Space`) + iOS 原生 & PWA | `v0.2.0-beta` | Weeks 4–5 | `████████░░` **80%** | 🚧 Wave 2 Swift 6 + Live iOS PWA + Audit Ready |
+| **Phase 4** | Devin Outcome Manager、自动评估循环与夜间自我进化/技能合成 | `v0.5.0-rc` | Week 6 | `███░░░░░░░` **30%** | 🚧 Evaluator & Dreaming APIs Live in Daemon |
+| **Phase 5** | `PipiFleet` 多节点扩展 (Linux VPS / Windows WSL2 / ESP32 & RPi IoT) | `v1.0.0` | Weeks 7–8 | `█░░░░░░░░░` **10%** | 📋 Protocol & Telemetry Matrix Defined |
 
 ---
 
@@ -49,26 +49,48 @@
   - [x] `npm run verify`（`node --check design-system/pipibot-avatar.js` + `@pipibot/protocol` / `@pipibot/core` Node 22 `--experimental-strip-types`）、`bun build`（全部 4 个 `.ts` 入口）、`sqlite3 :memory:` (`schema.sql` 8 张表) 与 `Bun.TOML.parse` (`wrangler.toml`) 全部通过。
   - [x] 跨包契约校验：`@pipibot/protocol` `AVATAR_STATES_53`（53 状态）/ `AVATAR_EXPRESSIONS_9`（9 表情）与 `design-system/pipibot-avatar.js` 实现 1:1 精确对齐，5/5 跨包端到端烟雾断言通过。
 
-### Phase 1–5: Runtime Implementation Backlog (`0%`)
+### Wave 2 (`v0.2.0-beta` — ✅ 100% Verified): V1 Mac 常驻守护进程、Native Swift 6 Mac/iOS、Live iOS PWA 与 OpenPencil 设计治理
 
-| Epic ID | 所属阶段 | 关键交付项 (Planned Deliverables) | 状态 |
+- **Epic W2.1 — OpenPencil 5-Rule 设计治理与 Stageshow 集成**
+  - [x] [`design-system/design-system.md`](../../design-system/design-system.md) — 单文件持久化 AI 设计记忆（Rule + Reason + `2026-11-19`）
+  - [x] [`design-system/pipibot.pen`](../../design-system/pipibot.pen) & [`design-system/tokens.dtcg.json`](../../design-system/tokens.dtcg.json) — 3 层 Token、6 大规范积木 (`list-card`, `sheet`, `form-sheet`, `dock`, `bottom-bar`, `empty-state`) 与 12 屏 OpenPencil JSON
+  - [x] [`scripts/audit-design-system.mjs`](../../scripts/audit-design-system.mjs) — 跨 `.pen`、`design-system.md`、`apps/ios-web/styles.css` 与 `apps/apple/Sources/` 自动化五规则审计脚本
+  - [x] `.agents/skills/stageshow` & [`docs/design-system/01-UIUX-DESIGN-SYSTEM.md`](../design-system/01-UIUX-DESIGN-SYSTEM.md) — Stageshow `device-pair` / `dynamic-island` 展示工艺与五规则文档补全
+- **Epic W2.2 — V1 macOS 常驻宿主 Daemon (`packages/daemon`)**
+  - [x] [`packages/daemon/package.json`](../../packages/daemon/package.json) & [`src/cli.ts`](../../packages/daemon/src/cli.ts) — `@pipibot/daemon` CLI 与 `npm run start:daemon`
+  - [x] [`packages/daemon/src/outcome-engine.ts`](../../packages/daemon/src/outcome-engine.ts) — `PipiOutcomeEngine` 两阶段自主评估器、子会话调度与 Needs You R2 证据队列
+  - [x] [`packages/daemon/src/cue-fleet-sensor.ts`](../../packages/daemon/src/cue-fleet-sensor.ts) — `PipiCueSensor` 工作区/Git 感知与 `PipiFleetManager` 实机指标 + Tunnel 状态
+  - [x] [`packages/daemon/src/server.ts`](../../packages/daemon/src/server.ts) & [`test/daemon.test.ts`](../../packages/daemon/test/daemon.test.ts) — REST `/api/v1/*` + 250ms SSE + `launchd` plist 生成 + `/design-system/` & `/ios` 静态托管与全路由集成测试
+- **Epic W2.3 — 原生 Apple Swift 6 工程 (`apps/apple`) & 实时 iOS PWA (`apps/ios-web`)**
+  - [x] [`apps/apple/Package.swift`](../../apps/apple/Package.swift) — `PipiBotKit`（`ProtocolModels`、`DesignTokens`、`CanonicalBlocks`、120Hz `PipiProceduralAvatarEngine`、`PipiDaemonClient`）、`PipiBotIOSUI`（Swipe Deck / Muse / Dots）、`PipiBotMacApp`（`MenuBarExtra` / `ManusCueFloatingPanel` / `MacOutcomeStudioView`）与 `PipiBotKitTests`
+  - [x] [`apps/ios-web/index.html`](../../apps/ios-web/index.html), [`styles.css`](../../apps/ios-web/styles.css), [`app.js`](../../apps/ios-web/app.js), [`manifest.json`](../../apps/ios-web/manifest.json) — 零 raw hex、6 积木复用、Live SSE + 离线降级 PWA
+  - [x] [`docs/architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md`](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) — V1 全栈实现规范文档
+- **Wave 2 (`v0.2.0-beta`) 质量门禁验证记录 (Verification Gate — 2026-11-19)**:
+  - [x] `node scripts/audit-design-system.mjs` 退出码 `0`：通过 `pipibot.pen`（6 个积木组件、12 个桌面/移动 Screen、99 处变量绑定精确 `fallbackColor`、44 个文本节点、16 个图标、8 个 `clip` 容器、11 个按钮、4 个 Sheet、13 项 Vellum Light `>= 4.5:1` 对比度校验）、`design-system.md`（19 条规则）、`tokens.dtcg.json`、`apps/ios-web/styles.css`（0 原始 hex/rgb）及 `apps/apple/Sources/`（`DesignTokens.swift` 之外 13 个 Swift 文件 0 原始 hex）。
+  - [x] `npm run verify` 退出码 `0`：通过 `check:avatar`、`check:ios`、`audit:design`、`check:workspaces`（`@pipibot/core` / `@pipibot/daemon` / `@pipibot/protocol`）以及 `test:daemon`（`packages/daemon/test/daemon.test.ts` **10/10 通过**）。
+  - [x] `cd apps/apple && swift build && swift test` 退出码 `0`：`PipiBotMacApp` 可执行目标构建成功，`PipiBotKitTests` **7/7 通过**；`xcodebuild -scheme PipiBotIOSUI -destination 'generic/platform=iOS Simulator' build` 输出 `** BUILD SUCCEEDED **`。
+  - [x] 端到端链路与文档巡检：`PipiResidentServer` 15 个 REST 与 `/ios` / `/design-system/` 静态路由实测返回 `200 OK`；跨文档 214 处相对 Markdown 链接 0 断链，PipiBot 文档与源码占位符命中 0 处。
+
+### Phase 1–5: Remaining Backlog
+
+| Epic ID | 所属阶段 | 关键交付项 (Planned / Remaining Deliverables) | 状态 |
 | :--- | :--- | :--- | :--- |
-| **E1.1** | Phase 1 | `pipibot-daemon` macOS `launchd` 服务、Unix Socket IPC、250ms 脉冲广播 | 📋 Planned |
-| **E1.2** | Phase 1 | `@mariozechner/pi-coding-agent` SDK 嵌入式集成与扩展安全钩子 | 📋 Planned |
-| **E1.3** | Phase 1 | `claude-code` / `codex` / `opencode` 本地 CLI 探测器、适配器与 Routed MCP Bridge | 📋 Planned |
-| **E1.4** | Phase 1 | SQLite WAL + FTS5 + `sqlite-vec` 四层记忆持久化及 `SOUL.md`/`USER.md` 同步器 | 📋 Planned |
-| **E2.1** | Phase 2 | `cloudflared` 休眠唤醒自愈隧道与 Worker WebSocket/SSE + APNs 中继上线 | 📋 Planned |
-| **E2.2** | Phase 2 | D1 Fleet Registry、R2 7 天 TTL 制品上传器与 Cloudflare Access Service Token 鉴权 | 📋 Planned |
-| **E3.1** | Phase 3 | macOS MenuBar Popover Studio & Manus Cue (`⌥Space`) 悬浮感知胶囊 | 📋 Planned |
-| **E3.2** | Phase 3 | `pipibot-ios` SwiftUI 原生客户端 (120Hz Metal/Canvas Avatar, Dynamic Island, Needs You 滑动卡片, Muse 画布) | 📋 Planned |
-| **E4.1** | Phase 4 | `PipiOutcomeEngine` 责任循环引擎、Autonomous Evaluator 与 Sub-Session DAG | 📋 Planned |
-| **E4.2** | Phase 4 | `PipiEvolve` 夜间做梦反思、L3 Pi Skill 自动合成与 Evolution Diff 审计卡 | 📋 Planned |
+| **E1.1** | Phase 1 | `pipibot-daemon` HTTP REST + 250ms SSE + `launchd` plist 生成器上线；Unix Socket IPC 与睡眠锁增量补齐 | 🚧 80% |
+| **E1.2** | Phase 1 | `@mariozechner/pi-coding-agent` SDK 真实子进程嵌入式挂载与扩展安全钩子落盘 | 🚧 60% |
+| **E1.3** | Phase 1 | `claude-code` / `codex` / `opencode` 探测 + `PipiHarnessRouter` 框架完成；真机 CLI 流式联调待补 | 🚧 70% |
+| **E1.4** | Phase 1 | `PipiMemoryEngine` 引擎骨架就绪；真实 SQLite WAL + FTS5 + `sqlite-vec` 持久化驱动接入 | 🚧 50% |
+| **E2.1** | Phase 2 | `cloudflared` 休眠唤醒自愈隧道与 Worker WebSocket/SSE + APNs 线上部署与实测 | 🚧 25% |
+| **E2.2** | Phase 2 | D1 Fleet Registry、R2 7 天 TTL 制品上传器与 Cloudflare Access Service Token 端到端联调 | 🚧 20% |
+| **E3.1** | Phase 3 | macOS `MenuBarExtra`、`ManusCueFloatingPanel` (`⌥Space`) 与 `MacOutcomeStudioView` 落地；系统级全局热键权限完善 | 🚧 85% |
+| **E3.2** | Phase 3 | Swift 6 `PipiBotIOSUI` + Live `apps/ios-web` PWA 落地；真机 `ActivityKit` 灵动岛签名打包待补 | 🚧 80% |
+| **E4.1** | Phase 4 | `PipiOutcomeEngine` 两阶段评估原型上线；Cron/Webhook/FS Watch 守护触发器完善 | 🚧 35% |
+| **E4.2** | Phase 4 | `PipiEvolve` 做梦 Diff API 上线；夜间空闲自动聚类与 Pi Skill 自动写入磁盘待补 | 🚧 25% |
 | **E5.1** | Phase 5 | `pipibot-node-linux` (`<15MB` VPS `systemd` 代理) | 📋 Planned |
-| **E5.2** | Phase 5 | `pipibot-node-win` (Windows Service + WSL2 双通道) & `pipibot-edge-iot` (RPi / ESP32 MQTT / Home Assistant) | 📋 Planned |
+| **E5.2** | Phase 5 | `pipibot-node-win` (Windows Service + WSL2) & `pipibot-edge-iot` (RPi / ESP32 MQTT / Home Assistant) | 📋 Planned |
 
 ---
 
-## 3. 架构决策记录 (Architectural Decision Records, ADR-001 ~ ADR-008)
+## 3. 架构决策记录 (Architectural Decision Records, ADR-001 ~ ADR-009)
 
 ### ADR-001: 采用 Pi (`@mariozechner/pi-coding-agent` / `pi-ai`) 作为极简核心 Harness 内核
 - **Status**: `Accepted` (2026-11-18)
@@ -135,9 +157,25 @@
   - (+) 即便云账号或边缘节点日志发生极端泄露，核心代码与个人隐私仍不可读取。
   - (-) 跨端配对阶段需要一次优雅的二维码 / Passkey 密钥交换引导流程。
 
+### ADR-009: 采用 OpenPencil 五规则设计治理、6 大规范积木与 Stageshow 约束 AI 生成界面
+- **Status**: `Accepted` (2026-11-19)
+- **Context**: 当同一产品横跨 Web 工作台、iOS PWA (`apps/ios-web`) 与原生 Swift 6 (`apps/apple`) 时，AI Coding Agent 极易在各文件散落硬编码色值、不一致的卡片/抽屉几何尺寸以及低级特效（如紫色闪烁星星），破坏产品一致性。
+- **Decision**: 引入三件套作为唯一视觉契约——[`design-system/design-system.md`](../../design-system/design-system.md)（一句规则 + 原因 + 日期）、[`design-system/tokens.dtcg.json`](../../design-system/tokens.dtcg.json) / [`tokens.css`](../../design-system/tokens.css)（3 层 Token 体系）、[`design-system/pipibot.pen`](../../design-system/pipibot.pen)（6 个规范命名积木 `list-card`, `sheet`, `form-sheet`, `dock`, `bottom-bar`, `empty-state` + 12 屏 Frame），集成 `.agents/skills/stageshow` 展示工艺，并用 [`scripts/audit-design-system.mjs`](../../scripts/audit-design-system.mjs) 自动审计 `.pen`、CSS 与 Swift 源码（仅 `DesignTokens.swift` 允许字面量色值）。
+- **Consequences**:
+  - (+) 彻底消灭 Web/Swift 双端样式漂移与 `#000000` 变量回退色错配，每次提交均可机审。
+  - (-) 新增视觉元素时需先注册至 Token 与规范积木，不可即兴硬编码样式。
+
 ---
 
 ## 4. 变更日志 (Changelog)
+
+### `v0.2.0-beta` (2026-11-19) — V1 Mac Daemon, Native Swift 6 Mac/iOS, Live iOS PWA & OpenPencil Design Governance (Verified)
+- **Wave 2 Release Gate**: 完成 OpenPencil 五规则审计 (`scripts/audit-design-system.mjs`)、`npm run verify`（含 `@pipibot/daemon` 10/10 测试）、Swift 6 macOS 构建与测试 (`swift test` 7/7) 及 `PipiBotIOSUI` iOS Simulator 构建全量通过。
+- **Design Governance & Stageshow**: 落地 [`design-system/pipibot.pen`](../../design-system/pipibot.pen)、[`design-system.md`](../../design-system/design-system.md)、[`tokens.dtcg.json`](../../design-system/tokens.dtcg.json)、自动化五规则审计脚本 [`scripts/audit-design-system.mjs`](../../scripts/audit-design-system.mjs) 及 `.agents/skills/stageshow` 技能集成。
+- **Mac Resident Daemon (`@pipibot/daemon`)**: 交付零外部运行时依赖的 HTTP REST + 250ms SSE 服务 (`packages/daemon`)，实现 `PipiOutcomeEngine` 两阶段评估、`PipiCueSensor` 工作区探测、`PipiFleetManager` 实机监控、`ai.pipibot.daemon.plist` 生成及全路由 `daemon.test.ts` 集成测试。
+- **Native Apple Swift 6 (`apps/apple`)**: 交付 `PipiBotKit`（53 状态协议模型、3 层 `DesignTokens`、6 个 `CanonicalBlocks`、120Hz `PipiProceduralAvatarEngine`、`PipiDaemonClient`）、`PipiBotIOSUI`（Needs You 左滑/右滑栈、Muse 画布、Dots & Tunnel 视图）、`PipiBotMacApp`（`MenuBarExtra`、Manus Cue `NSPanel`、`MacOutcomeStudioView`）及 `PipiBotKitTests`。
+- **Live iOS Companion PWA (`apps/ios-web`)**: 交付零构建、零原始 hex 的 iOS 伴侣网页应用（通过 Daemon `/ios` 直出），完整对接 `/api/v1/*` 与 SSE 实时脉动并支持离线演示降级。
+- **Architecture & Tooling**: 新增 [`05-MAC-AND-IOS-V1-IMPLEMENTATION.md`](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) 与 `ADR-009`，升级根 [`package.json`](../../package.json) 脚本与全链路校验门禁。
 
 ### `v0.1.0-alpha` (2026-11-18 ~ 2026-11-19) — Initial Open-Source Foundation & GitHub Release Milestone
 - **Release Milestone**: 完成 Phase 0 全量 25 个开源基线文件的跨包契约统一与自动化质量门禁验收（100% Verified），初始化 `main` 分支并发布公开 GitHub 仓库 [`JimiZhou/pipibot`](https://github.com/JimiZhou/pipibot)。

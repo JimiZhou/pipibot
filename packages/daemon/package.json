@@ -1,0 +1,46 @@
+{
+  "name": "@pipibot/daemon",
+  "version": "0.2.0-beta",
+  "private": true,
+  "description": "PipiBot V1 macOS Always-On Resident Daemon: Devin-style Outcome Engine, Manus Cue & Fleet Telemetry Sensor, HTTP REST + 250ms SSE API, and static host for Design System & iOS Companion PWA.",
+  "type": "module",
+  "main": "./src/server.ts",
+  "types": "./src/server.ts",
+  "bin": {
+    "pipibot-daemon": "./src/cli.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/server.ts",
+      "default": "./src/server.ts"
+    },
+    "./outcome-engine": {
+      "types": "./src/outcome-engine.ts",
+      "default": "./src/outcome-engine.ts"
+    },
+    "./cue-fleet-sensor": {
+      "types": "./src/cue-fleet-sensor.ts",
+      "default": "./src/cue-fleet-sensor.ts"
+    },
+    "./server": {
+      "types": "./src/server.ts",
+      "default": "./src/server.ts"
+    },
+    "./cli": {
+      "types": "./src/cli.ts",
+      "default": "./src/cli.ts"
+    }
+  },
+  "dependencies": {
+    "@pipibot/core": "workspace:*",
+    "@pipibot/protocol": "workspace:*"
+  },
+  "scripts": {
+    "check": "node --experimental-strip-types ./src/outcome-engine.ts && node --experimental-strip-types ./src/cue-fleet-sensor.ts && node --experimental-strip-types ./src/server.ts && node --experimental-strip-types ./src/cli.ts --help >/dev/null",
+    "start": "node --experimental-strip-types ./src/cli.ts",
+    "test": "node --experimental-strip-types --test ./test/daemon.test.ts"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

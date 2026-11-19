@@ -1,0 +1,2987 @@
+import SwiftUI
+import UniformTypeIdentifiers
+import PipiBotKit
+
+#if os(macOS)
+import AppKit
+#endif
+
+public struct PipiWorkspaceView: View {
+    @Bindable public var store: PipiAppStore
+    public var onToggleQuickBar: () -> Void
+    public var onOpenSettings: (PipiSettingsTab) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.pipiTextScale) private var textScale
+
+    private enum WorkspaceDestination: Equatable {
+        case home
+        case needsYou
+        case session(String)
+        case group(String)
+    }
+
+    private enum SidebarTaskFilter: Equatable {
+        case all
+        case groupsOnly
+        case singleOnly
+    }
+
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var destination: WorkspaceDestination = .home
+    @State private var sidebarFilter: SidebarTaskFilter = .all
+    @State private var selectedGroupInspectorTab: PipiGroupInspectorTab = .membersTasks
+    @State private var pendingGroupMentionInsert: String? = nil
+    @State private var showHostPopover: Bool = false
+    @State private var lastKnownConversationCount: Int = 0
+    @State private var lastKnownGroupCount: Int = 0
+
+    @State private var draftMessage: String = ""
+    @State private var draftAttachments: [PipiChatAttachment] = []
+    @State private var isDropTargeted: Bool = false
+    @State private var showSlashPalette: Bool = false
+    @State private var showArchived: Bool = false
+    @State private var hoveredProjectId: String?
+    @State private var hoveredConversationId: String?
+    @State private var hoveredGroupId: String?
+    @State private var hoveredStarterPrompt: String?
+    @State private var hoveredMessageId: String?
+    @State private var hoveredToolbarChip: String?
+    @State private var copiedMessageId: String?
+    @State private var showNewPersonaSheet = false
+    @State private var editingPersona: PipiBotPersona?
+    @State private var inspectingRoutinePersona: PipiBotPersona?
+    @State private var showGroupCreatorSheet = false
+    @State private var editingGroupChat: PipiGroupChat?
+    @State private var groupCreatorPreselectedBotIds: Set<String> = []
+    @State private var showNewProjectSheet = false
+    @State private var editingProject: PipiProject?
+    @State private var renamingConversation: PipiConversation?
+    @State private var renameDraftTitle: String = ""
+    @State private var renamingGroupChat: PipiGroupChat?
+    @State private var renameGroupDraftTitle: String = ""
+    @State private var pendingDeletePersona: PipiBotPersona?
+    #if os(macOS)
+    @State private var undoKeyMonitor: Any?
+    #endif
+    @FocusState private var isComposerFocused: Bool
+
+    public init(
+        store: PipiAppStore,
+        onToggleQuickBar: @escaping () -> Void = {},
+        onOpenSettings: @escaping (PipiSettingsTab) -> Void = { _ in }
+    ) {
+        self.store = store
+        self.onToggleQuickBar = onToggleQuickBar
+        self.onOpenSettings = onOpenSettings
+    }
+
+    private var s: PipiStrings { store.strings }
+    private var lang: PipiResolvedLanguage { store.resolvedLanguage }
+    private var activeAccent: Color { PipiTokens.color(for: store.activePersona.accent) }
+    private var activeMotif: PipiPersonaMotif { PipiPersonaMotif.resolve(for: store.activePersona) }
+    private var isConversationEmpty: Bool {
+        store.activeConversation?.messages.isEmpty ?? true
+    }
+
+    private struct SlashCommandItem: Identifiable {
+        let id: String
+        let command: String
+        let title: String
+        let subtitle: String
+        let icon: String
+    }
+
+    private var slashCommandCatalog: [SlashCommandItem] {
+        [
+            SlashCommandItem(
+                id: "plan",
+                command: "/plan",
+                title: s.t("先规划再执行", "Plan First"),
+                subtitle: s.t("让 Bot 先拆解方案与关键步骤再动手", "Ask the bot to outline steps before executing"),
+                icon: "list.bullet.clipboard"
+            ),
+            SlashCommandItem(
+                id: "review",
+                command: "/review",
+                title: s.t("代码审查", "Code Review"),
+                subtitle: s.t("检查潜在 Bug、边界条件与重构建议", "Audit bugs, edge cases, and refactoring ideas"),
+                icon: "checkmark.shield"
+            ),
+            SlashCommandItem(
+                id: "summarize",
+                command: "/summarize",
+                title: s.t("提炼要点", "Summarize"),
+                subtitle: s.t("将上下文或长文压缩为结构化核心结论", "Distill text or attached files into crisp takeaways"),
+                icon: "text.alignleft"
+            ),
+            SlashCommandItem(
+                id: "new",
+                command: "/new",
+                title: s.newChat,
+                subtitle: s.t("开启一段全新空白对话", "Start a fresh conversation"),
+                icon: "square.and.pencil"
+            ),
+            SlashCommandItem(
+                id: "clear",
+                command: "/clear",
+                title: s.clearConversation,
+                subtitle: s.t("清空当前会话消息记录", "Clear messages in current thread"),
+                icon: "trash"
+            ),
+            SlashCommandItem(
+                id: "settings",
+                command: "/settings",
+                title: s.settings,
+                subtitle: s.t("打开 AI 引擎与界面设置", "Open AI engine & app settings"),
+                icon: "gearshape"
+            )
+        ]
+    }
+
+    private var filteredSlashCommands: [SlashCommandItem] {
+        let trimmed = draftMessage.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("/") {
+            let query = String(trimmed.dropFirst()).lowercased()
+            if query.isEmpty { return slashCommandCatalog }
+            return slashCommandCatalog.filter {
+                $0.command.lowercased().contains(query) ||
+                $0.title.lowercased().contains(query) ||
+                $0.id.lowercased().contains(query)
+            }
+        }
+        return slashCommandCatalog
+    }
+
+    private var shouldShowSlashMenu: Bool {
+        let trimmed = draftMessage.trimmingCharacters(in: .whitespaces)
+        let typedSlash = trimmed.hasPrefix("/") && !trimmed.contains(" ") && !trimmed.contains("\n")
+        return (showSlashPalette || typedSlash) && !filteredSlashCommands.isEmpty
+    }
+
+    public var body: some View {
+        let _ = textScale
+
+        ZStack {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                sidebar
+                    .navigationSplitViewColumnWidth(min: 248, ideal: 272, max: 340)
+                    .toolbar(removing: .sidebarToggle)
+            } detail: {
+                detailStage
+                    .toolbar {
+                        toolbarContent
+                    }
+                    .toolbar(removing: .sidebarToggle)
+                    .inspector(isPresented: $store.isInspectorPresented) {
+                        Group {
+                            if case .group(let groupId) = destination {
+                                PipiGroupInspectorView(
+                                    store: store,
+                                    groupId: groupId,
+                                    selectedTab: $selectedGroupInspectorTab,
+                                    onMentionBot: { token in
+                                        pendingGroupMentionInsert = token
+                                    },
+                                    onManageMembers: { grp in
+                                        editingGroupChat = grp
+                                        groupCreatorPreselectedBotIds = []
+                                        showGroupCreatorSheet = true
+                                    }
+                                )
+                            } else {
+                                PipiBotInspectorView(
+                                    store: store,
+                                    onEditBot: { bot in
+                                        editingPersona = bot
+                                    },
+                                    onOpenBotRoutines: { bot in
+                                        inspectingRoutinePersona = bot
+                                    },
+                                    onClose: {
+                                        withAnimation(PipiMotion.adaptive(PipiMotion.drawer, reduceMotion: reduceMotion)) {
+                                            store.isInspectorPresented = false
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        .inspectorColumnWidth(min: 300, ideal: 344, max: 420)
+                    }
+            }
+            .navigationSplitViewStyle(.balanced)
+            .toolbar(removing: .sidebarToggle)
+
+            if store.isCommandPalettePresented {
+                PipiCommandPaletteView(
+                    store: store,
+                    onSelectConversation: { convId in
+                        store.selectConversation(convId)
+                        destination = .session(convId)
+                    },
+                    onSelectGroupChat: { groupId in
+                        store.selectGroupChat(groupId)
+                        destination = .group(groupId)
+                    },
+                    onSelectBot: { personaId in
+                        sidebarFilter = .all
+                        store.selectedBotFilterId = personaId
+                        store.activePersonaId = personaId
+                        if let latest = store.conversations
+                            .filter({ $0.personaId == personaId && !$0.isArchived })
+                            .sorted(by: { $0.updatedAt > $1.updatedAt })
+                            .first {
+                            store.selectConversation(latest.id)
+                            destination = .session(latest.id)
+                        } else {
+                            destination = .home
+                        }
+                    },
+                    onOpenHome: {
+                        destination = .home
+                    },
+                    onNewGroupChat: {
+                        groupCreatorPreselectedBotIds = []
+                        editingGroupChat = nil
+                        showGroupCreatorSheet = true
+                    },
+                    onOpenNeedsYouInbox: {
+                        destination = .needsYou
+                    },
+                    onToggleQuickBar: onToggleQuickBar,
+                    onOpenSettings: onOpenSettings,
+                    onDismiss: {
+                        withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                            store.isCommandPalettePresented = false
+                        }
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(50)
+            }
+        }
+        .background(PipiTokens.bgCanvas)
+        .preferredColorScheme(store.themeMode.colorSchemeOverride)
+        .sheet(isPresented: $showNewPersonaSheet) {
+            PipiBotCreatorSheet(
+                store: store,
+                existing: nil,
+                onDismiss: { showNewPersonaSheet = false }
+            )
+            .environment(\.pipiTextScale, store.uiZoomScale)
+        }
+        .sheet(item: $editingPersona) { persona in
+            PipiBotCreatorSheet(
+                store: store,
+                existing: persona,
+                onDismiss: { editingPersona = nil }
+            )
+            .environment(\.pipiTextScale, store.uiZoomScale)
+        }
+        .sheet(item: $inspectingRoutinePersona) { persona in
+            PipiBotDetailSheet(
+                store: store,
+                persona: persona,
+                onEditBot: {
+                    let target = persona
+                    inspectingRoutinePersona = nil
+                    editingPersona = target
+                },
+                onOpenConversation: { convId in
+                    inspectingRoutinePersona = nil
+                    store.selectConversation(convId)
+                    destination = .session(convId)
+                },
+                onClose: {
+                    inspectingRoutinePersona = nil
+                }
+            )
+            .environment(\.pipiTextScale, store.uiZoomScale)
+            .frame(minWidth: 540, minHeight: 520)
+        }
+        .sheet(isPresented: $showGroupCreatorSheet) {
+            PipiGroupCreatorSheet(
+                store: store,
+                editingGroup: editingGroupChat,
+                preselectedBotIds: groupCreatorPreselectedBotIds
+            )
+            .environment(\.pipiTextScale, store.uiZoomScale)
+        }
+        .sheet(isPresented: $showNewProjectSheet) {
+            PipiProjectEditorSheet(store: store, existing: nil) {
+                showNewProjectSheet = false
+            }
+            .environment(\.pipiTextScale, store.uiZoomScale)
+            .frame(minWidth: 480, minHeight: 440)
+        }
+        .sheet(item: $editingProject) { project in
+            PipiProjectEditorSheet(store: store, existing: project) {
+                editingProject = nil
+            }
+            .environment(\.pipiTextScale, store.uiZoomScale)
+            .frame(minWidth: 480, minHeight: 440)
+        }
+        .alert(s.renameChat, isPresented: Binding(
+            get: { renamingConversation != nil },
+            set: { if !$0 { renamingConversation = nil } }
+        )) {
+            TextField(s.renameChat, text: $renameDraftTitle)
+            Button(s.cancel, role: .cancel) { renamingConversation = nil }
+            Button(s.save) {
+                if let conv = renamingConversation {
+                    store.renameConversation(conv.id, title: renameDraftTitle)
+                }
+                renamingConversation = nil
+            }
+        }
+        .alert(s.renameGroupChat, isPresented: Binding(
+            get: { renamingGroupChat != nil },
+            set: { if !$0 { renamingGroupChat = nil } }
+        )) {
+            TextField(s.renameGroupChat, text: $renameGroupDraftTitle)
+            Button(s.cancel, role: .cancel) { renamingGroupChat = nil }
+            Button(s.save) {
+                if let grp = renamingGroupChat {
+                    store.renameGroupChat(id: grp.id, title: renameGroupDraftTitle)
+                }
+                renamingGroupChat = nil
+            }
+        }
+        .onAppear {
+            lastKnownConversationCount = store.conversations.count
+            lastKnownGroupCount = store.groupChats.count
+        }
+        .onChange(of: store.activeConversationId) { oldId, newId in
+            let prevCount = lastKnownConversationCount
+            lastKnownConversationCount = store.conversations.count
+            if case .session(let currentSid) = destination,
+               !store.conversations.contains(where: { $0.id == currentSid }) {
+                destination = newId.map { .session($0) } ?? .home
+                return
+            }
+            if let newId, newId != oldId,
+               store.conversations.contains(where: { $0.id == newId }),
+               store.conversations.count >= prevCount {
+                destination = .session(newId)
+            }
+        }
+        .onChange(of: store.conversations.count) { _, newCount in
+            if case .session(let currentSid) = destination,
+               !store.conversations.contains(where: { $0.id == currentSid }) {
+                destination = store.activeConversationId.map { .session($0) } ?? .home
+            }
+            lastKnownConversationCount = newCount
+        }
+        .onChange(of: store.activeGroupChatId) { oldId, newId in
+            let prevCount = lastKnownGroupCount
+            lastKnownGroupCount = store.groupChats.count
+            if case .group(let currentGid) = destination,
+               !store.groupChats.contains(where: { $0.id == currentGid }) {
+                destination = .home
+                return
+            }
+            if let newId, newId != oldId,
+               store.groupChats.contains(where: { $0.id == newId }),
+               store.groupChats.count >= prevCount {
+                destination = .group(newId)
+            }
+        }
+        .onChange(of: store.groupChats.count) { _, newCount in
+            if case .group(let currentGid) = destination,
+               !store.groupChats.contains(where: { $0.id == currentGid }) {
+                destination = .home
+            }
+            lastKnownGroupCount = newCount
+        }
+        .confirmationDialog(
+            pendingDeletePersona.map { s.deleteBotConfirmTitle($0.name(lang)) } ?? "",
+            isPresented: Binding(
+                get: { pendingDeletePersona != nil },
+                set: { if !$0 { pendingDeletePersona = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDeletePersona
+        ) { persona in
+            Button(s.delete, role: .destructive) {
+                store.deletePersona(persona.id)
+                if store.selectedBotFilterId == persona.id {
+                    store.selectedBotFilterId = nil
+                }
+                pendingDeletePersona = nil
+            }
+            Button(s.cancel, role: .cancel) {
+                pendingDeletePersona = nil
+            }
+        } message: { persona in
+            Text(s.deleteBotConfirmMessage(store.conversationCount(forPersona: persona.id)))
+        }
+        #if os(macOS)
+        .onAppear {
+            if undoKeyMonitor == nil {
+                undoKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                    guard mods == .command,
+                          event.charactersIgnoringModifiers?.lowercased() == "z",
+                          store.canUndoLastDeletion else {
+                        return event
+                    }
+                    if let tv = NSApp.keyWindow?.firstResponder as? NSTextView,
+                       tv.undoManager?.canUndo == true {
+                        return event
+                    }
+                    _ = store.undoLastDeletion()
+                    return nil
+                }
+            }
+        }
+        .onDisappear {
+            if let monitor = undoKeyMonitor {
+                NSEvent.removeMonitor(monitor)
+                undoKeyMonitor = nil
+            }
+        }
+        #endif
+    }
+
+    // MARK: - Native Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            HStack(spacing: PipiTokens.spacing8) {
+                if columnVisibility == .detailOnly {
+                    PipiGhostIconButton(
+                        systemImage: "sidebar.left",
+                        size: 28,
+                        iconSize: 13.5,
+                        cornerRadius: PipiTokens.radiusSM,
+                        accessibilityLabel: s.toggleSidebar
+                    ) {
+                        withAnimation(PipiMotion.adaptive(PipiMotion.drawer, reduceMotion: reduceMotion)) {
+                            columnVisibility = .all
+                        }
+                    }
+                    .help("\(s.toggleSidebar) (⌃⌘S)")
+                }
+
+                switch destination {
+                case .home:
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Image(systemName: "cpu")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.botHome)
+                            .font(PipiTokens.fontHeadline)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                    }
+
+                case .needsYou:
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Image(systemName: "bell")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(store.totalNeedsYouCount > 0 ? PipiTokens.stateWarning : PipiTokens.textPrimary)
+                        Text(s.needsYouInboxTitle)
+                            .font(PipiTokens.fontHeadline)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                    }
+
+                case .group(let groupId):
+                    if let grp = store.groupChats.first(where: { $0.id == groupId }) {
+                        let members = grp.participantPersonaIds.compactMap { pid in
+                            store.personas.first(where: { $0.id == pid })
+                        }
+                        HStack(spacing: PipiTokens.spacing12) {
+                            Button {
+                                selectedGroupInspectorTab = .membersTasks
+                                withAnimation(PipiMotion.adaptive(PipiMotion.drawer, reduceMotion: reduceMotion)) {
+                                    store.isInspectorPresented = true
+                                }
+                            } label: {
+                                HStack(spacing: -6) {
+                                    ForEach(members.prefix(4)) { bot in
+                                        let isBusy = store.isBotWorkingInGroup(bot.id, groupId: grp.id)
+                                        ZStack(alignment: .bottomTrailing) {
+                                            PipiBotPersonaGlyph(persona: bot, size: 24, isSelected: true)
+                                                .overlay(
+                                                    Circle()
+                                                        .strokeBorder(PipiTokens.bgCanvas, lineWidth: 1.5)
+                                                )
+                                            if isBusy {
+                                                PipiDotIndicator(
+                                                    vitality: .busy,
+                                                    color: PipiTokens.color(for: bot.accent),
+                                                    size: 5.5
+                                                )
+                                                .background(Circle().fill(PipiTokens.bgCanvas).padding(-1))
+                                            }
+                                        }
+                                    }
+                                    if members.count > 4 {
+                                        Text("+\(members.count - 4)")
+                                            .font(PipiTokens.fontMicro)
+                                            .foregroundStyle(PipiTokens.textSecondary)
+                                            .padding(.horizontal, 5)
+                                            .frame(height: 20)
+                                            .background(PipiTokens.bgSurface, in: Capsule())
+                                            .overlay(Capsule().strokeBorder(PipiTokens.borderSubtle, lineWidth: 1))
+                                            .padding(.leading, 8)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.96))
+                            .help(s.t("查看群成员与长期任务", "View Group Members & Tasks"))
+
+                            Text(grp.title)
+                                .font(PipiTokens.fontHeadline)
+                                .foregroundStyle(PipiTokens.textPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .layoutPriority(-1)
+
+                            groupSwarmModeMenu(for: grp)
+
+                            if store.isGroupRunning(grp.id) {
+                                let workingCount = store.activeGroupRuns[grp.id]?.count ?? 0
+                                HStack(spacing: 4) {
+                                    PipiDotIndicator(vitality: .busy, color: PipiTokens.soulPrimary, size: 5.5)
+                                    Text(s.t("\(workingCount) 协作中", "\(workingCount) running"))
+                                        .font(PipiTokens.fontMicro)
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                }
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(PipiTokens.bgSurfaceHover, in: Capsule())
+                                .fixedSize()
+                            }
+                        }
+                    } else {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Image(systemName: "person.2")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(s.groupChatsSection)
+                                .font(PipiTokens.fontHeadline)
+                                .foregroundStyle(PipiTokens.textPrimary)
+                        }
+                    }
+
+                case .session:
+                    HStack(spacing: PipiTokens.spacing8) {
+                        sessionBotSwitcherMenu
+
+                        Text("·")
+                            .font(PipiTokens.fontSubheadline)
+                            .foregroundStyle(PipiTokens.textMuted)
+
+                        Text(store.activeConversation?.title ?? store.activePersona.name(lang))
+                            .font(PipiTokens.fontHeadline)
+                            .tracking(PipiTokens.trackingHeadline)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(-1)
+
+                        if store.isGeneratingReply, let startedAt = store.activeRunStartedAt {
+                            HStack(spacing: 5) {
+                                PipiDotIndicator(vitality: .busy, color: activeAccent, size: 5)
+                                Text(store.generatingStatusText ?? s.thinkingStatus)
+                                PipiElapsedTimerLabel(startedAt: startedAt, color: activeAccent)
+                            }
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                            .padding(.horizontal, PipiTokens.spacing8)
+                            .padding(.vertical, 3)
+                            .background(PipiTokens.bgSurfaceHover)
+                            .clipShape(Capsule())
+                            .fixedSize()
+                        }
+                    }
+                }
+            }
+            .padding(.leading, 14)
+        }
+
+        if #available(macOS 26.0, *) {
+            ToolbarSpacer(.flexible)
+        }
+
+        ToolbarItemGroup(placement: .primaryAction) {
+            if case .session = destination {
+                sessionWorkspaceFolderButton
+            }
+
+            if case .group(let groupId) = destination,
+               let grp = store.groupChats.first(where: { $0.id == groupId }) {
+                Button {
+                    selectedGroupInspectorTab = .membersTasks
+                    editingGroupChat = grp
+                    groupCreatorPreselectedBotIds = []
+                    showGroupCreatorSheet = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.2")
+                            .font(.system(size: 11.5, weight: .semibold))
+                        Text(s.t("成员 (\(grp.participantPersonaIds.count))", "Members (\(grp.participantPersonaIds.count))"))
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .monospacedDigit()
+                    }
+                    .foregroundStyle(PipiTokens.textSecondary)
+                }
+                .help(s.editGroupChat)
+            }
+
+            if case .group(let groupId) = destination, store.isGroupRunning(groupId) {
+                Button {
+                    store.stopGroupChat(groupId)
+                } label: {
+                    Label(s.stop, systemImage: "stop.fill")
+                        .foregroundStyle(PipiTokens.stateError)
+                }
+                .help(s.stop)
+                .accessibilityLabel(s.stop)
+            } else if case .session = destination, store.isGeneratingReply {
+                Button {
+                    store.stopGenerating()
+                } label: {
+                    Label(s.stop, systemImage: "stop.fill")
+                        .foregroundStyle(PipiTokens.stateError)
+                }
+                .help(s.stop)
+                .accessibilityLabel(s.stop)
+            }
+
+            let artifactCount = (store.activeConversation?.planItems.count ?? 0) + (store.activeConversation?.fileChanges.count ?? 0)
+            Button {
+                withAnimation(PipiMotion.adaptive(PipiMotion.drawer, reduceMotion: reduceMotion)) {
+                    store.isInspectorPresented.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "sidebar.right")
+                    if case .session = destination, artifactCount > 0 {
+                        Text("\(artifactCount)")
+                            .font(PipiTokens.fontMonoSmall.weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(PipiTokens.textSecondary)
+                    } else if case .group(let gid) = destination,
+                              let grp = store.groupChats.first(where: { $0.id == gid }) {
+                        let badgeCount = grp.deliverables.count + grp.longTasks.filter { $0.status == .active }.count
+                        if badgeCount > 0 {
+                            Text("\(badgeCount)")
+                                .font(PipiTokens.fontMonoSmall.weight(.semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(PipiTokens.textSecondary)
+                        }
+                    }
+                }
+            }
+            .help(s.toggleInspector)
+            .accessibilityLabel(artifactCount > 0 ? "\(s.toggleInspector) (\(artifactCount))" : s.toggleInspector)
+        }
+    }
+
+    private func groupSwarmModeMenu(for group: PipiGroupChat) -> some View {
+        let isHovered = hoveredToolbarChip == "group_swarm_mode"
+        return Menu {
+            ForEach(PipiSwarmMode.allCases) { mode in
+                Button {
+                    store.updateGroupChat(id: group.id, swarmMode: mode)
+                } label: {
+                    Label {
+                        Text(mode.label(lang))
+                    } icon: {
+                        Image(systemName: group.swarmMode == mode ? "checkmark" : mode.iconName)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: group.swarmMode.iconName)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(group.swarmMode.label(lang))
+                    .font(PipiTokens.fontCaption.weight(.medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .foregroundStyle(PipiTokens.textMuted)
+            }
+            .foregroundStyle(isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .fill(isHovered ? PipiTokens.bgSurfaceHover : PipiTokens.bgSurface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+            )
+        }
+        .pipiPlainMenu()
+        .fixedSize()
+        .onHover { hoveredToolbarChip = $0 ? "group_swarm_mode" : (hoveredToolbarChip == "group_swarm_mode" ? nil : hoveredToolbarChip) }
+        .help(s.t("切换协作模式", "Switch collaboration mode"))
+    }
+
+    private var sessionBotSwitcherMenu: some View {
+        let isBotHovered = hoveredToolbarChip == "header_bot"
+        return Menu {
+            ForEach(store.personas) { persona in
+                Button {
+                    if isConversationEmpty {
+                        store.assignActiveConversationPersona(persona.id)
+                    } else {
+                        let created = store.createConversation(
+                            for: persona.id,
+                            projectId: store.activeConversation?.projectId
+                        )
+                        destination = .session(created.id)
+                        isComposerFocused = true
+                    }
+                } label: {
+                    HStack {
+                        Text(persona.name(lang))
+                        if persona.id == store.activePersona.id {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                PipiBotPersonaGlyph(persona: store.activePersona, size: 22, isSelected: true)
+                Text(store.activePersona.name(lang))
+                    .font(PipiTokens.fontSubheadline.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textPrimary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .foregroundStyle(PipiTokens.textMuted)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .fill(isBotHovered ? PipiTokens.buttonGhostHoverBg : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .pipiPlainMenu()
+        .fixedSize()
+        .onHover { hoveredToolbarChip = $0 ? "header_bot" : (hoveredToolbarChip == "header_bot" ? nil : hoveredToolbarChip) }
+        .help(s.myBots)
+    }
+
+    private var sessionWorkspaceFolderButton: some View {
+        let rawPath = store.effectiveWorkspaceDirectory
+        let folderName = URL(fileURLWithPath: rawPath).lastPathComponent
+        let displayPath = folderName.isEmpty ? rawPath : folderName
+        let isFolderHovered = hoveredToolbarChip == "header_folder"
+
+        return Button {
+            chooseWorkspaceFolderInPlace()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(store.activeProject.map { PipiTokens.color(for: $0.accent) } ?? PipiTokens.textSecondary)
+                Text(displayPath)
+                    .font(PipiTokens.fontCaption.weight(.medium))
+                    .foregroundStyle(isFolderHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 6)
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .onHover { hoveredToolbarChip = $0 ? "header_folder" : (hoveredToolbarChip == "header_folder" ? nil : hoveredToolbarChip) }
+        .help(rawPath)
+        .accessibilityLabel("\(s.chooseFolder): \(displayPath)")
+    }
+
+    // MARK: - Left Sidebar (Devin Split New Task + 2 Nav Links + Unified Tasks + Quiet Host/Settings Footer)
+
+    private enum SidebarTaskEntry: Identifiable {
+        case group(PipiGroupChat)
+        case session(PipiConversation)
+
+        var id: String {
+            switch self {
+            case .group(let group): return "grp:\(group.id)"
+            case .session(let conv): return "conv:\(conv.id)"
+            }
+        }
+
+        var sortTimestamp: String {
+            switch self {
+            case .group(let group): return group.updatedAt.isEmpty ? group.createdAt : group.updatedAt
+            case .session(let conv): return conv.updatedAt.isEmpty ? conv.createdAt : conv.updatedAt
+            }
+        }
+    }
+
+    private func groupTimeBucket(for group: PipiGroupChat, now: Date = Date()) -> PipiSessionTimeBucket {
+        if store.isGroupRunning(group.id) {
+            return .activeOrNeedsYou
+        }
+        if group.isPinned {
+            return .pinned
+        }
+        let date = store.parseSessionDate(group.updatedAt) ?? store.parseSessionDate(group.createdAt) ?? Date.distantPast
+        let cal = Calendar.current
+        if cal.isDateInToday(date) {
+            return .today
+        }
+        if cal.isDateInYesterday(date) {
+            return .yesterday
+        }
+        if let sevenDaysAgo = cal.date(byAdding: .day, value: -7, to: now), date >= sevenDaysAgo {
+            return .last7Days
+        }
+        return .earlier
+    }
+
+    private var groupedSidebarTasks: [(bucket: PipiSessionTimeBucket, entries: [SidebarTaskEntry])] {
+        var bucketed: [PipiSessionTimeBucket: [SidebarTaskEntry]] = [:]
+
+        if sidebarFilter != .singleOnly {
+            for group in store.sortedGroupChats where !group.isArchived {
+                if let botFilterId = store.selectedBotFilterId,
+                   !group.participantPersonaIds.contains(botFilterId) {
+                    continue
+                }
+                let bucket = groupTimeBucket(for: group)
+                bucketed[bucket, default: []].append(.group(group))
+            }
+        }
+
+        if sidebarFilter != .groupsOnly {
+            let sessionGroups = store.groupedGlobalSessions(
+                searchQuery: "",
+                botFilterId: store.selectedBotFilterId
+            )
+            for item in sessionGroups {
+                for conv in item.conversations {
+                    bucketed[item.bucket, default: []].append(.session(conv))
+                }
+            }
+        }
+
+        return PipiSessionTimeBucket.allCases.compactMap { bucket in
+            guard var entries = bucketed[bucket], !entries.isEmpty else { return nil }
+            entries.sort { lhs, rhs in
+                let d1 = store.parseSessionDate(lhs.sortTimestamp) ?? Date.distantPast
+                let d2 = store.parseSessionDate(rhs.sortTimestamp) ?? Date.distantPast
+                if d1 != d2 { return d1 > d2 }
+                return lhs.id < rhs.id
+            }
+            return (bucket: bucket, entries: entries)
+        }
+    }
+
+    private var sidebar: some View {
+        VStack(spacing: 0) {
+            // 1. Sidebar Header Strip + Unified Flat Navigation Group
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: PipiTokens.spacing8) {
+                    HStack(spacing: 7) {
+                        PipiBotLogoMark(size: 18)
+                        Text("PiPi")
+                            .font(PipiTokens.fontHeadline.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    PipiGhostIconButton(
+                        systemImage: "magnifyingglass",
+                        size: 28,
+                        iconSize: 12.5,
+                        cornerRadius: PipiTokens.radiusSM,
+                        accessibilityLabel: s.openCommandPalette
+                    ) {
+                        withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                            store.isCommandPalettePresented = true
+                        }
+                    }
+                    .help("\(s.openCommandPalette) (⌘K)")
+
+                    PipiGhostIconButton(
+                        systemImage: "sidebar.left",
+                        size: 28,
+                        iconSize: 12.5,
+                        cornerRadius: PipiTokens.radiusSM,
+                        accessibilityLabel: s.toggleSidebar
+                    ) {
+                        withAnimation(PipiMotion.adaptive(PipiMotion.drawer, reduceMotion: reduceMotion)) {
+                            columnVisibility = .detailOnly
+                        }
+                    }
+                    .help("\(s.toggleSidebar) (⌃⌘S)")
+                }
+                .padding(.horizontal, 4)
+                .padding(.bottom, 8)
+
+                // 1. 新对话 (⌘N)
+                sidebarNavRow(
+                    icon: "square.and.pencil",
+                    title: s.newChat,
+                    isSelected: false,
+                    trailingHint: "⌘N"
+                ) {
+                    let created = store.createConversation(projectId: store.activeConversation?.projectId)
+                    destination = .session(created.id)
+                    isComposerFocused = true
+                }
+
+                // 2. 新建群聊
+                sidebarNavRow(
+                    icon: "person.2",
+                    title: s.newGroupChat,
+                    isSelected: false
+                ) {
+                    groupCreatorPreselectedBotIds = []
+                    editingGroupChat = nil
+                    showGroupCreatorSheet = true
+                }
+
+                // 3. 待我确认
+                sidebarNavRow(
+                    icon: "bell",
+                    title: s.needsYouInboxTitle,
+                    isSelected: destination == .needsYou,
+                    badgeCount: store.totalNeedsYouCount
+                ) {
+                    destination = .needsYou
+                }
+
+                // 4. 智能体
+                sidebarNavRow(
+                    icon: "cpu",
+                    title: s.botHome,
+                    isSelected: destination == .home,
+                    showPulseDot: !store.activeRuns.isEmpty || !store.collaboratingBotIds.isEmpty
+                ) {
+                    destination = .home
+                }
+            }
+            .padding(.horizontal, PipiTokens.spacing12)
+            .padding(.top, 4)
+            .padding(.bottom, PipiTokens.spacing12)
+
+            // 2. Scrollable Unified 对话与协作 + 项目
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+                    // Unified Tasks List (Single-bot Sessions + Group Chats)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Text(s.sessionsSection)
+                                .font(PipiTokens.fontMicro)
+                                .tracking(PipiTokens.trackingMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                                .textCase(.uppercase)
+
+                            if let filterId = store.selectedBotFilterId,
+                               let bot = store.personas.first(where: { $0.id == filterId }) {
+                                Button {
+                                    store.selectedBotFilterId = nil
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(bot.name(lang))
+                                            .lineLimit(1)
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 8, weight: .bold))
+                                    }
+                                    .font(PipiTokens.fontMicro)
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(PipiTokens.bgSurfaceHover)
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .help(s.clearFilter)
+                                .accessibilityLabel("\(s.clearFilter): \(bot.name(lang))")
+                            }
+
+                            Spacer()
+
+                            let filterTitle: String = {
+                                if sidebarFilter == .groupsOnly { return s.groupChatsSection }
+                                if sidebarFilter == .singleOnly { return s.singleChatFilter }
+                                if let filterId = store.selectedBotFilterId,
+                                   let bot = store.personas.first(where: { $0.id == filterId }) {
+                                    return bot.name(lang)
+                                }
+                                return s.allBotsFilter
+                            }()
+
+                            Menu {
+                                Button {
+                                    sidebarFilter = .all
+                                    store.selectedBotFilterId = nil
+                                } label: {
+                                    HStack {
+                                        Text(s.allBotsFilter)
+                                        if sidebarFilter == .all && store.selectedBotFilterId == nil {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    sidebarFilter = .groupsOnly
+                                } label: {
+                                    HStack {
+                                        Text(s.groupChatsSection)
+                                        if sidebarFilter == .groupsOnly {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    sidebarFilter = .singleOnly
+                                } label: {
+                                    HStack {
+                                        Text(s.singleChatFilter)
+                                        if sidebarFilter == .singleOnly {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+
+                                Divider()
+
+                                Section(s.myBots) {
+                                    ForEach(store.personas) { persona in
+                                        Button {
+                                            sidebarFilter = .all
+                                            store.selectedBotFilterId = persona.id
+                                        } label: {
+                                            HStack {
+                                                Text(persona.name(lang))
+                                                if sidebarFilter == .all && store.selectedBotFilterId == persona.id {
+                                                    Image(systemName: "checkmark")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Text(filterTitle)
+                                        .font(PipiTokens.fontMicro)
+                                        .foregroundStyle(
+                                            (sidebarFilter != .all || store.selectedBotFilterId != nil)
+                                                ? PipiTokens.textPrimary
+                                                : PipiTokens.textMuted
+                                        )
+                                        .lineLimit(1)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 8.5, weight: .bold))
+                                        .foregroundStyle(PipiTokens.textMuted)
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(
+                                    (sidebarFilter != .all || store.selectedBotFilterId != nil)
+                                        ? PipiTokens.bgSurfaceHover
+                                        : Color.clear
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            }
+                            .pipiPlainMenu()
+                            .fixedSize()
+                            .help(s.filterByBotLabel)
+                        }
+                        .padding(.horizontal, PipiTokens.spacing8)
+
+                        let taskGroups = groupedSidebarTasks
+                        if taskGroups.isEmpty {
+                            Text(s.noChatsYet)
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textMuted)
+                                .padding(.horizontal, PipiTokens.spacing8)
+                                .padding(.vertical, 6)
+                        } else {
+                            ForEach(taskGroups, id: \.bucket.id) { group in
+                                Text(group.bucket.title(s))
+                                    .font(PipiTokens.fontMicro)
+                                    .foregroundStyle(PipiTokens.textMuted)
+                                    .padding(.horizontal, PipiTokens.spacing8)
+                                    .padding(.top, 6)
+                                    .padding(.bottom, 1)
+
+                                ForEach(group.entries) { entry in
+                                    switch entry {
+                                    case .group(let chatGroup):
+                                        groupChatSidebarRow(chatGroup)
+                                    case .session(let conv):
+                                        conversationSidebarRow(conv, isArchived: false, indented: false)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Archived Conversations Section
+                        if sidebarFilter != .groupsOnly {
+                            let archivedConvs = store.allArchivedConversations.filter { conv in
+                                if let filterId = store.selectedBotFilterId, conv.personaId != filterId { return false }
+                                return true
+                            }
+                            if !archivedConvs.isEmpty {
+                                Button {
+                                    withAnimation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion)) {
+                                        showArchived.toggle()
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: showArchived ? "chevron.down" : "chevron.right")
+                                            .font(.system(size: 9, weight: .bold))
+                                        Image(systemName: "archivebox")
+                                            .font(.system(size: 10, weight: .medium))
+                                        Text("\(s.archivedSection) · \(archivedConvs.count)")
+                                            .font(PipiTokens.fontMicro)
+                                            .monospacedDigit()
+                                        Spacer()
+                                    }
+                                    .foregroundStyle(PipiTokens.textMuted)
+                                    .padding(.horizontal, PipiTokens.spacing8)
+                                    .padding(.top, PipiTokens.spacing12)
+                                    .padding(.bottom, 2)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.98))
+
+                                if showArchived {
+                                    ForEach(archivedConvs) { conv in
+                                        conversationSidebarRow(conv, isArchived: true, indented: false)
+                                    }
+                                    .transition(.opacity)
+                                }
+                            }
+                        }
+                    }
+
+                    // Projects Section (collapsed header-only when empty; no dashed box)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(s.projectsSection)
+                                .font(PipiTokens.fontMicro)
+                                .tracking(PipiTokens.trackingMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                                .textCase(.uppercase)
+                            Spacer()
+                            PipiGhostIconButton(
+                                systemImage: "plus",
+                                size: 22,
+                                iconSize: 10,
+                                cornerRadius: 6,
+                                accessibilityLabel: s.newProject
+                            ) {
+                                showNewProjectSheet = true
+                            }
+                            .help(s.newProject)
+                        }
+                        .padding(.horizontal, PipiTokens.spacing8)
+                        .padding(.bottom, 2)
+
+                        if !store.projects.isEmpty {
+                            ForEach(store.projects) { project in
+                                projectSidebarGroup(project)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, PipiTokens.spacing12)
+                .padding(.bottom, PipiTokens.spacing12)
+            }
+            .pipiHideScrollbars()
+
+            // 3. Compact Single-Row Host & Settings Footer (48pt)
+            VStack(spacing: 0) {
+                Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+
+                HStack(spacing: PipiTokens.spacing8) {
+                    let isHostHovered = hoveredToolbarChip == "sidebar_host"
+                    Button {
+                        showHostPopover.toggle()
+                    } label: {
+                        HStack(spacing: 7) {
+                            Circle()
+                                .fill(hostLinkColor(store.localHost.linkState))
+                                .frame(width: 7, height: 7)
+                            Text(store.localHost.displayName(lang))
+                                .font(PipiTokens.fontCaption.weight(.medium))
+                                .foregroundStyle(isHostHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .padding(.horizontal, PipiTokens.spacing8)
+                        .frame(height: 32)
+                        .background(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .fill(isHostHovered || showHostPopover ? PipiTokens.bgSurfaceHover : Color.clear)
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PipiPressButtonStyle(pressedScale: 0.98))
+                    .onHover { hovering in
+                        hoveredToolbarChip = hovering ? "sidebar_host" : (hoveredToolbarChip == "sidebar_host" ? nil : hoveredToolbarChip)
+                    }
+                    .accessibilityLabel(store.localHost.statusBadgeText(lang))
+                    .popover(
+                        isPresented: $showHostPopover,
+                        attachmentAnchor: .point(UnitPoint(x: 0.95, y: 0.0)),
+                        arrowEdge: .top
+                    ) {
+                        sidebarHostPopover
+                    }
+
+                    Spacer(minLength: 4)
+
+                    PipiGhostIconButton(
+                        systemImage: "gearshape",
+                        size: 32,
+                        iconSize: 14,
+                        cornerRadius: PipiTokens.radiusSM,
+                        accessibilityLabel: s.settings
+                    ) {
+                        onOpenSettings(.general)
+                    }
+                    .help("\(s.settings) (⌘,)")
+                }
+                .padding(.horizontal, PipiTokens.spacing12)
+                .frame(height: 48)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .pipiStructuralMaterial()
+    }
+
+    private func sidebarNavRow(
+        icon: String,
+        title: String,
+        isSelected: Bool,
+        trailingHint: String? = nil,
+        badgeCount: Int = 0,
+        showPulseDot: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        let navKey = "nav_\(title)"
+        let isHovered = hoveredToolbarChip == navKey
+        return Button(action: action) {
+            HStack(spacing: PipiTokens.spacing8) {
+                Image(systemName: icon)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundStyle(isSelected || isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                    .frame(width: 20)
+
+                Text(title)
+                    .font(PipiTokens.fontSubheadline.weight(isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected || isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                if badgeCount > 0 {
+                    Text("\(badgeCount)")
+                        .font(PipiTokens.fontMonoSmall.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(PipiTokens.textInverse)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(PipiTokens.stateWarning)
+                        .clipShape(Capsule())
+                }
+
+                if showPulseDot {
+                    PipiDotIndicator(vitality: .busy, color: PipiTokens.textSecondary, size: 5)
+                }
+
+                if let trailingHint {
+                    Text(trailingHint)
+                        .font(PipiTokens.fontMonoSmall)
+                        .foregroundStyle(PipiTokens.textMuted)
+                }
+            }
+            .padding(.horizontal, PipiTokens.spacing8)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? PipiTokens.bgSurfaceHover : (isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.985))
+        .onHover { hovering in
+            hoveredToolbarChip = hovering ? navKey : (hoveredToolbarChip == navKey ? nil : hoveredToolbarChip)
+        }
+    }
+
+    private var sidebarHostPopover: some View {
+        let hostRuntimeSubtitle: String = {
+            switch store.localHost.linkState {
+            case .online: return s.t("运行中", "Running")
+            case .degraded: return s.t("信号弱", "Degraded")
+            case .offline: return s.t("离线", "Offline")
+            }
+        }()
+        let isQuickBarHovered = hoveredToolbarChip == "popover_quickbar"
+        let isSettingsHovered = hoveredToolbarChip == "popover_runtime"
+
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+            // Header: 32x32 desktopcomputer badge + bold machine name + macOS · 运行中
+            HStack(spacing: PipiTokens.spacing12) {
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .fill(PipiTokens.bgSurface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+                    )
+                    .frame(width: 32, height: 32)
+                    .overlay(
+                        Image(systemName: "desktopcomputer")
+                            .font(.system(size: 14.5, weight: .medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.localHost.displayName(lang))
+                        .font(PipiTokens.fontHeadline)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(hostLinkColor(store.localHost.linkState))
+                            .frame(width: 6, height: 6)
+                        Text("\(store.localHost.capabilities.osName) · \(hostRuntimeSubtitle)")
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            // Grouped Rounded Card: Keep Mac Awake + Local Engines
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text(s.keepAwakeTitle)
+                        .font(PipiTokens.fontCaption.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Spacer(minLength: 8)
+                    Toggle("", isOn: Binding(
+                        get: { store.bridgeSupervisor.keepAwakeEnabled },
+                        set: { store.setKeepAwake($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, PipiTokens.spacing12)
+                .padding(.vertical, 10)
+
+                if !store.localAgentStatuses.isEmpty {
+                    Rectangle()
+                        .fill(PipiTokens.borderSubtle)
+                        .frame(height: 1)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(s.t("本地执行引擎", "Local Engines"))
+                            .font(PipiTokens.fontMicro)
+                            .foregroundStyle(PipiTokens.textMuted)
+
+                        ForEach(store.localAgentStatuses) { agent in
+                            let statusColor: Color = agent.authenticated ? PipiTokens.stateSuccess : (agent.installed ? PipiTokens.stateWarning : PipiTokens.textMuted.opacity(0.6))
+                            let statusLabel: String = agent.authenticated
+                                ? s.t("就绪", "Ready")
+                                : (agent.installed ? s.t("需登录", "Sign in") : s.t("未安装", "Not installed"))
+                            HStack(spacing: 7) {
+                                Circle()
+                                    .fill(statusColor)
+                                    .frame(width: 6, height: 6)
+                                Text(agent.kind.displayName)
+                                    .font(PipiTokens.fontCaption.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                Spacer()
+                                Text(statusLabel)
+                                    .font(PipiTokens.fontMicro)
+                                    .foregroundStyle(agent.authenticated ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, PipiTokens.spacing12)
+                    .padding(.vertical, 10)
+                }
+            }
+            .background(PipiTokens.bgSurface)
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                    .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+
+            // Clean Bottom Action Section
+            VStack(alignment: .leading, spacing: 2) {
+                Button {
+                    showHostPopover = false
+                    onToggleQuickBar()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "macwindow.on.rectangle")
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(isQuickBarHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                            .frame(width: 18)
+                        Text(s.quickBar)
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Spacer()
+                        Text("⌥Space")
+                            .font(PipiTokens.fontMonoSmall)
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .fill(isQuickBarHovered ? PipiTokens.buttonGhostHoverBg : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.985))
+                .onHover { hovering in
+                    hoveredToolbarChip = hovering ? "popover_quickbar" : (hoveredToolbarChip == "popover_quickbar" ? nil : hoveredToolbarChip)
+                }
+
+                Button {
+                    showHostPopover = false
+                    onOpenSettings(.runtimeSync)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(isSettingsHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                            .frame(width: 18)
+                        Text(s.settingsRuntimeSync)
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .fill(isSettingsHovered ? PipiTokens.buttonGhostHoverBg : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.985))
+                .onHover { hovering in
+                    hoveredToolbarChip = hovering ? "popover_runtime" : (hoveredToolbarChip == "popover_runtime" ? nil : hoveredToolbarChip)
+                }
+            }
+        }
+        .padding(PipiTokens.spacing16)
+        .frame(width: 288)
+        .background(PipiTokens.bgElevated)
+    }
+
+    private func hostLinkColor(_ state: PipiHostLinkState) -> Color {
+        switch state {
+        case .online: return PipiTokens.stateSuccess
+        case .degraded: return PipiTokens.stateWarning
+        case .offline: return PipiTokens.textMuted
+        }
+    }
+
+    private func groupChatSidebarRow(_ group: PipiGroupChat) -> some View {
+        let isSelected = destination == .group(group.id)
+        let isHovered = hoveredGroupId == group.id
+        let isRunning = store.isGroupRunning(group.id)
+        let members = group.participantPersonaIds.compactMap { pid in
+            store.personas.first(where: { $0.id == pid })
+        }
+
+        return Button {
+            store.selectGroupChat(group.id)
+            destination = .group(group.id)
+        } label: {
+            HStack(spacing: PipiTokens.spacing8) {
+                HStack(spacing: -5) {
+                    ForEach(members.prefix(3)) { bot in
+                        PipiBotPersonaGlyph(persona: bot, size: 18, isSelected: isSelected)
+                            .overlay(Circle().stroke(PipiTokens.bgElevated, lineWidth: 1))
+                    }
+                }
+
+                Text(group.title)
+                    .font(PipiTokens.fontCaption.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                if group.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(PipiTokens.textMuted)
+                }
+
+                if isRunning {
+                    PipiSessionStateDot(state: .running, accent: PipiTokens.soulPrimary)
+                }
+
+                Text(store.relativeTimeLabel(for: group.updatedAt))
+                    .font(PipiTokens.fontMonoSmall)
+                    .monospacedDigit()
+                    .foregroundStyle(PipiTokens.textMuted)
+            }
+            .padding(.horizontal, PipiTokens.spacing8)
+            .frame(height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .fill(isSelected ? PipiTokens.bgSurfaceHover.opacity(0.90) : (isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.985))
+        .onHover { hovering in
+            hoveredGroupId = hovering ? group.id : nil
+        }
+        .contextMenu {
+            Button(group.isPinned ? s.unpinChat : s.pinChat) {
+                store.togglePinGroupChat(id: group.id)
+            }
+            Button(s.renameGroupChat) {
+                renameGroupDraftTitle = group.title
+                renamingGroupChat = group
+            }
+            Button(s.editGroupChat) {
+                editingGroupChat = group
+                groupCreatorPreselectedBotIds = []
+                showGroupCreatorSheet = true
+            }
+            Divider()
+            Button(s.delete, role: .destructive) {
+                store.deleteGroupChat(id: group.id)
+                if destination == .group(group.id) {
+                    destination = .home
+                }
+            }
+        }
+        .accessibilityAction(named: group.isPinned ? s.unpinChat : s.pinChat) {
+            store.togglePinGroupChat(id: group.id)
+        }
+        .accessibilityAction(named: s.editGroupChat) {
+            editingGroupChat = group
+            groupCreatorPreselectedBotIds = []
+            showGroupCreatorSheet = true
+        }
+        .accessibilityAction(named: s.delete) {
+            store.deleteGroupChat(id: group.id)
+            if destination == .group(group.id) {
+                destination = .home
+            }
+        }
+    }
+
+    private func projectSidebarGroup(_ project: PipiProject) -> some View {
+        let projColor = PipiTokens.color(for: project.accent)
+        let projConvs = store.conversations(inProject: project.id)
+        let isHovered = hoveredProjectId == project.id
+        let isActiveProject = store.activeConversation?.projectId == project.id
+
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Button {
+                    withAnimation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion)) {
+                        store.toggleProjectCollapsed(project.id)
+                    }
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: project.isCollapsed ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(PipiTokens.textMuted)
+                            .frame(width: 10)
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(projColor)
+                        Text(project.name)
+                            .font(PipiTokens.fontCaption.weight(isActiveProject ? .semibold : .medium))
+                            .foregroundStyle(isActiveProject ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        if !isHovered && !projConvs.isEmpty {
+                            Text("\(projConvs.count)")
+                                .font(PipiTokens.fontMonoSmall)
+                                .monospacedDigit()
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.985))
+
+                if isHovered {
+                    PipiGhostIconButton(
+                        systemImage: "plus",
+                        size: 20,
+                        iconSize: 10,
+                        cornerRadius: 5,
+                        accessibilityLabel: s.newChatInProject
+                    ) {
+                        let created = store.createConversation(projectId: project.id)
+                        destination = .session(created.id)
+                        isComposerFocused = true
+                    }
+                    .help(s.newChatInProject)
+                }
+            }
+            .padding(.horizontal, PipiTokens.spacing8)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .fill(isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear)
+            )
+            .onHover { hovering in
+                hoveredProjectId = hovering ? project.id : nil
+            }
+            .contextMenu {
+                Button(s.newChatInProject) {
+                    let created = store.createConversation(projectId: project.id)
+                    destination = .session(created.id)
+                    isComposerFocused = true
+                }
+                Button(s.editProject) {
+                    editingProject = project
+                }
+                Divider()
+                Button(s.delete, role: .destructive) {
+                    store.deleteProject(project.id)
+                }
+            }
+            .accessibilityAction(named: s.newChatInProject) {
+                let created = store.createConversation(projectId: project.id)
+                destination = .session(created.id)
+            }
+            .accessibilityAction(named: s.editProject) {
+                editingProject = project
+            }
+            .accessibilityAction(named: s.delete) {
+                store.deleteProject(project.id)
+            }
+
+            if !project.isCollapsed {
+                if projConvs.isEmpty {
+                    Text(s.noChatsYet)
+                        .font(PipiTokens.fontMicro)
+                        .foregroundStyle(PipiTokens.textMuted)
+                        .padding(.leading, 28)
+                        .padding(.vertical, 3)
+                } else {
+                    ForEach(projConvs) { conv in
+                        conversationSidebarRow(conv, isArchived: false, indented: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private func conversationSidebarRow(_ conv: PipiConversation, isArchived: Bool, indented: Bool) -> some View {
+        let isSelected = destination == .session(conv.id)
+        let isHovered = hoveredConversationId == conv.id
+        let bot = store.personas.first(where: { $0.id == conv.personaId }) ?? store.activePersona
+        let botAccent = PipiTokens.color(for: bot.accent)
+        let isHostOffline = store.hostDescriptor(for: conv.hostId).linkState == .offline
+        let displayState: PipiSessionState = store.isRunning(conversationId: conv.id) ? .running : conv.state
+
+        return HStack(spacing: 6) {
+            Button {
+                store.selectConversation(conv.id)
+                destination = .session(conv.id)
+            } label: {
+                HStack(spacing: PipiTokens.spacing8) {
+                    PipiBotPersonaGlyph(persona: bot, size: 22, isSelected: isSelected)
+
+                    Text(conv.title)
+                        .font(PipiTokens.fontCaption.weight(isSelected ? .semibold : .regular))
+                        .foregroundStyle(isHostOffline ? PipiTokens.textMuted : (isSelected ? PipiTokens.textPrimary : PipiTokens.textSecondary))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 4)
+
+                    if conv.isPinned && !isArchived {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+
+                    PipiSessionStateDot(state: displayState, accent: botAccent, isHostOffline: isHostOffline)
+
+                    if !isHovered {
+                        Text(store.relativeTimeLabel(for: conv.updatedAt))
+                            .font(PipiTokens.fontMonoSmall)
+                            .monospacedDigit()
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.985))
+
+            if isHovered {
+                PipiGhostIconButton(
+                    systemImage: isArchived ? "arrow.uturn.backward" : "archivebox",
+                    size: 22,
+                    iconSize: 11,
+                    cornerRadius: 5,
+                    accessibilityLabel: isArchived ? s.unarchiveChat : s.archiveChat
+                ) {
+                    withAnimation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion)) {
+                        store.toggleArchiveConversation(conv.id)
+                    }
+                }
+                .help(isArchived ? s.unarchiveChat : s.archiveChat)
+            }
+        }
+        .padding(.leading, indented ? 24 : PipiTokens.spacing8)
+        .padding(.trailing, PipiTokens.spacing8)
+        .frame(height: 36)
+        .background(
+            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                .fill(isSelected ? PipiTokens.bgSurfaceHover.opacity(0.90) : (isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear))
+        )
+        .onHover { hovering in
+            hoveredConversationId = hovering ? conv.id : nil
+        }
+        .contextMenu {
+            Button(conv.isPinned ? s.unpinChat : s.pinChat) {
+                store.togglePinConversation(conv.id)
+            }
+
+            Button(s.renameChat) {
+                renameDraftTitle = conv.title
+                renamingConversation = conv
+            }
+
+            if !store.projects.isEmpty || conv.projectId != nil {
+                Menu(s.moveToProject) {
+                    ForEach(store.projects) { project in
+                        Button {
+                            store.moveConversation(conv.id, toProject: project.id)
+                        } label: {
+                            HStack {
+                                Text(project.name)
+                                if conv.projectId == project.id {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                    if conv.projectId != nil {
+                        Divider()
+                        Button(s.removeFromProject) {
+                            store.moveConversation(conv.id, toProject: nil)
+                        }
+                    }
+                }
+            }
+
+            Button(isArchived ? s.unarchiveChat : s.archiveChat) {
+                store.toggleArchiveConversation(conv.id)
+            }
+
+            Divider()
+
+            Button(s.delete, role: .destructive) {
+                store.deleteConversation(conv.id)
+            }
+        }
+        .accessibilityAction(named: conv.isPinned ? s.unpinChat : s.pinChat) {
+            store.togglePinConversation(conv.id)
+        }
+        .accessibilityAction(named: isArchived ? s.unarchiveChat : s.archiveChat) {
+            store.toggleArchiveConversation(conv.id)
+        }
+        .accessibilityAction(named: s.delete) {
+            store.deleteConversation(conv.id)
+        }
+    }
+
+    // MARK: - Detail Stage (3D Bot Home, Needs You Inbox, Group Swarm, or 1:1 Session)
+
+    @ViewBuilder
+    private var detailStage: some View {
+        switch destination {
+        case .home:
+            PipiBotsHubView(
+                store: store,
+                collaboratingBotIds: store.collaboratingBotIds,
+                onOpenBotChat: { persona in
+                    let existing = store.conversations
+                        .filter { $0.personaId == persona.id && !$0.isArchived }
+                        .sorted { $0.updatedAt > $1.updatedAt }
+                        .first
+                    let target = existing ?? store.createConversation(for: persona.id, activate: true)
+                    store.selectConversation(target.id)
+                    destination = .session(target.id)
+                },
+                onQuickSendToBot: { persona, prompt in
+                    let created = store.createConversation(for: persona.id, activate: true)
+                    destination = .session(created.id)
+                    Task {
+                        await store.sendPersonalMessage(
+                            prompt,
+                            conversationId: created.id,
+                            personaId: persona.id,
+                            activateTargetConversation: true
+                        )
+                    }
+                },
+                onCreateBot: {
+                    showNewPersonaSheet = true
+                },
+                onEditBot: { persona in
+                    editingPersona = persona
+                },
+                onDeleteBot: { persona in
+                    pendingDeletePersona = persona
+                },
+                onCreateGroupChat: { preselectedBotId in
+                    groupCreatorPreselectedBotIds = preselectedBotId.map { [$0] } ?? []
+                    editingGroupChat = nil
+                    showGroupCreatorSheet = true
+                },
+                onOpenSession: { convId in
+                    store.selectConversation(convId)
+                    destination = .session(convId)
+                }
+            )
+        case .needsYou:
+            PipiNeedsYouInboxView(store: store) { sessionId in
+                store.selectConversation(sessionId)
+                destination = .session(sessionId)
+            }
+        case .group(let groupId):
+            PipiGroupChatView(
+                store: store,
+                groupId: groupId,
+                pendingMentionInsert: $pendingGroupMentionInsert,
+                onOpenSettings: { onOpenSettings(.aiEngine) },
+                onOpenMembersInspector: {
+                    selectedGroupInspectorTab = .membersTasks
+                    withAnimation(PipiMotion.adaptive(PipiMotion.drawer, reduceMotion: reduceMotion)) {
+                        store.isInspectorPresented = true
+                    }
+                }
+            )
+        case .session:
+            chatStage
+        }
+    }
+
+    // MARK: - Center Workbench Stage
+
+    private var chatStage: some View {
+        ZStack {
+            if isConversationEmpty {
+                centeredEmptyStage
+                    .transaction { $0.animation = nil }
+            } else {
+                activeTranscriptStage
+            }
+
+            VStack(spacing: 0) {
+                if let warning = store.persistenceWarning {
+                    persistenceWarningBanner(warning)
+                        .padding(.horizontal, PipiTokens.spacing24)
+                        .padding(.top, PipiTokens.spacing8)
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                }
+
+                if let topDecision = store.pendingDecisions.first {
+                    inlineAttentionBanner(topDecision)
+                        .padding(.horizontal, PipiTokens.spacing24)
+                        .padding(.top, PipiTokens.spacing8)
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                }
+
+                Spacer()
+
+                if store.showUndoToast, let deletedItem = store.lastDeletedItem {
+                    undoDeletionToast(deletedItem)
+                        .padding(.bottom, isConversationEmpty ? PipiTokens.spacing24 : 132)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: store.showUndoToast)
+        }
+        .background(alignment: .top) {
+            PipiTokens.bgCanvas
+                .frame(height: 72)
+                .ignoresSafeArea(.container, edges: .top)
+        }
+    }
+
+    private func persistenceWarningBanner(_ message: String) -> some View {
+        HStack(spacing: PipiTokens.spacing12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(PipiTokens.stateWarning)
+            Text(message)
+                .font(PipiTokens.fontCaption)
+                .foregroundStyle(PipiTokens.textPrimary)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button {
+                store.dismissPersistenceWarning()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(PipiTokens.textMuted)
+                    .frame(width: 22, height: 22)
+                    .background(PipiTokens.buttonGhostHoverBg)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+            .accessibilityLabel(s.close)
+        }
+        .padding(.horizontal, PipiTokens.spacing16)
+        .padding(.vertical, PipiTokens.spacing8)
+        .background(PipiTokens.stateWarningBg)
+        .overlay(
+            RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                .stroke(PipiTokens.stateWarning.opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+    }
+
+    private func undoDeletionToast(_ item: PipiUndoableDeletion) -> some View {
+        HStack(spacing: PipiTokens.spacing12) {
+            Text(item.toastLabel(lang))
+                .font(PipiTokens.fontCaption.weight(.medium))
+                .foregroundStyle(PipiTokens.textPrimary)
+                .lineLimit(1)
+
+            Text("·")
+                .font(PipiTokens.fontCaption)
+                .foregroundStyle(PipiTokens.textMuted)
+
+            Button {
+                _ = store.undoLastDeletion()
+            } label: {
+                HStack(spacing: 4) {
+                    Text(s.undoAction)
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                    Text("⌘Z")
+                        .font(PipiTokens.fontMonoSmall)
+                        .foregroundStyle(PipiTokens.textMuted)
+                }
+                .foregroundStyle(PipiTokens.textPrimary)
+                .padding(.horizontal, PipiTokens.spacing8)
+                .padding(.vertical, 4)
+                .background(PipiTokens.bgSurfaceHover)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.95))
+
+            Button {
+                store.dismissUndoToast()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(PipiTokens.textMuted)
+                    .frame(width: 20, height: 20)
+                    .background(PipiTokens.buttonGhostHoverBg)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+            .accessibilityLabel(s.close)
+        }
+        .padding(.horizontal, PipiTokens.spacing16)
+        .padding(.vertical, PipiTokens.spacing8)
+        .pipiLiquidGlass(cornerRadius: PipiTokens.radiusPill, shadowRadius: 16, shadowY: 6)
+    }
+
+    // MARK: - Empty Stage
+
+    private var centeredEmptyStage: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(PipiTokens.borderSubtle)
+                .frame(height: 1)
+
+            Spacer(minLength: 48)
+
+            VStack(spacing: PipiTokens.spacing24) {
+                VStack(spacing: PipiTokens.spacing12) {
+                    PipiAvatarView(
+                        engine: store.avatarEngine,
+                        size: 96,
+                        accentOverride: activeAccent,
+                        personaAccent: store.activePersona.accent,
+                        motif: activeMotif
+                    )
+
+                    Text(store.activePersona.name(lang))
+                        .font(PipiTokens.fontHero)
+                        .tracking(PipiTokens.trackingHero)
+                        .foregroundStyle(PipiTokens.textPrimary)
+
+                    Text(store.activePersona.greeting(lang))
+                        .font(PipiTokens.fontBody)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .frame(maxWidth: 500)
+                }
+
+                composerStack
+                    .frame(maxWidth: 700)
+
+                let prompts = Array(store.activePersona.starterPrompts(lang).prefix(3))
+                if !prompts.isEmpty {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        ForEach(prompts, id: \.self) { prompt in
+                            let isChipHovered = hoveredStarterPrompt == prompt
+                            Button {
+                                Task { await store.sendPersonalMessage(prompt) }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Text(prompt)
+                                        .font(PipiTokens.fontCaption)
+                                        .foregroundStyle(isChipHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                                        .lineLimit(1)
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .foregroundStyle(isChipHovered ? PipiTokens.textPrimary : PipiTokens.textMuted)
+                                }
+                                .padding(.horizontal, 13)
+                                .frame(height: 34)
+                                .background(isChipHovered ? PipiTokens.buttonSecondaryHoverBg : PipiTokens.buttonSecondaryBg)
+                                .overlay(
+                                    Capsule()
+                                        .stroke(isChipHovered ? PipiTokens.buttonHoverBorder : PipiTokens.borderSubtle, lineWidth: 1)
+                                )
+                                .clipShape(Capsule())
+                                .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isChipHovered)
+                            }
+                            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.97))
+                            .onHover { hovering in
+                                hoveredStarterPrompt = hovering ? prompt : nil
+                            }
+                        }
+                    }
+                    .frame(maxWidth: 700)
+                }
+            }
+            .padding(.horizontal, 38)
+
+            Spacer(minLength: 64)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PipiTokens.bgCanvas)
+    }
+
+    // MARK: - Active Transcript Stage
+
+    private var activeTranscriptStage: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(PipiTokens.borderSubtle)
+                .frame(height: 1)
+
+            ZStack(alignment: .bottom) {
+                ScrollViewReader { proxy in
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 26) {
+                            Spacer().frame(height: store.pendingDecisions.isEmpty ? 24 : 76)
+
+                            if let conv = store.activeConversation {
+                                ForEach(conv.messages) { msg in
+                                    let isStreamingThis = store.isGeneratingReply && store.streamingMessageId == msg.id
+                                    let isLastAssistant = msg.id == conv.messages.last?.id && msg.role == .assistant
+                                    messageRow(msg, conversation: conv, isStreaming: isStreamingThis, isLastAssistant: isLastAssistant)
+                                        .id(msg.id)
+                                }
+                                .transaction { $0.animation = nil }
+
+                                Color.clear
+                                    .frame(height: 1)
+                                    .id("pipi-chat-bottom")
+                            }
+
+                            Spacer().frame(height: 28)
+                        }
+                        .frame(maxWidth: 780)
+                        .padding(.horizontal, 38)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .pipiHideScrollbars()
+                    .clipped()
+                    .onChange(of: store.activeConversation?.messages.count ?? 0) { _, _ in
+                        scrollToBottom(proxy: proxy, animated: !reduceMotion)
+                    }
+                    .onChange(of: store.activeConversation?.messages.last?.content.count ?? 0) { _, _ in
+                        if store.isGeneratingReply {
+                            scrollToBottom(proxy: proxy, animated: false)
+                        }
+                    }
+                }
+
+                LinearGradient(
+                    colors: [PipiTokens.bgCanvas.opacity(0), PipiTokens.bgCanvas],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 24)
+                .allowsHitTesting(false)
+            }
+
+            composerStack
+                .frame(maxWidth: 780)
+                .padding(.horizontal, 38)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+                .frame(maxWidth: .infinity)
+                .background(PipiTokens.bgCanvas)
+        }
+        .background(PipiTokens.bgCanvas)
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
+        if animated {
+            withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                proxy.scrollTo("pipi-chat-bottom", anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo("pipi-chat-bottom", anchor: .bottom)
+        }
+    }
+
+    private func inlineAttentionBanner(_ decision: NeedsYouDecision) -> some View {
+        HStack(spacing: PipiTokens.spacing12) {
+            Circle()
+                .fill(PipiTokens.stateWarning)
+                .frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(decision.title)
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textPrimary)
+                    .lineLimit(1)
+                Text(decision.summary)
+                    .font(PipiTokens.fontMicro)
+                    .foregroundStyle(PipiTokens.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if let rec = decision.options.first(where: { $0.id == decision.recommendedOptionId }) {
+                PipiActionButton(rec.label, systemImage: "checkmark", tone: .primary, density: .desktopCompact) {
+                    Task { await store.resolveDecision(decision.id, optionId: rec.id) }
+                }
+            }
+            if let deferOpt = decision.options.last, deferOpt.id != decision.recommendedOptionId {
+                PipiActionButton(s.reject, tone: .secondary, density: .desktopCompact) {
+                    Task { await store.resolveDecision(decision.id, optionId: deferOpt.id) }
+                }
+            }
+        }
+        .padding(.horizontal, PipiTokens.spacing16)
+        .padding(.vertical, PipiTokens.spacing8)
+        .pipiLiquidGlass(cornerRadius: PipiTokens.radiusMD, shadowRadius: 12, shadowY: 4)
+    }
+
+    // MARK: - Workbench Turn Layout
+
+    private func messageRow(
+        _ msg: PipiChatMessage,
+        conversation: PipiConversation,
+        isStreaming: Bool,
+        isLastAssistant: Bool
+    ) -> some View {
+        let isHovered = hoveredMessageId == msg.id
+        let runStartedAt = store.runStartedAt(for: conversation.id)
+
+        return Group {
+            if msg.role == .user {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                    if let files = msg.attachments, !files.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(files) { file in
+                                    HStack(spacing: 4) {
+                                        Image(systemName: file.iconName)
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(PipiTokens.textSecondary)
+                                        Text(file.name)
+                                            .font(PipiTokens.fontMonoSmall)
+                                            .foregroundStyle(PipiTokens.textSecondary)
+                                            .lineLimit(1)
+                                    }
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2.5)
+                                    .background(PipiTokens.bgElevated)
+                                    .overlay(Capsule().stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                                    .clipShape(Capsule())
+                                }
+                            }
+                        }
+                        .scrollIndicators(.hidden)
+                    }
+
+                    Text(msg.content)
+                        .font(PipiTokens.fontBody)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                        .textSelection(.enabled)
+                        .lineSpacing(5.5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, PipiTokens.spacing16)
+                .padding(.vertical, PipiTokens.spacing12)
+                .background(PipiTokens.userBubbleBg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: PipiTokens.radiusComposer, style: .continuous)
+                        .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusComposer, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    if isHovered || copiedMessageId == msg.id {
+                        Button {
+                            triggerCopy(msg.content, messageId: msg.id)
+                        } label: {
+                            Image(systemName: copiedMessageId == msg.id ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(copiedMessageId == msg.id ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                                .frame(width: 24, height: 24)
+                                .background(PipiTokens.bgElevated)
+                                .overlay(Circle().stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                                .clipShape(Circle())
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+                        .padding(PipiTokens.spacing8)
+                        .accessibilityLabel(s.copy)
+                    }
+                }
+                .onHover { hovering in
+                    hoveredMessageId = hovering ? msg.id : nil
+                }
+                .contextMenu {
+                    Button(s.copy) {
+                        triggerCopy(msg.content, messageId: msg.id)
+                    }
+                }
+                .accessibilityAction(named: s.copy) {
+                    triggerCopy(msg.content, messageId: msg.id)
+                }
+            } else {
+                HStack(alignment: .top, spacing: PipiTokens.spacing12) {
+                    VStack(spacing: 6) {
+                        if msg.isError {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(PipiTokens.stateWarningBg)
+                                .frame(width: 30, height: 30)
+                                .overlay(
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(PipiTokens.stateWarning)
+                                )
+                        } else {
+                            PipiBotPersonaGlyph(persona: store.activePersona, size: 30, isSelected: true)
+                        }
+
+                        if isStreaming {
+                            RoundedRectangle(cornerRadius: 1)
+                                .fill(PipiTokens.borderStrong)
+                                .frame(width: 2)
+                                .frame(maxHeight: .infinity)
+                        }
+                    }
+                    .padding(.top, 1)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Text(store.activePersona.name(lang))
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+
+                            if let label = msg.engineLabel {
+                                Text(label)
+                                    .font(PipiTokens.fontMonoSmall)
+                                    .foregroundStyle(PipiTokens.textMuted)
+                            }
+
+                            if isStreaming, let runStartedAt {
+                                HStack(spacing: 4) {
+                                    PipiDotIndicator(vitality: .busy, color: PipiTokens.textSecondary, size: 5)
+                                    PipiElapsedTimerLabel(startedAt: runStartedAt, color: PipiTokens.textSecondary)
+                                }
+                            }
+                        }
+
+                        if !msg.planItems.isEmpty {
+                            PipiPlanChecklistCard(
+                                items: msg.planItems,
+                                strings: s,
+                                accent: activeAccent
+                            )
+                        }
+
+                        if !msg.steps.isEmpty {
+                            PipiCollapsedStepsCard(
+                                steps: msg.steps,
+                                strings: s,
+                                accent: activeAccent
+                            )
+                        }
+
+                        if !msg.fileChanges.isEmpty {
+                            PipiFileChangesCard(
+                                changes: msg.fileChanges,
+                                strings: s,
+                                accent: activeAccent
+                            ) { change in
+                                withAnimation(PipiMotion.adaptive(PipiMotion.drawer, reduceMotion: reduceMotion)) {
+                                    store.openInspectorForChange(change)
+                                }
+                            }
+                        }
+
+                        let hasStructuredCards = !msg.planItems.isEmpty || !msg.steps.isEmpty || !msg.fileChanges.isEmpty
+                        if isStreaming && msg.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasStructuredCards {
+                            HStack(spacing: PipiTokens.spacing8) {
+                                PipiDotIndicator(vitality: .busy, color: activeAccent, size: 7)
+                                Text(store.generatingStatusText ?? s.thinkingStatus)
+                                    .font(PipiTokens.fontCaption.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                                Spacer(minLength: 8)
+                                if let runStartedAt {
+                                    PipiElapsedTimerLabel(startedAt: runStartedAt, color: PipiTokens.textMuted)
+                                }
+                            }
+                            .padding(.horizontal, PipiTokens.spacing12)
+                            .padding(.vertical, PipiTokens.spacing8)
+                            .background(PipiTokens.bgSurface.opacity(0.75))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                                    .stroke(activeAccent.opacity(0.28), lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                        } else if msg.isError {
+                            PipiActionableErrorCard(
+                                message: msg,
+                                store: store,
+                                onRetry: {
+                                    Task { await store.retryTurn(conversationId: conversation.id, errorMessageId: msg.id) }
+                                },
+                                onSwitchEngine: { target in
+                                    Task { await store.switchEngineAndRetry(conversationId: conversation.id, errorMessageId: msg.id, target: target) }
+                                },
+                                onOpenSettings: { tab in
+                                    onOpenSettings(tab)
+                                }
+                            )
+                        } else if !msg.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            PipiMarkdownView(
+                                content: msg.content,
+                                strings: s,
+                                accent: activeAccent,
+                                isStreaming: isStreaming
+                            )
+                        }
+
+                        if let approvalId = msg.approvalId,
+                           let approval = conversation.approvals.first(where: { $0.id == approvalId }) {
+                            PipiInlineApprovalCard(
+                                approval: approval,
+                                strings: s
+                            ) { optionId in
+                                Task { await store.resolveApproval(approval.id, optionId: optionId) }
+                            }
+                        }
+
+                        if let summaryInfo = msg.summaryInfo, !isStreaming {
+                            PipiSummaryEvidenceCard(summary: summaryInfo, strings: s)
+                        }
+
+                        if !isStreaming && !msg.content.isEmpty {
+                            HStack(spacing: PipiTokens.spacing8) {
+                                Button {
+                                    triggerCopy(msg.content, messageId: msg.id)
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: copiedMessageId == msg.id ? "checkmark" : "doc.on.doc")
+                                            .contentTransition(.symbolEffect(.replace))
+                                        Text(copiedMessageId == msg.id ? s.copied : s.copy)
+                                    }
+                                    .font(PipiTokens.fontMicro)
+                                    .foregroundStyle(copiedMessageId == msg.id ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(PipiTokens.buttonGhostHoverBg)
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.94))
+
+                                if isLastAssistant && !store.isGeneratingReply {
+                                    Button {
+                                        Task { await store.regenerateLastReply() }
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "arrow.clockwise")
+                                            Text(s.regenerate)
+                                        }
+                                        .font(PipiTokens.fontMicro)
+                                        .foregroundStyle(PipiTokens.textMuted)
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(PipiTokens.buttonGhostHoverBg)
+                                        .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(PipiPressButtonStyle(pressedScale: 0.94))
+                                }
+                            }
+                            // Last assistant message actions stay visible; earlier messages fade in on hover + stay in context menu & VoiceOver actions
+                            .opacity(isLastAssistant || isHovered || copiedMessageId == msg.id ? 1.0 : 0.0)
+                            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+                        }
+                    }
+
+                    Spacer(minLength: 8)
+                }
+                .padding(.top, 2)
+                .onHover { hovering in
+                    hoveredMessageId = hovering ? msg.id : nil
+                }
+                .contextMenu {
+                    if !msg.content.isEmpty {
+                        Button(s.copy) {
+                            triggerCopy(msg.content, messageId: msg.id)
+                        }
+                    }
+                    if isLastAssistant && !store.isGeneratingReply {
+                        Button(s.regenerate) {
+                            Task { await store.regenerateLastReply() }
+                        }
+                    }
+                }
+                .accessibilityAction(named: s.copy) {
+                    if !msg.content.isEmpty {
+                        triggerCopy(msg.content, messageId: msg.id)
+                    }
+                }
+                .accessibilityAction(named: s.regenerate) {
+                    if isLastAssistant && !store.isGeneratingReply {
+                        Task { await store.regenerateLastReply() }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Harmonized Workbench Composer
+
+    private var composerStack: some View {
+        VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+            if shouldShowSlashMenu {
+                slashCommandPopover
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
+
+            composerDock
+        }
+        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: shouldShowSlashMenu)
+    }
+
+    private var slashCommandPopover: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(filteredSlashCommands) { item in
+                Button {
+                    executeSlashCommand(item)
+                } label: {
+                    HStack(spacing: PipiTokens.spacing12) {
+                        Image(systemName: item.icon)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .background(PipiTokens.bgSurfaceHover)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Text(item.command)
+                                    .font(PipiTokens.fontMonoSmall.weight(.semibold))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                Text(item.title)
+                                    .font(PipiTokens.fontCaption.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                            }
+                            Text(item.subtitle)
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, PipiTokens.spacing12)
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.99))
+            }
+        }
+        .padding(6)
+        .background(PipiTokens.composerSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                .stroke(PipiTokens.composerBorder, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+        .shadow(color: PipiTokens.composerShadow, radius: 14, y: 6)
+    }
+
+    private var composerDock: some View {
+        let canSend = !draftMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftAttachments.isEmpty
+        let shape = RoundedRectangle(cornerRadius: PipiTokens.radiusComposer, style: .continuous)
+
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+            if !draftAttachments.isEmpty || isDropTargeted {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        ForEach(draftAttachments) { file in
+                            HStack(spacing: 6) {
+                                Image(systemName: file.iconName)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                                Text(file.name)
+                                    .font(PipiTokens.fontMonoSmall)
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                    .lineLimit(1)
+                                if !file.formattedSize.isEmpty {
+                                    Text(file.formattedSize)
+                                        .font(PipiTokens.fontMonoSmall)
+                                        .foregroundStyle(PipiTokens.textMuted)
+                                }
+                                Button {
+                                    withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                                        draftAttachments.removeAll { $0.id == file.id }
+                                    }
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 8.5, weight: .bold))
+                                        .foregroundStyle(PipiTokens.textMuted)
+                                        .frame(width: 16, height: 16)
+                                        .background(PipiTokens.buttonGhostHoverBg)
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.90))
+                                .accessibilityLabel(s.t("移除附件 \(file.name)", "Remove \(file.name)"))
+                            }
+                            .padding(.leading, 9)
+                            .padding(.trailing, 5)
+                            .frame(height: 26)
+                            .background(PipiTokens.bgSurface)
+                            .overlay(Capsule().stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                            .clipShape(Capsule())
+                        }
+
+                        if isDropTargeted {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.down.doc")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text(s.dropFilesHint)
+                                    .font(PipiTokens.fontMicro)
+                            }
+                            .foregroundStyle(PipiTokens.textPrimary)
+                            .padding(.horizontal, 10)
+                            .frame(height: 26)
+                            .background(PipiTokens.bgSurfaceHover)
+                            .clipShape(Capsule())
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+                .padding(.bottom, 2)
+                .transition(.opacity)
+            }
+
+            TextField(s.chatPlaceholder, text: $draftMessage, axis: .vertical)
+                .lineLimit(1...8)
+                .textFieldStyle(.plain)
+                .font(PipiTokens.fontBody)
+                .foregroundStyle(PipiTokens.textPrimary)
+                .focused($isComposerFocused)
+                .padding(.top, 2)
+                .frame(minHeight: 44, alignment: .topLeading)
+                .onSubmit {
+                    submitDraft()
+                }
+
+            // Tier 1 Bottom Row: strictly 4 controls (+ Menu, Permission Picker, Engine Picker, Send/Stop)
+            HStack(spacing: 6) {
+                composerPlusMenu
+
+                permissionTierPicker
+
+                composerEnginePicker
+
+                Spacer(minLength: 6)
+
+                if store.isGeneratingReply {
+                    Button {
+                        store.stopGenerating()
+                    } label: {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(PipiTokens.textInverse)
+                            .frame(width: 32, height: 32)
+                            .background(PipiTokens.stateError)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+                    .help(s.stop)
+                    .accessibilityLabel(s.stop)
+                } else {
+                    Button(action: submitDraft) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(canSend ? PipiTokens.textInverse : PipiTokens.textMuted)
+                            .frame(width: 32, height: 32)
+                            .background(canSend ? PipiTokens.soulPrimary : PipiTokens.bgSurfaceHover)
+                            .clipShape(Circle())
+                            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: canSend)
+                    }
+                    .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+                    .disabled(!canSend)
+                    .help(s.send)
+                    .accessibilityLabel(s.send)
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        .background(PipiTokens.composerSurface, in: shape)
+        .overlay(
+            shape.stroke(
+                isDropTargeted ? PipiTokens.textPrimary : (isComposerFocused ? PipiTokens.composerBorderFocused : PipiTokens.composerBorder),
+                lineWidth: isDropTargeted ? 1.5 : 1
+            )
+        )
+        .clipShape(shape)
+        .shadow(
+            color: PipiTokens.composerShadow,
+            radius: isComposerFocused ? 14 : 10,
+            y: isComposerFocused ? 4 : 3
+        )
+        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isComposerFocused)
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            handleDroppedFiles(providers)
+        }
+    }
+
+    private var composerPlusMenu: some View {
+        let isHovered = hoveredToolbarChip == "plus"
+        return Menu {
+            Button {
+                pickAttachmentFiles()
+            } label: {
+                Label(s.attachFiles, systemImage: "paperclip")
+            }
+
+            Divider()
+
+            let promptCommands = slashCommandCatalog.filter { ["plan", "review", "summarize"].contains($0.id) }
+            ForEach(promptCommands) { item in
+                Button {
+                    executeSlashCommand(item)
+                } label: {
+                    Label("\(item.command) · \(item.title)", systemImage: item.icon)
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundStyle(isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                .frame(width: 30, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                        .fill(isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+        }
+        .pipiPlainMenu()
+        .fixedSize()
+        .onHover { hoveredToolbarChip = $0 ? "plus" : (hoveredToolbarChip == "plus" ? nil : hoveredToolbarChip) }
+        .help("\(s.attachFiles) · \(s.slashCommands)")
+        .accessibilityLabel(s.attachFiles)
+    }
+
+    private var permissionTierPicker: some View {
+        let currentTier = store.effectivePermissionTier()
+        let isHovered = hoveredToolbarChip == "permission"
+        return Menu {
+            ForEach(PipiPermissionTier.allCases) { tier in
+                Button {
+                    store.setEffectivePermissionTier(tier)
+                } label: {
+                    HStack {
+                        Image(systemName: tier.iconName)
+                        Text(tier.label(lang))
+                        if currentTier == tier {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: currentTier.iconName)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                Text(currentTier.label(lang))
+                    .font(PipiTokens.fontCaption.weight(.medium))
+                    .foregroundStyle(isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(PipiTokens.textMuted)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .fill(isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear)
+            )
+            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+        }
+        .pipiPlainMenu()
+        .fixedSize()
+        .onHover { hoveredToolbarChip = $0 ? "permission" : (hoveredToolbarChip == "permission" ? nil : hoveredToolbarChip) }
+        .help(currentTier.description(lang))
+    }
+
+    private var composerEnginePicker: some View {
+        let isHovered = hoveredToolbarChip == "engine"
+        return Menu {
+            Button {
+                store.overrideExecutionTarget = nil
+            } label: {
+                HStack {
+                    Text(s.autoRouteEngine)
+                    if store.overrideExecutionTarget == nil {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            if !store.readyLLMProviders.isEmpty {
+                Section(s.cloudAndLocalLLMs) {
+                    ForEach(store.readyLLMProviders) { cfg in
+                        Button {
+                            store.overrideExecutionTarget = .llm(providerId: cfg.id)
+                        } label: {
+                            HStack {
+                                Text("\(cfg.name) · \(cfg.modelId)")
+                                if store.overrideExecutionTarget == .llm(providerId: cfg.id) {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !store.usableLocalAgents.isEmpty {
+                Section(s.localAgents) {
+                    ForEach(store.usableLocalAgents) { ag in
+                        Button {
+                            store.overrideExecutionTarget = .localAgent(ag.kind)
+                        } label: {
+                            HStack {
+                                Text(ag.kind.displayName)
+                                if store.overrideExecutionTarget == .localAgent(ag.kind) {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button(s.engineSettingsShort) {
+                onOpenSettings(.aiEngine)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(store.hasConfiguredEngine ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
+                    .frame(width: 6.5, height: 6.5)
+                Text(store.hasConfiguredEngine ? store.activeEngineDisplayLabel() : s.configureNow)
+                    .font(PipiTokens.fontCaption.weight(.medium))
+                    .foregroundStyle(store.hasConfiguredEngine ? (isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary) : PipiTokens.stateWarning)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(PipiTokens.textMuted)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .fill(isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear)
+            )
+            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+        }
+        .pipiPlainMenu()
+        .fixedSize()
+        .onHover { hoveredToolbarChip = $0 ? "engine" : (hoveredToolbarChip == "engine" ? nil : hoveredToolbarChip) }
+    }
+
+    // MARK: - Actions & Helpers
+
+    private func executeSlashCommand(_ item: SlashCommandItem) {
+        showSlashPalette = false
+        switch item.id {
+        case "new":
+            draftMessage = ""
+            draftAttachments = []
+            _ = store.createConversation(projectId: store.activeConversation?.projectId)
+            isComposerFocused = true
+        case "clear":
+            draftMessage = ""
+            draftAttachments = []
+            store.clearActiveConversation()
+            isComposerFocused = true
+        case "settings":
+            draftMessage = ""
+            onOpenSettings(.aiEngine)
+        case "plan":
+            draftMessage = s.t("请先帮我制定清晰的执行计划（列出步骤与权衡），再给出实现：", "First outline a clear step-by-step plan and trade-offs before implementing: ")
+            isComposerFocused = true
+        case "review":
+            draftMessage = s.t("请帮我做一次严格的代码审查，重点关注潜在 Bug、边界条件和可维护性：", "Please perform a thorough code review focusing on bugs, edge cases, and maintainability: ")
+            isComposerFocused = true
+        case "summarize":
+            draftMessage = s.t("请用结构化要点提炼以下内容的核心结论与行动项：", "Summarize the key takeaways and action items concisely: ")
+            isComposerFocused = true
+        default:
+            break
+        }
+    }
+
+    private func submitDraft() {
+        let text = draftMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text == "/new" {
+            executeSlashCommand(slashCommandCatalog.first { $0.id == "new" }!)
+            return
+        }
+        if text == "/clear" {
+            executeSlashCommand(slashCommandCatalog.first { $0.id == "clear" }!)
+            return
+        }
+        if text == "/settings" {
+            executeSlashCommand(slashCommandCatalog.first { $0.id == "settings" }!)
+            return
+        }
+        guard !text.isEmpty || !draftAttachments.isEmpty else { return }
+        let filesToSend = draftAttachments
+        draftMessage = ""
+        draftAttachments = []
+        showSlashPalette = false
+        Task { await store.sendPersonalMessage(text, attachments: filesToSend) }
+    }
+
+    private func pickAttachmentFiles() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        if panel.runModal() == .OK {
+            let added = panel.urls.map { PipiChatAttachment.fromFileURL($0) }
+            withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                for item in added where !draftAttachments.contains(where: { $0.path == item.path }) {
+                    draftAttachments.append(item)
+                }
+            }
+            isComposerFocused = true
+        }
+        #endif
+    }
+
+    private func chooseWorkspaceFolderInPlace() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: store.effectiveWorkspaceDirectory)
+        if panel.runModal() == .OK, let url = panel.url {
+            if var proj = store.activeProject {
+                proj.workspacePath = url.path
+                store.upsertProject(proj)
+            } else {
+                store.workspaceDirectory = url.path
+                store.saveResidentState()
+            }
+        }
+        #endif
+    }
+
+    private func handleDroppedFiles(_ providers: [NSItemProvider]) -> Bool {
+        var accepted = false
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            accepted = true
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let resolvedUrl: URL? = {
+                    if let data = item as? Data {
+                        return URL(dataRepresentation: data, relativeTo: nil)
+                    }
+                    if let url = item as? URL {
+                        return url
+                    }
+                    return nil
+                }()
+                guard let url = resolvedUrl, url.isFileURL else { return }
+                let attachment = PipiChatAttachment.fromFileURL(url)
+                Task { @MainActor in
+                    withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                        if !draftAttachments.contains(where: { $0.path == attachment.path }) {
+                            draftAttachments.append(attachment)
+                        }
+                    }
+                }
+            }
+        }
+        return accepted
+    }
+
+    private func triggerCopy(_ text: String, messageId: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
+        withAnimation(PipiMotion.adaptive(PipiMotion.tactile, reduceMotion: reduceMotion)) {
+            copiedMessageId = messageId
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                if copiedMessageId == messageId { copiedMessageId = nil }
+            }
+        }
+    }
+}

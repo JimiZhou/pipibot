@@ -9,40 +9,40 @@
    TIER 1: FOUNDATIONS (Primitive Palette & Metrics)
    -------------------------------------------------------------------------- */
 :root {
-  /* Obsidian 12-Step Foundation */
-  --pipi-f-obsidian-01: #08090b;
-  --pipi-f-obsidian-02: #0b0c0e;
-  --pipi-f-obsidian-03: #121418;
-  --pipi-f-obsidian-04: #171a20;
-  --pipi-f-obsidian-05: #1e222b;
-  --pipi-f-obsidian-06: #262b38;
-  --pipi-f-obsidian-07: #363d4f;
+  /* Antigravity Matte Graphite-Slate Dark 12-Step Foundation */
+  --pipi-f-obsidian-01: #0a0c10;
+  --pipi-f-obsidian-02: #0e1116;
+  --pipi-f-obsidian-03: #141820;
+  --pipi-f-obsidian-04: #191e28;
+  --pipi-f-obsidian-05: #222836;
+  --pipi-f-obsidian-06: #2c3344;
+  --pipi-f-obsidian-07: #3a4358;
   --pipi-f-obsidian-08: #525b70;
-  --pipi-f-obsidian-09: #6c7382;
-  --pipi-f-obsidian-10: #a1a7b3;
-  --pipi-f-obsidian-11: #d4d7df;
-  --pipi-f-obsidian-12: #f4f5f7;
+  --pipi-f-obsidian-09: #687387;
+  --pipi-f-obsidian-10: #9aa4b5;
+  --pipi-f-obsidian-11: #d4dbe6;
+  --pipi-f-obsidian-12: #f2f5f9;
 
-  /* Vellum 12-Step Foundation */
+  /* Studio Alabaster Light 12-Step Foundation */
   --pipi-f-vellum-01: #ffffff;
-  --pipi-f-vellum-02: #fdfcf9;
-  --pipi-f-vellum-03: #f7f5f0;
-  --pipi-f-vellum-04: #f1ede4;
-  --pipi-f-vellum-05: #ebe6dc;
-  --pipi-f-vellum-06: #ded8cc;
-  --pipi-f-vellum-07: #c8c1b3;
-  --pipi-f-vellum-08: #a69f91;
-  --pipi-f-vellum-09: #8b867d;
-  --pipi-f-vellum-10: #5e5b55;
-  --pipi-f-vellum-11: #34322e;
-  --pipi-f-vellum-12: #171614;
+  --pipi-f-vellum-02: #ffffff;
+  --pipi-f-vellum-03: #f6f7fa;
+  --pipi-f-vellum-04: #f1f3f8;
+  --pipi-f-vellum-05: #ebeef5;
+  --pipi-f-vellum-06: #dce1ec;
+  --pipi-f-vellum-07: #c5ccd9;
+  --pipi-f-vellum-08: #a1aab9;
+  --pipi-f-vellum-09: #848fa3;
+  --pipi-f-vellum-10: #556072;
+  --pipi-f-vellum-11: #303744;
+  --pipi-f-vellum-12: #11141b;
 
-  /* Brand & Semantic Chromatics (Dark & Contrast-Safe Light >= 4.5:1) */
-  --pipi-f-iris-400: #7c6cf6;
-  --pipi-f-iris-500: #6353e8;
-  --pipi-f-iris-600: #5b4ce4;
+  /* Brand & Semantic Chromatics (Antigravity Cobalt Blue + Arctic Cyan, Light >= 4.5:1) */
+  --pipi-f-iris-400: #4c8df6;
+  --pipi-f-iris-500: #3b7be8;
+  --pipi-f-iris-600: #2563eb;
   --pipi-f-cyan-400: #38bdf8;
-  --pipi-f-cyan-700: #0369a1;
+  --pipi-f-cyan-700: #0284c7;
   --pipi-f-emerald-400: #10b981;
   --pipi-f-emerald-700: #047857;
   --pipi-f-amber-400: #f59e0b;
@@ -90,8 +90,8 @@
   --pipi-bg-surface: var(--pipi-t-04);
   --pipi-bg-surface-hover: var(--pipi-t-05);
   --pipi-bg-inset: var(--pipi-t-01);
-  --pipi-bg-glass: rgba(23, 26, 32, 0.76);
-  --pipi-bg-glass-strong: rgba(18, 20, 24, 0.90);
+  --pipi-bg-glass: rgba(25, 30, 40, 0.76);
+  --pipi-bg-glass-strong: rgba(20, 24, 32, 0.90);
 
   /* Tier 3: Typography & Foreground */
   --pipi-text-primary: var(--pipi-t-12);
@@ -101,15 +101,15 @@
 
   /* Tier 3: Hairlines & Borders */
   --pipi-border-subtle: rgba(255, 255, 255, 0.08);
-  --pipi-border-strong: rgba(255, 255, 255, 0.16);
-  --pipi-border-focus: rgba(124, 108, 246, 0.55);
+  --pipi-border-strong: rgba(255, 255, 255, 0.15);
+  --pipi-border-focus: rgba(76, 141, 246, 0.55);
 
   /* Tier 3: Brand & Soul Accents */
   --pipi-soul-primary: var(--pipi-f-iris-400);
   --pipi-soul-btn-bg: var(--pipi-f-iris-500);
   --pipi-soul-secondary: var(--pipi-f-cyan-400);
-  --pipi-soul-glow: rgba(124, 108, 246, 0.36);
-  --pipi-soul-tint: rgba(124, 108, 246, 0.16);
+  --pipi-soul-glow: rgba(76, 141, 246, 0.34);
+  --pipi-soul-tint: rgba(76, 141, 246, 0.16);
   --pipi-info-tint: rgba(56, 189, 248, 0.14);
   --pipi-avatar-shell-top: var(--pipi-t-06);
   --pipi-avatar-shell-bottom: var(--pipi-t-03);
@@ -125,7 +125,7 @@
   --pipi-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
   --pipi-shadow-md: 0 12px 32px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.06);
   --pipi-shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --pipi-shadow-cue: 0 18px 48px rgba(0, 0, 0, 0.62), 0 0 32px rgba(124, 108, 246, 0.18);
+  --pipi-shadow-cue: 0 18px 48px rgba(0, 0, 0, 0.62), 0 0 32px rgba(76, 141, 246, 0.18);
 
   /* Tier 3: Semantic Status */
   --pipi-status-ok: var(--pipi-f-emerald-400);
@@ -171,7 +171,7 @@
   --pipi-bg-surface: var(--pipi-t-02);
   --pipi-bg-surface-hover: var(--pipi-t-04);
   --pipi-bg-inset: var(--pipi-t-05);
-  --pipi-bg-glass: rgba(253, 252, 249, 0.84);
+  --pipi-bg-glass: rgba(255, 255, 255, 0.84);
   --pipi-bg-glass-strong: rgba(255, 255, 255, 0.94);
 
   /* Tier 3: Typography & Foreground */
@@ -181,17 +181,17 @@
   --pipi-text-inverse: var(--pipi-t-01);
 
   /* Tier 3: Hairlines & Borders */
-  --pipi-border-subtle: rgba(23, 22, 20, 0.09);
-  --pipi-border-strong: rgba(23, 22, 20, 0.18);
-  --pipi-border-focus: rgba(91, 76, 228, 0.45);
+  --pipi-border-subtle: rgba(17, 20, 27, 0.09);
+  --pipi-border-strong: rgba(17, 20, 27, 0.17);
+  --pipi-border-focus: rgba(37, 99, 235, 0.45);
 
-  /* Tier 3: Brand & Soul Accents (All >= 4.5:1 on Warm Vellum) */
+  /* Tier 3: Brand & Soul Accents (All >= 4.5:1 on Studio Alabaster) */
   --pipi-soul-primary: var(--pipi-f-iris-600);
   --pipi-soul-btn-bg: var(--pipi-f-iris-600);
   --pipi-soul-secondary: var(--pipi-f-cyan-700);
-  --pipi-soul-glow: rgba(91, 76, 228, 0.24);
-  --pipi-soul-tint: rgba(91, 76, 228, 0.12);
-  --pipi-info-tint: rgba(3, 105, 161, 0.11);
+  --pipi-soul-glow: rgba(37, 99, 235, 0.22);
+  --pipi-soul-tint: rgba(37, 99, 235, 0.11);
+  --pipi-info-tint: rgba(2, 132, 199, 0.11);
   --pipi-avatar-shell-top: var(--pipi-f-obsidian-06);
   --pipi-avatar-shell-bottom: var(--pipi-f-obsidian-03);
   --pipi-avatar-rim: rgba(255, 255, 255, 0.28);
@@ -203,10 +203,10 @@
   --pipi-device-bezel: var(--pipi-t-11);
 
   /* Tier 3: Shadows */
-  --pipi-shadow-sm: 0 2px 8px rgba(23, 22, 20, 0.06);
-  --pipi-shadow-md: 0 12px 30px rgba(23, 22, 20, 0.09), 0 0 0 1px rgba(23, 22, 20, 0.06);
-  --pipi-shadow-lg: 0 24px 60px rgba(23, 22, 20, 0.14), 0 0 0 1px rgba(23, 22, 20, 0.07);
-  --pipi-shadow-cue: 0 18px 42px rgba(23, 22, 20, 0.15), 0 0 28px rgba(91, 76, 228, 0.12);
+  --pipi-shadow-sm: 0 2px 8px rgba(17, 20, 27, 0.06);
+  --pipi-shadow-md: 0 12px 30px rgba(17, 20, 27, 0.09), 0 0 0 1px rgba(17, 20, 27, 0.06);
+  --pipi-shadow-lg: 0 24px 60px rgba(17, 20, 27, 0.14), 0 0 0 1px rgba(17, 20, 27, 0.07);
+  --pipi-shadow-cue: 0 18px 42px rgba(17, 20, 27, 0.15), 0 0 28px rgba(37, 99, 235, 0.12);
 
   /* Tier 3: Semantic Status (>= 4.5:1 on Warm Vellum) */
   --pipi-status-ok: var(--pipi-f-emerald-700);

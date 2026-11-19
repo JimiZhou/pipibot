@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - Canonical Action Button (Enforces 44pt Mobile / 32pt Desktop Geometry)
 
@@ -42,6 +45,122 @@ public enum PipiButtonTone: Sendable {
     case ghost
 }
 
+// MARK: - Restrained Apple Liquid Glass & Structural Material Modifiers
+
+public struct PipiLiquidGlassModifier: ViewModifier {
+    public var cornerRadius: CGFloat
+    public var borderColor: Color?
+    public var borderWidth: CGFloat
+    public var shadowRadius: CGFloat
+    public var shadowY: CGFloat
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    public init(
+        cornerRadius: CGFloat = PipiTokens.radiusLG,
+        borderColor: Color? = nil,
+        borderWidth: CGFloat = 1,
+        shadowRadius: CGFloat = 16,
+        shadowY: CGFloat = 6
+    ) {
+        self.cornerRadius = cornerRadius
+        self.borderColor = borderColor
+        self.borderWidth = borderWidth
+        self.shadowRadius = shadowRadius
+        self.shadowY = shadowY
+    }
+
+    public func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let resolvedBorder = borderColor ?? (reduceTransparency ? PipiTokens.borderStrong : PipiTokens.borderSubtle)
+        Group {
+            if reduceTransparency {
+                content
+                    .background(PipiTokens.bgElevated, in: shape)
+            } else {
+                content
+                    .background(.ultraThinMaterial, in: shape)
+                    .background(PipiTokens.liquidGlassSurface, in: shape)
+            }
+        }
+        .overlay(
+            shape.stroke(resolvedBorder, lineWidth: borderWidth)
+        )
+        .clipShape(shape)
+        .shadow(color: PipiTokens.elevatedShadow, radius: shadowRadius, y: shadowY)
+    }
+}
+
+public struct PipiStructuralMaterialModifier: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        let _ = reduceTransparency
+        content.background(PipiTokens.bgSidebar)
+    }
+}
+
+public extension View {
+    func pipiLiquidGlass(
+        cornerRadius: CGFloat = PipiTokens.radiusLG,
+        borderColor: Color? = nil,
+        borderWidth: CGFloat = 1,
+        shadowRadius: CGFloat = 16,
+        shadowY: CGFloat = 6
+    ) -> some View {
+        modifier(
+            PipiLiquidGlassModifier(
+                cornerRadius: cornerRadius,
+                borderColor: borderColor,
+                borderWidth: borderWidth,
+                shadowRadius: shadowRadius,
+                shadowY: shadowY
+            )
+        )
+    }
+
+    /// Structural sidebar/navigation background: heavier than floating glass panels, single layer, solid fallback when Reduce Transparency is enabled.
+    func pipiStructuralMaterial() -> some View {
+        modifier(PipiStructuralMaterialModifier())
+    }
+}
+
+// MARK: - Tactile Instant-Response Button Style (Responds on Pointer-Down)
+
+public struct PipiPressButtonStyle: ButtonStyle {
+    public var pressedScale: CGFloat
+    public var pressedOpacity: Double
+
+    public init(pressedScale: CGFloat = 0.97, pressedOpacity: Double = 0.88) {
+        self.pressedScale = pressedScale
+        self.pressedOpacity = pressedOpacity
+    }
+
+    public func makeBody(configuration: Configuration) -> some View {
+        PipiPressButtonBody(
+            configuration: configuration,
+            pressedScale: pressedScale,
+            pressedOpacity: pressedOpacity
+        )
+    }
+}
+
+private struct PipiPressButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let pressedScale: CGFloat
+    let pressedOpacity: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? pressedScale : 1.0)
+            .opacity(configuration.isPressed ? pressedOpacity : 1.0)
+            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: configuration.isPressed)
+    }
+}
+
 public struct PipiActionButton: View {
     public let title: String
     public let systemImage: String?
@@ -49,6 +168,10 @@ public struct PipiActionButton: View {
     public var density: PipiButtonDensity = .mobile
     public var fullWidth: Bool = false
     public let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.pipiTextScale) private var textScale
+    @State private var isHovered: Bool = false
 
     public init(
         _ title: String,
@@ -67,6 +190,7 @@ public struct PipiActionButton: View {
     }
 
     public var body: some View {
+        let _ = textScale
         Button(action: action) {
             HStack(spacing: density.gap) {
                 if let systemImage {
@@ -88,8 +212,18 @@ public struct PipiActionButton: View {
                     .stroke(borderColor, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: density.cornerRadius, style: .continuous))
+            .shadow(
+                color: tone == .ghost ? Color.clear : PipiTokens.subtleShadow.opacity(isHovered ? 0.65 : 0.45),
+                radius: isHovered ? 3 : 1,
+                y: 1
+            )
+            .opacity(isHovered && tone == .primary ? 0.88 : 1.0)
+            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PipiPressButtonStyle())
+        .onHover { hovering in
+            isHovered = hovering
+        }
     }
 
     private var foregroundColor: Color {
@@ -97,7 +231,7 @@ public struct PipiActionButton: View {
         case .primary: return PipiTokens.textInverse
         case .secondary: return PipiTokens.textPrimary
         case .destructive: return PipiTokens.stateError
-        case .ghost: return PipiTokens.textSecondary
+        case .ghost: return isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary
         }
     }
 
@@ -105,19 +239,75 @@ public struct PipiActionButton: View {
     private var backgroundView: some View {
         switch tone {
         case .primary: PipiTokens.soulPrimary
-        case .secondary: PipiTokens.bgSurfaceHover
-        case .destructive: PipiTokens.stateErrorBg
-        case .ghost: Color.clear
+        case .secondary: isHovered ? PipiTokens.buttonSecondaryHoverBg : PipiTokens.buttonSecondaryBg
+        case .destructive: PipiTokens.stateErrorBg.opacity(isHovered ? 1.3 : 1.0)
+        case .ghost: isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear
         }
     }
 
     private var borderColor: Color {
         switch tone {
-        case .primary: return PipiTokens.soulPrimary.opacity(0.6)
-        case .secondary: return PipiTokens.borderSubtle
-        case .destructive: return PipiTokens.stateError.opacity(0.35)
+        case .primary: return PipiTokens.soulPrimary
+        case .secondary: return isHovered ? PipiTokens.buttonHoverBorder : PipiTokens.borderSubtle
+        case .destructive: return PipiTokens.stateError.opacity(isHovered ? 0.5 : 0.35)
         case .ghost: return Color.clear
         }
+    }
+}
+
+// MARK: - Quiet Hover-Responsive Toolbar Icon Button (Machined Ghost Chrome)
+
+public struct PipiGhostIconButton: View {
+    public let systemImage: String
+    public var isActive: Bool = false
+    public var activeColor: Color = PipiTokens.soulPrimary
+    public var size: CGFloat = 28
+    public var iconSize: CGFloat = 12.5
+    public var cornerRadius: CGFloat = PipiTokens.radiusSM
+    public var accessibilityLabelText: String? = nil
+    public let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+
+    public init(
+        systemImage: String,
+        isActive: Bool = false,
+        activeColor: Color = PipiTokens.soulPrimary,
+        size: CGFloat = 28,
+        iconSize: CGFloat = 12.5,
+        cornerRadius: CGFloat = PipiTokens.radiusSM,
+        accessibilityLabel: String? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.systemImage = systemImage
+        self.isActive = isActive
+        self.activeColor = activeColor
+        self.size = size
+        self.iconSize = iconSize
+        self.cornerRadius = cornerRadius
+        self.accessibilityLabelText = accessibilityLabel
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: iconSize, weight: .semibold))
+                .foregroundStyle(isActive ? activeColor : (isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary))
+                .frame(width: size, height: size)
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(isActive ? activeColor.opacity(0.14) : (isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+        }
+        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .accessibilityLabel(accessibilityLabelText ?? systemImage)
     }
 }
 
@@ -131,6 +321,7 @@ public struct PipiListCard<Leading: View, Trailing: View, Footer: View>: View {
     private let leading: Leading
     private let trailing: Trailing
     private let footer: Footer
+    @Environment(\.pipiTextScale) private var textScale
 
     public init(
         title: String,
@@ -151,6 +342,7 @@ public struct PipiListCard<Leading: View, Trailing: View, Footer: View>: View {
     }
 
     public var body: some View {
+        let _ = textScale
         VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
             HStack(alignment: .top, spacing: PipiTokens.spacing12) {
                 leading
@@ -186,12 +378,12 @@ public struct PipiListCard<Leading: View, Trailing: View, Footer: View>: View {
             footer
         }
         .padding(PipiTokens.spacing16)
-        .background(PipiTokens.bgSurface)
+        .background(PipiTokens.bgElevated)
         .overlay(
-            RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous)
+            RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
                 .stroke(PipiTokens.borderSubtle, lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
     }
 }
 
@@ -266,6 +458,7 @@ public struct PipiSheet<Content: View>: View {
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
                 }
                 .padding(.horizontal, PipiTokens.spacing20)
                 .padding(.bottom, PipiTokens.spacing16)
@@ -365,6 +558,8 @@ public struct PipiDock: View {
     public var actionIcon: String = "bolt.fill"
     public var density: PipiButtonDensity = .mobile
     public let onAction: () -> Void
+    @Environment(\.pipiTextScale) private var textScale
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     public init(
         avatarEngine: PipiProceduralAvatarEngine,
@@ -385,6 +580,7 @@ public struct PipiDock: View {
     }
 
     public var body: some View {
+        let _ = textScale
         HStack(spacing: PipiTokens.spacing12) {
             PipiAvatarView(engine: avatarEngine, size: 42, compactMode: false)
 
@@ -411,7 +607,7 @@ public struct PipiDock: View {
         }
         .padding(.horizontal, PipiTokens.spacing16)
         .padding(.vertical, PipiTokens.spacing12)
-        .background(PipiTokens.bgGlass)
+        .background(reduceTransparency ? PipiTokens.bgElevated : PipiTokens.bgGlass)
         .overlay(
             RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous)
                 .stroke(PipiTokens.borderSubtle, lineWidth: 1)
@@ -453,6 +649,7 @@ public struct PipiEmptyState: View {
     public let message: String
     public var buttonTitle: String?
     public var buttonAction: (() -> Void)?
+    @Environment(\.pipiTextScale) private var textScale
 
     public init(
         systemImage: String,
@@ -469,6 +666,7 @@ public struct PipiEmptyState: View {
     }
 
     public var body: some View {
+        let _ = textScale
         VStack(spacing: PipiTokens.spacing16) {
             Image(systemName: systemImage)
                 .font(.system(size: 32, weight: .medium))
@@ -512,6 +710,8 @@ public struct PipiDotIndicator: View {
     public var color: Color?
     public var size: CGFloat = 10
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     public init(vitality: DotsVitalityState, color: Color? = nil, size: CGFloat = 10) {
         self.vitality = vitality
         self.color = color
@@ -520,24 +720,217 @@ public struct PipiDotIndicator: View {
 
     public var body: some View {
         let dotColor = color ?? PipiTokens.color(for: vitality)
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let period = vitality == .busy ? 1.1 : (vitality == .degraded ? 0.85 : 2.4)
-            let phase = (sin((t / period) * .pi * 2.0) + 1.0) * 0.5
-            let scale = vitality == .offline ? 0.86 : (0.88 + 0.22 * phase)
-            let opacity = vitality == .offline ? 0.45 : (0.72 + 0.28 * phase)
+        if reduceMotion {
+            Circle()
+                .fill(dotColor.opacity(vitality == .offline ? 0.45 : 0.92))
+                .frame(width: size, height: size)
+                .frame(width: size * 2.2, height: size * 2.2)
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                let period = vitality == .busy ? 1.1 : (vitality == .degraded ? 0.85 : 2.4)
+                let phase = (sin((t / period) * .pi * 2.0) + 1.0) * 0.5
+                let scale = vitality == .offline ? 0.86 : (0.88 + 0.22 * phase)
+                let opacity = vitality == .offline ? 0.45 : (0.72 + 0.28 * phase)
 
-            ZStack {
-                if vitality == .alive || vitality == .busy || vitality == .degraded {
+                ZStack {
+                    if vitality == .alive || vitality == .busy || vitality == .degraded {
+                        Circle()
+                            .stroke(dotColor.opacity(0.45 * (1.0 - phase)), lineWidth: 1.5)
+                            .frame(width: size * (1.2 + phase * 0.9), height: size * (1.2 + phase * 0.9))
+                    }
                     Circle()
-                        .stroke(dotColor.opacity(0.45 * (1.0 - phase)), lineWidth: 1.5)
-                        .frame(width: size * (1.2 + phase * 0.9), height: size * (1.2 + phase * 0.9))
+                        .fill(dotColor.opacity(opacity))
+                        .frame(width: size * scale, height: size * scale)
                 }
-                Circle()
-                    .fill(dotColor.opacity(opacity))
-                    .frame(width: size * scale, height: size * scale)
+                .frame(width: size * 2.2, height: size * 2.2)
             }
-            .frame(width: size * 2.2, height: size * 2.2)
         }
     }
 }
+
+public extension View {
+    /// Renders a macOS `Menu` with its exact custom SwiftUI `label` view intact
+    /// (preserving shapes, avatars, backgrounds, borders, and trailing chevrons)
+    /// without `NSPopUpButton` label-stripping or duplicate system indicators.
+    @ViewBuilder
+    func pipiPlainMenu() -> some View {
+        #if os(macOS)
+        self
+            .contentShape(Rectangle())
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+        #else
+        self
+            .menuStyle(.button)
+        #endif
+    }
+
+    /// Suppresses visible scrollbars on macOS even when "Show scroll bars: Always" is enabled,
+    /// while preserving smooth trackpad and mouse-wheel scrolling.
+    @ViewBuilder
+    func pipiHideScrollbars() -> some View {
+        modifier(PipiHideScrollbarsModifier())
+    }
+}
+
+public struct PipiHideScrollbarsModifier: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+            .scrollIndicators(.hidden)
+            #if os(macOS) && !targetEnvironment(macCatalyst)
+            .background(
+                PipiScrollbarHiderRepresentable()
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+            )
+            #endif
+    }
+}
+
+#if os(macOS) && !targetEnvironment(macCatalyst)
+private struct PipiScrollbarHiderRepresentable: NSViewRepresentable {
+    func makeNSView(context: Context) -> PipiScrollbarHiderNSView {
+        PipiScrollbarHiderNSView()
+    }
+
+    func updateNSView(_ nsView: PipiScrollbarHiderNSView, context: Context) {
+        nsView.scheduleHide()
+    }
+}
+
+private final class PipiScrollbarHiderNSView: NSView {
+    private weak var observedScrollView: NSScrollView?
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        removeObservers()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        scheduleHide()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        scheduleHide()
+    }
+
+    override func layout() {
+        super.layout()
+        scheduleHide()
+    }
+
+    func scheduleHide() {
+        DispatchQueue.main.async { [weak self] in
+            self?.applyHide()
+        }
+    }
+
+    private func applyHide() {
+        guard let scrollView = findTargetScrollView() else { return }
+        if observedScrollView !== scrollView {
+            removeObservers()
+            observedScrollView = scrollView
+            installObservers(for: scrollView)
+        }
+        Self.suppressScrollbars(on: scrollView)
+    }
+
+    private static func suppressScrollbars(on scrollView: NSScrollView) {
+        if scrollView.scrollerStyle != .overlay {
+            scrollView.scrollerStyle = .overlay
+        }
+        if !scrollView.autohidesScrollers {
+            scrollView.autohidesScrollers = true
+        }
+        scrollView.verticalScroller?.alphaValue = 0
+        scrollView.horizontalScroller?.alphaValue = 0
+    }
+
+    private func findTargetScrollView() -> NSScrollView? {
+        if let direct = enclosingScrollView {
+            return direct
+        }
+        var current = superview
+        var depth = 0
+        while let container = current, depth < 4 {
+            if container is NSSplitView {
+                break
+            }
+            if let found = firstDescendantScrollView(in: container, maxDepth: 4) {
+                return found
+            }
+            current = container.superview
+            depth += 1
+        }
+        return nil
+    }
+
+    private func firstDescendantScrollView(in root: NSView, maxDepth: Int) -> NSScrollView? {
+        guard maxDepth >= 0 else { return nil }
+        for sub in root.subviews {
+            if let sv = sub as? NSScrollView {
+                return sv
+            }
+        }
+        guard maxDepth > 0 else { return nil }
+        for sub in root.subviews {
+            if let sv = firstDescendantScrollView(in: sub, maxDepth: maxDepth - 1) {
+                return sv
+            }
+        }
+        return nil
+    }
+
+    private func installObservers(for scrollView: NSScrollView) {
+        let nc = NotificationCenter.default
+        let names: [Notification.Name] = [
+            NSScrollView.willStartLiveScrollNotification,
+            NSScrollView.didLiveScrollNotification,
+            NSScrollView.didEndLiveScrollNotification
+        ]
+        for name in names {
+            let token = nc.addObserver(forName: name, object: scrollView, queue: .main) { [weak scrollView] _ in
+                guard let scrollView else { return }
+                MainActor.assumeIsolated {
+                    Self.suppressScrollbars(on: scrollView)
+                }
+            }
+            observers.append(token)
+        }
+        let styleToken = nc.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak scrollView] _ in
+            guard let scrollView else { return }
+            MainActor.assumeIsolated {
+                Self.suppressScrollbars(on: scrollView)
+            }
+        }
+        observers.append(styleToken)
+    }
+
+    nonisolated private func removeObservers() {
+        let nc = NotificationCenter.default
+        for token in observers {
+            nc.removeObserver(token)
+        }
+        observers.removeAll()
+    }
+}
+#endif

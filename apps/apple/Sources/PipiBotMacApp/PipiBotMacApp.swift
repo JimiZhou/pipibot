@@ -4,17 +4,64 @@ import PipiBotKit
 #if os(macOS)
 import AppKit
 
+@MainActor
+final class PipiMacAppDelegate: NSObject, NSApplicationDelegate {
+    var onGlobalQuickBarHotkey: (@MainActor () -> Void)?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        if let iconUrl = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let iconImage = NSImage(contentsOf: iconUrl) {
+            NSApplication.shared.applicationIconImage = iconImage
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            for window in NSApp.windows where window.canBecomeMain {
+                Self.configureNativeWindowChrome(window)
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
+        PipiGlobalHotkeyManager.shared.registerOptionSpace { [weak self] in
+            self?.onGlobalQuickBarHotkey?()
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        for window in NSApp.windows where window.canBecomeMain {
+            Self.configureNativeWindowChrome(window)
+            window.makeKeyAndOrderFront(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        return true
+    }
+
+    static func configureNativeWindowChrome(_ window: NSWindow) {
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.styleMask.insert(.fullSizeContentView)
+        window.isMovableByWindowBackground = false
+        window.toolbarStyle = .unified
+    }
+}
+
 @main
 struct PipiBotMacApp: App {
+    @NSApplicationDelegateAdaptor(PipiMacAppDelegate.self) private var appDelegate
     @State private var store: PipiAppStore
-    @State private var cueController = ManusCuePanelController()
+    @State private var quickBarController = PipiQuickBarController()
+    @State private var showSettingsSheet = false
+    @State private var settingsInitialTab: PipiSettingsTab = .general
+    @State private var menuBarDraft = ""
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init() {
         let residentStore = PipiAppStore(
             autoConnect: true,
             enableNativeRuntime: true,
-            enableEmbeddedBridge: true
+            enableEmbeddedBridge: false,
+            seedDemoData: false
         )
         _store = State(initialValue: residentStore)
 
@@ -24,116 +71,252 @@ struct PipiBotMacApp: App {
             queue: .main
         ) { _ in
             MainActor.assumeIsolated {
+                PipiGlobalHotkeyManager.shared.unregister()
                 residentStore.stopLiveSync()
+                residentStore.bridgeSupervisor.stopBridge()
+                residentStore.flush()
             }
         }
     }
 
-    var body: some Scene {
-        WindowGroup("PipiBot Outcome Studio", id: "studio") {
-            MacOutcomeStudioView(store: store) {
-                cueController.toggle(store: store)
-            }
-            .frame(minWidth: 960, minHeight: 680)
-        }
-        .commands {
-            CommandMenu("PipiBot") {
-                Button("Toggle Manus Cue Pill") {
-                    cueController.toggle(store: store)
-                }
-                .keyboardShortcut(.space, modifiers: .option)
+    private var s: PipiStrings { store.strings }
+    private var lang: PipiResolvedLanguage { store.resolvedLanguage }
 
-                Button("Refresh Native Context & Probes") {
-                    store.refreshNativeRuntimeSnapshot()
-                    Task { await store.refreshAllFromDaemon() }
+    var body: some Scene {
+        WindowGroup("PiPiBot", id: "main") {
+            mainRootView
+                .frame(minWidth: 960, minHeight: 660)
+                .onAppear {
+                    appDelegate.onGlobalQuickBarHotkey = {
+                        toggleQuickBar()
+                    }
+                    for window in NSApp.windows where window.canBecomeMain {
+                        PipiMacAppDelegate.configureNativeWindowChrome(window)
+                    }
+                }
+        }
+        .windowToolbarStyle(.unified(showsTitle: false))
+        .commands {
+            SidebarCommands()
+
+            CommandGroup(replacing: .newItem) {
+                Button(s.newChat) {
+                    if store.hasCompletedOnboarding {
+                        _ = store.createConversation()
+                    }
+                }
+                .keyboardShortcut("n", modifiers: .command)
+            }
+
+            CommandGroup(replacing: .appSettings) {
+                Button(s.settings) {
+                    settingsInitialTab = .general
+                    showSettingsSheet = true
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+
+            CommandMenu("PiPiBot") {
+                Button(s.openCommandPalette) {
+                    if store.hasCompletedOnboarding {
+                        store.isCommandPalettePresented.toggle()
+                    }
+                }
+                .keyboardShortcut("k", modifiers: .command)
+
+                Button(s.quickBarShortcut) {
+                    toggleQuickBar()
+                }
+
+                Button(s.stop) {
+                    store.stopGenerating()
+                }
+                .keyboardShortcut(".", modifiers: .command)
+                .disabled(!store.isGeneratingReply)
+
+                Divider()
+
+                ForEach(Array(store.personas.prefix(4).enumerated()), id: \.element.id) { index, persona in
+                    Button(persona.name(lang)) {
+                        if let existing = store.conversations
+                            .filter({ $0.personaId == persona.id && !$0.isArchived })
+                            .sorted(by: { $0.updatedAt > $1.updatedAt })
+                            .first {
+                            store.selectPersona(persona.id)
+                            store.selectConversation(existing.id)
+                        } else {
+                            _ = store.createConversation(for: persona.id, activate: true)
+                        }
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+                }
+
+                Divider()
+
+                Button(s.rescanAgents) {
+                    Task { await store.refreshLocalAgents() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
+            }
+
+            CommandGroup(after: .toolbar) {
+                Button(s.zoomIn) {
+                    store.zoomIn()
+                }
+                .keyboardShortcut("=", modifiers: .command)
+
+                Button(s.zoomIn) {
+                    store.zoomIn()
+                }
+                .keyboardShortcut("+", modifiers: .command)
+
+                Button(s.zoomOut) {
+                    store.zoomOut()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+
+                Button(s.zoomReset) {
+                    store.resetZoom()
+                }
+                .keyboardShortcut("0", modifiers: .command)
             }
         }
 
         MenuBarExtra {
             menuBarPopover
+                .environment(\.pipiTextScale, store.uiZoomScale)
+                .onAppear {
+                    appDelegate.onGlobalQuickBarHotkey = {
+                        toggleQuickBar()
+                    }
+                }
         } label: {
             HStack(spacing: 4) {
-                PipiAvatarView(engine: store.avatarEngine, size: 22, interactive: false, compactMode: true)
-                if !store.pendingDecisions.isEmpty {
-                    Text("\(store.pendingDecisions.count)")
-                        .font(PipiTokens.fontMicro)
-                }
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                Text(store.totalNeedsYouCount == 0 ? "PiPiBot" : "PiPiBot (\(store.totalNeedsYouCount))")
             }
         }
         .menuBarExtraStyle(.window)
     }
 
-    private var menuBarPopover: some View {
-        let keepAwakeBinding = Binding<Bool>(
-            get: { store.bridgeSupervisor.keepAwakeEnabled },
-            set: { store.setKeepAwake($0) }
-        )
+    @ViewBuilder
+    private var mainRootView: some View {
+        ZStack(alignment: .top) {
+            ZStack {
+                if !store.hasCompletedOnboarding {
+                    PipiOnboardingView(store: store)
+                        .transition(.opacity)
+                } else {
+                    PipiWorkspaceView(
+                        store: store,
+                        onToggleQuickBar: { toggleQuickBar() },
+                        onOpenSettings: { tab in
+                            settingsInitialTab = tab
+                            showSettingsSheet = true
+                        }
+                    )
+                    .transition(.opacity)
+                }
+            }
+            .environment(\.pipiTextScale, store.uiZoomScale)
+            .animation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion), value: store.hasCompletedOnboarding)
 
+            if store.showZoomHUD {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Text(store.uiZoomPercentLabel)
+                        .font(PipiTokens.fontMono.weight(.semibold))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .foregroundStyle(PipiTokens.textPrimary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .pipiLiquidGlass(cornerRadius: PipiTokens.radiusPill, shadowRadius: 12, shadowY: 4)
+                .padding(.top, 16)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94)))
+                .allowsHitTesting(false)
+            }
+        }
+        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: store.showZoomHUD)
+        .sheet(isPresented: $showSettingsSheet) {
+            PipiSettingsView(
+                store: store,
+                initialTab: settingsInitialTab,
+                onClose: { showSettingsSheet = false },
+                onToggleQuickBar: { toggleQuickBar() }
+            )
+            .environment(\.pipiTextScale, store.uiZoomScale)
+            .frame(minWidth: 800, minHeight: 560)
+        }
+    }
+
+    private var menuBarPopover: some View {
+        let _ = store.uiZoomScale
         return VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
             HStack(spacing: PipiTokens.spacing12) {
-                PipiAvatarView(engine: store.avatarEngine, size: 48)
+                PipiBotPersonaGlyph(persona: store.activePersona, size: 36, isSelected: true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("PipiBot Resident")
+                    Text(store.activePersona.name(lang))
                         .font(PipiTokens.fontHeadline)
+                        .tracking(PipiTokens.trackingHeadline)
                         .foregroundStyle(PipiTokens.textPrimary)
-                    Text(PipiProceduralAvatarEngine.metadata(for: store.avatarEngine.state).label)
+                    Text(store.activeEngineDisplayLabel())
                         .font(PipiTokens.fontCaption)
-                        .foregroundStyle(PipiTokens.color(for: store.avatarEngine.state))
+                        .foregroundStyle(store.hasConfiguredEngine ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
+                        .lineLimit(1)
                 }
                 Spacer()
-                Text(store.connectionMode == .liveDaemon ? "Bridge Live" : "Native")
-                    .font(PipiTokens.fontMicro)
-                    .foregroundStyle(store.connectionMode == .liveDaemon ? PipiTokens.stateSuccess : PipiTokens.soulSecondary)
-                    .padding(.horizontal, PipiTokens.spacing8)
-                    .padding(.vertical, 3)
-                    .background(PipiTokens.bgInset)
-                    .clipShape(Capsule())
-            }
-
-            // Native Resident Controls (Keep-Awake + Embedded iOS Bridge)
-            HStack(spacing: PipiTokens.spacing8) {
-                Toggle(isOn: keepAwakeBinding) {
-                    Text("Keep-Awake")
-                        .font(PipiTokens.fontCaption.weight(.medium))
-                        .foregroundStyle(PipiTokens.textPrimary)
+                Button {
+                    bringMainWindowFront()
+                    settingsInitialTab = .general
+                    showSettingsSheet = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(PipiTokens.bgSurface)
+                        .overlay(Circle().stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                        .clipShape(Circle())
                 }
-                .toggleStyle(.switch)
-
-                Spacer()
-
-                Text(store.bridgeSupervisor.bridgeState.rawValue)
-                    .font(PipiTokens.fontMonoSmall)
-                    .foregroundStyle(store.connectionMode == .liveDaemon ? PipiTokens.stateSuccess : PipiTokens.textMuted)
-                    .lineLimit(1)
+                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.94))
+                .help(s.settings)
+                .accessibilityLabel(s.settings)
             }
-            .padding(.horizontal, PipiTokens.spacing12)
-            .padding(.vertical, PipiTokens.spacing8)
-            .background(PipiTokens.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD))
 
-            // Dots Fleet Vitality Strip
-            HStack(spacing: PipiTokens.spacing12) {
-                ForEach(store.fleetNodes) { node in
-                    HStack(spacing: 4) {
-                        PipiDotIndicator(vitality: node.vitality, color: PipiTokens.color(for: node.vitality), size: 7)
-                        Text(node.kind.rawValue)
-                            .font(PipiTokens.fontMicro)
-                            .foregroundStyle(PipiTokens.textSecondary)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: PipiTokens.spacing8) {
+                    TextField(s.chatPlaceholderCompact, text: $menuBarDraft)
+                        .textFieldStyle(.plain)
+                        .font(PipiTokens.fontBody)
+                        .padding(.horizontal, PipiTokens.spacing12)
+                        .frame(height: 34)
+                        .background(PipiTokens.bgSurface)
+                        .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous).stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                        .onSubmit {
+                            submitMenuBarPrompt()
+                        }
+
+                    PipiActionButton(s.send, systemImage: "arrow.up", tone: .primary, density: .desktopCompact) {
+                        submitMenuBarPrompt()
                     }
+                    .disabled(menuBarDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+
+                Text(s.menuBarNewSessionHint)
+                    .font(PipiTokens.fontMicro)
+                    .foregroundStyle(PipiTokens.textMuted)
             }
-            .padding(PipiTokens.spacing8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PipiTokens.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD))
 
             if let topDecision = store.pendingDecisions.first {
                 PipiListCard(
                     title: topDecision.title,
                     subtitle: topDecision.summary,
-                    badgeText: "Needs You",
+                    badgeText: s.approvalsTitle,
                     badgeColor: PipiTokens.stateWarning,
                     footer: {
                         if let rec = topDecision.options.first(where: { $0.id == topDecision.recommendedOptionId }) {
@@ -146,19 +329,54 @@ struct PipiBotMacApp: App {
             }
 
             HStack(spacing: PipiTokens.spacing8) {
-                PipiActionButton("Manus Cue (⌥Space)", systemImage: "sparkles", tone: .secondary, density: .desktopCompact, fullWidth: true) {
-                    cueController.toggle(store: store)
+                PipiActionButton(s.quickBarShortcut, systemImage: "command", tone: .secondary, density: .desktopCompact, fullWidth: true) {
+                    toggleQuickBar()
                 }
-                PipiActionButton("Open Studio", systemImage: "macwindow", tone: .primary, density: .desktopCompact, fullWidth: true) {
-                    openWindow(id: "studio")
-                    NSApplication.shared.activate(ignoringOtherApps: true)
+                PipiActionButton(s.openPipiBot, systemImage: "macwindow", tone: .primary, density: .desktopCompact, fullWidth: true) {
+                    bringMainWindowFront()
                 }
             }
         }
         .padding(PipiTokens.spacing16)
-        .frame(width: 390)
-        .background(PipiTokens.bgElevated)
+        .frame(width: 372)
+        .background {
+            if reduceTransparency {
+                PipiTokens.bgElevated
+            } else {
+                Color.clear.background(.thinMaterial)
+            }
+        }
         .preferredColorScheme(store.themeMode.colorSchemeOverride)
+    }
+
+    private func toggleQuickBar() {
+        quickBarController.toggle(store: store) {
+            bringMainWindowFront()
+        }
+    }
+
+    private func bringMainWindowFront() {
+        openWindow(id: "main")
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    private func submitMenuBarPrompt() {
+        let text = menuBarDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        menuBarDraft = ""
+        if !store.hasCompletedOnboarding {
+            store.completeOnboarding()
+        }
+        let newConv = store.createConversation(for: store.activePersona.id, activate: true)
+        bringMainWindowFront()
+        Task {
+            await store.sendPersonalMessage(
+                text,
+                conversationId: newConv.id,
+                personaId: store.activePersona.id,
+                activateTargetConversation: true
+            )
+        }
     }
 }
 #endif

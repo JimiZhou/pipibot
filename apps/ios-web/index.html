@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>PipiBot Companion · iOS PWA &amp; Stageshow Studio</title>
+  <title>PipiBot · Personal AI Companion</title>
   <script>
     if (/^\/ios$/.test(window.location.pathname)) {
       window.location.replace('/ios/' + window.location.search + window.location.hash);
     }
   </script>
   <link rel="manifest" href="./manifest.json" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="stylesheet" href="../../design-system/tokens.css" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
@@ -22,8 +23,8 @@
       <div class="stage-brand">
         <div id="toolbar-avatar-mount" style="width: 32px; height: 32px;"></div>
         <div>
-          <div class="stage-title">PipiBot Companion &amp; Stageshow Studio</div>
-          <div class="stage-sub mono" id="daemon-conn-banner">Checking http://127.0.0.1:4242/api/v1/status ...</div>
+          <div class="stage-title" data-i18n="brandTitle">PipiBot</div>
+          <div class="stage-sub mono" id="daemon-conn-banner">Connecting to PipiBot ...</div>
         </div>
       </div>
 
@@ -157,33 +158,33 @@
           <div class="pipi-dock-left">
             <div id="dock-avatar-mount" style="width: 34px; height: 34px; flex-shrink: 0;"></div>
             <div class="pipi-dock-meta">
-              <div class="pipi-dock-title" id="dock-cue-title">Manus Cue · PipiBot Studio</div>
-              <div class="pipi-dock-sub" id="dock-cue-sub">Ready to evaluate active workspace</div>
+              <div class="pipi-dock-title" id="dock-cue-title">PipiBot Quick Bar</div>
+              <div class="pipi-dock-sub" id="dock-cue-sub">Ready to assist</div>
             </div>
           </div>
           <button class="pipi-btn pipi-btn-primary" id="dock-cue-btn" type="button">
             <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polygon points="5 3 19 12 5 21 5 3"></polygon>
             </svg>
-            <span>Cue</span>
+            <span data-i18n="quickAction">Quick</span>
           </button>
         </div>
 
         <!-- Canonical Block 5: Grounded bottom-bar -->
-        <nav class="pipi-bottom-bar" aria-label="iOS Companion Navigation">
+        <nav class="pipi-bottom-bar" aria-label="PipiBot Navigation">
           <button class="pipi-tab-item is-active" data-tab="outcomes" type="button">
             <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="9"></circle>
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
-            <span>Outcomes</span>
+            <span data-i18n="tabTasks">Tasks</span>
           </button>
           <button class="pipi-tab-item" data-tab="needs-you" type="button">
             <span class="pipi-tab-badge mono" id="badge-needs-you">3</span>
             <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
             </svg>
-            <span>Needs You</span>
+            <span data-i18n="tabApprovals">Approvals</span>
           </button>
           <button class="pipi-tab-item" data-tab="muse" type="button">
             <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -192,7 +193,7 @@
               <rect x="3" y="14" width="7" height="7" rx="1"></rect>
               <rect x="14" y="14" width="7" height="7" rx="1"></rect>
             </svg>
-            <span>Muse</span>
+            <span data-i18n="tabChat">Chat</span>
           </button>
           <button class="pipi-tab-item" data-tab="fleet" type="button">
             <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -202,13 +203,13 @@
               <circle cx="18" cy="18" r="2"></circle>
               <circle cx="12" cy="12" r="2"></circle>
             </svg>
-            <span>Fleet</span>
+            <span data-i18n="tabDevices">Devices</span>
           </button>
           <button class="pipi-tab-item" data-tab="soul" type="button">
             <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
             </svg>
-            <span>Soul</span>
+            <span data-i18n="tabMemory">Memory</span>
           </button>
         </nav>
 

@@ -8,6 +8,12 @@ import Darwin
 
 // MARK: - Resident Persisted State (~/Library/Application Support/PipiBot/resident-state.json)
 
+public enum PipiStateLoadResult: Sendable {
+    case notFound
+    case loaded(PipiResidentPersistedState)
+    case corrupt(backupURL: URL?, errorDescription: String)
+}
+
 public struct PipiResidentPersistedState: Codable, Sendable {
     public var outcomes: [OutcomeResponsibility]
     public var decisions: [NeedsYouDecision]
@@ -17,6 +23,39 @@ public struct PipiResidentPersistedState: Codable, Sendable {
     public var keepAwakeEnabled: Bool
     public var updatedAt: String
 
+    // Commercial Personal Bot State (Optional for seamless backward-compatible decoding)
+    public var hasCompletedOnboarding: Bool?
+    public var languageRaw: String?
+    public var llmProviders: [PipiLLMProviderConfig]?
+    public var defaultLLMProviderId: String?
+    public var enabledLocalAgents: [PipiLocalAgentKind]?
+    public var defaultExecutionTarget: PipiExecutionTarget?
+    public var workspaceDirectory: String?
+    public var personas: [PipiBotPersona]?
+    public var activePersonaId: String?
+    public var conversations: [PipiConversation]?
+    public var activeConversationId: String?
+    public var memoryEnabled: Bool?
+    public var personalProfileNote: String?
+    public var routines: [PipiBotRoutine]?
+    public var runRecords: [PipiRunRecord]?
+    public var companionSyncEnabled: Bool?
+    public var schemaMigrationVersion: Int?
+    public var uiZoomScale: Double?
+    public var projects: [PipiProject]?
+    public var groupChats: [PipiGroupChat]?
+    public var activeGroupChatId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case outcomes, decisions, museCards, activeHarness, themeModeRaw, keepAwakeEnabled, updatedAt
+        case hasCompletedOnboarding, languageRaw, llmProviders, defaultLLMProviderId
+        case enabledLocalAgents, defaultExecutionTarget, workspaceDirectory
+        case personas, activePersonaId, conversations, activeConversationId
+        case memoryEnabled, personalProfileNote, routines, runRecords
+        case companionSyncEnabled, schemaMigrationVersion, uiZoomScale, projects
+        case groupChats, activeGroupChatId
+    }
+
     public init(
         outcomes: [OutcomeResponsibility],
         decisions: [NeedsYouDecision],
@@ -24,7 +63,28 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         activeHarness: HarnessProvider,
         themeModeRaw: String,
         keepAwakeEnabled: Bool,
-        updatedAt: String
+        updatedAt: String,
+        hasCompletedOnboarding: Bool? = nil,
+        languageRaw: String? = nil,
+        llmProviders: [PipiLLMProviderConfig]? = nil,
+        defaultLLMProviderId: String? = nil,
+        enabledLocalAgents: [PipiLocalAgentKind]? = nil,
+        defaultExecutionTarget: PipiExecutionTarget? = nil,
+        workspaceDirectory: String? = nil,
+        personas: [PipiBotPersona]? = nil,
+        activePersonaId: String? = nil,
+        conversations: [PipiConversation]? = nil,
+        activeConversationId: String? = nil,
+        memoryEnabled: Bool? = nil,
+        personalProfileNote: String? = nil,
+        routines: [PipiBotRoutine]? = nil,
+        runRecords: [PipiRunRecord]? = nil,
+        companionSyncEnabled: Bool? = nil,
+        schemaMigrationVersion: Int? = nil,
+        uiZoomScale: Double? = nil,
+        projects: [PipiProject]? = nil,
+        groupChats: [PipiGroupChat]? = nil,
+        activeGroupChatId: String? = nil
     ) {
         self.outcomes = outcomes
         self.decisions = decisions
@@ -33,6 +93,60 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         self.themeModeRaw = themeModeRaw
         self.keepAwakeEnabled = keepAwakeEnabled
         self.updatedAt = updatedAt
+        self.hasCompletedOnboarding = hasCompletedOnboarding
+        self.languageRaw = languageRaw
+        self.llmProviders = llmProviders
+        self.defaultLLMProviderId = defaultLLMProviderId
+        self.enabledLocalAgents = enabledLocalAgents
+        self.defaultExecutionTarget = defaultExecutionTarget
+        self.workspaceDirectory = workspaceDirectory
+        self.personas = personas
+        self.activePersonaId = activePersonaId
+        self.conversations = conversations
+        self.activeConversationId = activeConversationId
+        self.memoryEnabled = memoryEnabled
+        self.personalProfileNote = personalProfileNote
+        self.routines = routines
+        self.runRecords = runRecords
+        self.companionSyncEnabled = companionSyncEnabled
+        self.schemaMigrationVersion = schemaMigrationVersion
+        self.uiZoomScale = uiZoomScale
+        self.projects = projects
+        self.groupChats = groupChats
+        self.activeGroupChatId = activeGroupChatId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.outcomes = try c.decodeIfPresent([OutcomeResponsibility].self, forKey: .outcomes) ?? []
+        self.decisions = try c.decodeIfPresent([NeedsYouDecision].self, forKey: .decisions) ?? []
+        self.museCards = try c.decodeIfPresent([MuseCardItem].self, forKey: .museCards) ?? []
+        self.activeHarness = try c.decodeIfPresent(HarnessProvider.self, forKey: .activeHarness) ?? .pi
+        self.themeModeRaw = try c.decodeIfPresent(String.self, forKey: .themeModeRaw) ?? "system"
+        self.keepAwakeEnabled = try c.decodeIfPresent(Bool.self, forKey: .keepAwakeEnabled) ?? false
+        self.updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+
+        self.hasCompletedOnboarding = try c.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding)
+        self.languageRaw = try c.decodeIfPresent(String.self, forKey: .languageRaw)
+        self.llmProviders = try c.decodeIfPresent([PipiLLMProviderConfig].self, forKey: .llmProviders)
+        self.defaultLLMProviderId = try c.decodeIfPresent(String.self, forKey: .defaultLLMProviderId)
+        self.enabledLocalAgents = try c.decodeIfPresent([PipiLocalAgentKind].self, forKey: .enabledLocalAgents)
+        self.defaultExecutionTarget = try c.decodeIfPresent(PipiExecutionTarget.self, forKey: .defaultExecutionTarget)
+        self.workspaceDirectory = try c.decodeIfPresent(String.self, forKey: .workspaceDirectory)
+        self.personas = try c.decodeIfPresent([PipiBotPersona].self, forKey: .personas)
+        self.activePersonaId = try c.decodeIfPresent(String.self, forKey: .activePersonaId)
+        self.conversations = try c.decodeIfPresent([PipiConversation].self, forKey: .conversations)
+        self.activeConversationId = try c.decodeIfPresent(String.self, forKey: .activeConversationId)
+        self.memoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .memoryEnabled)
+        self.personalProfileNote = try c.decodeIfPresent(String.self, forKey: .personalProfileNote)
+        self.routines = try c.decodeIfPresent([PipiBotRoutine].self, forKey: .routines)
+        self.runRecords = try c.decodeIfPresent([PipiRunRecord].self, forKey: .runRecords)
+        self.companionSyncEnabled = try c.decodeIfPresent(Bool.self, forKey: .companionSyncEnabled)
+        self.schemaMigrationVersion = try c.decodeIfPresent(Int.self, forKey: .schemaMigrationVersion)
+        self.uiZoomScale = try c.decodeIfPresent(Double.self, forKey: .uiZoomScale)
+        self.projects = try c.decodeIfPresent([PipiProject].self, forKey: .projects)
+        self.groupChats = try c.decodeIfPresent([PipiGroupChat].self, forKey: .groupChats)
+        self.activeGroupChatId = try c.decodeIfPresent(String.self, forKey: .activeGroupChatId)
     }
 }
 
@@ -171,6 +285,25 @@ public struct PipiNativeMacRuntime: Sendable {
         return [piResult, claudeResult, codexResult, opencodeResult, byokResult]
     }
 
+    public static func probeLocalAgents(enabled: Set<PipiLocalAgentKind>) -> [PipiLocalAgentStatus] {
+        let probes = probeInstalledHarnesses()
+        return PipiLocalAgentKind.allCases.map { kind in
+            let match = probes.first(where: { $0.provider == kind.mappedHarness })
+            let installed = match?.installed ?? false
+            let authenticated = match?.authenticated ?? false
+            let binaryPath = match?.binaryPath
+            let authHint = match?.authSource ?? ""
+            return PipiLocalAgentStatus(
+                kind: kind,
+                installed: installed,
+                authenticated: authenticated,
+                binaryPath: binaryPath,
+                authHint: authHint,
+                enabled: enabled.contains(kind)
+            )
+        }
+    }
+
     public static func sampleHostTelemetry(activeSessionsCount: Int = 1) -> FleetNodeTelemetry {
         let processInfo = ProcessInfo.processInfo
         let hostName = processInfo.hostName.replacingOccurrences(of: ".local", with: "")
@@ -243,16 +376,16 @@ public struct PipiNativeMacRuntime: Sendable {
                 hasGpuOrNeuralEngine: true,
                 canRunGuiCue: true,
                 canActAsRelayHost: true,
-                supportedTools: ["read", "write", "edit", "bash", "manus-cue", "routed-mcp"]
+                supportedTools: ["read", "write", "edit", "bash", "quick-bar", "local-agents"]
             ),
-            tags: ["all-in-one", "native-host", "\(cpuCount)cores"],
+            tags: ["mac", "local", "\(cpuCount)cores"],
             lastSeenAt: nowIso
         )
     }
 
     public static func detectFrontmostAppContext(workspacePath: String? = nil) -> CueSuggestion {
         let nowIso = ISO8601DateFormatter().string(from: Date())
-        var appName = "PipiBot Studio"
+        var appName = "PipiBot"
         var bundleId = "ai.pipibot.mac"
 
         #if os(macOS)
@@ -262,16 +395,39 @@ public struct PipiNativeMacRuntime: Sendable {
         }
         #endif
 
-        let resolvedWorkspace = workspacePath
-            ?? discoverRepoRoot()
-            ?? FileManager.default.currentDirectoryPath
-        let gitBranch = readGitBranchFast(at: resolvedWorkspace) ?? "main"
-        let folderName = (resolvedWorkspace as NSString).lastPathComponent
+        let homeDir = NSHomeDirectory()
+        let envWorkspace = ProcessInfo.processInfo.environment["PIPIBOT_WORKSPACE"]
+        let repoCandidate = discoverRepoRoot()
+        let isRuntimeBundle = repoCandidate?.contains("/Contents/Resources/runtime") == true
+        let safeRepo = isRuntimeBundle ? nil : repoCandidate
+
+        let resolvedWorkspace: String
+        let allowGitProbe: Bool
+        if let explicit = workspacePath, !explicit.isEmpty {
+            resolvedWorkspace = explicit
+            allowGitProbe = true
+        } else if let envWorkspace, !envWorkspace.isEmpty {
+            resolvedWorkspace = envWorkspace
+            allowGitProbe = !isTccProtectedFolder(envWorkspace, homeDir: homeDir)
+        } else if let safeRepo {
+            resolvedWorkspace = safeRepo
+            allowGitProbe = !isTccProtectedFolder(safeRepo, homeDir: homeDir)
+        } else {
+            resolvedWorkspace = homeDir
+            allowGitProbe = false
+        }
+
+        let gitBranch = (allowGitProbe && resolvedWorkspace != homeDir)
+            ? (readGitBranchFast(at: resolvedWorkspace) ?? "main")
+            : "main"
+        let folderName = resolvedWorkspace == homeDir
+            ? "PipiBot"
+            : (resolvedWorkspace as NSString).lastPathComponent
 
         let actions: [CueAction] = [
             CueAction(
-                id: "cue_pi_verify",
-                label: "Verify \(folderName) via Pi",
+                id: "cue_summarize",
+                label: "Summarize \(folderName)",
                 hotkeyHint: "⌘1",
                 harness: .pi,
                 promptTemplate: "Inspect workspace \(resolvedWorkspace) on branch \(gitBranch) and summarize pending tasks.",
@@ -279,7 +435,7 @@ public struct PipiNativeMacRuntime: Sendable {
             ),
             CueAction(
                 id: "cue_claude_review",
-                label: "Deep Audit via Claude",
+                label: "Review with Claude Code",
                 hotkeyHint: "⌘2",
                 harness: .claudeCode,
                 promptTemplate: "Context from \(appName) (\(gitBranch)): review recent changes in \(folderName).",
@@ -287,7 +443,7 @@ public struct PipiNativeMacRuntime: Sendable {
             ),
             CueAction(
                 id: "cue_codex_tests",
-                label: "Run Tests via Codex",
+                label: "Run Tests with Codex",
                 hotkeyHint: "⌘3",
                 harness: .codex,
                 promptTemplate: "Verify test suites in \(resolvedWorkspace) on branch \(gitBranch).",
@@ -311,6 +467,17 @@ public struct PipiNativeMacRuntime: Sendable {
         )
     }
 
+    private static func isTccProtectedFolder(_ path: String, homeDir: String) -> Bool {
+        let std = (path as NSString).standardizingPath
+        for folder in ["Desktop", "Documents", "Downloads"] {
+            let prefix = "\(homeDir)/\(folder)"
+            if std == prefix || std.hasPrefix(prefix + "/") {
+                return true
+            }
+        }
+        return false
+    }
+
     public static func readGitBranchFast(at directory: String) -> String? {
         let headPath = (directory as NSString).appendingPathComponent(".git/HEAD")
         guard let raw = try? String(contentsOfFile: headPath, encoding: .utf8) else {
@@ -328,6 +495,7 @@ public struct PipiNativeMacRuntime: Sendable {
 
     public static func discoverRepoRoot(startingAt startPath: String? = nil) -> String? {
         let fm = FileManager.default
+        let homeDir = NSHomeDirectory()
         var seeds: [String] = []
         if let envRoot = ProcessInfo.processInfo.environment["PIPIBOT_REPO_ROOT"], !envRoot.isEmpty {
             seeds.append(envRoot)
@@ -335,11 +503,13 @@ public struct PipiNativeMacRuntime: Sendable {
         if let startPath, !startPath.isEmpty {
             seeds.append(startPath)
         }
-        seeds.append(fm.currentDirectoryPath)
-        if let resourcePath = Bundle.main.resourcePath {
-            seeds.append(resourcePath)
+        if let bundledRuntime = Bundle.main.resourceURL?.appendingPathComponent("runtime", isDirectory: true).path {
+            seeds.append(bundledRuntime)
         }
-        seeds.append("\(NSHomeDirectory())/Desktop/Projects/pipibot")
+        let cwd = fm.currentDirectoryPath
+        if cwd != "/" && cwd != homeDir {
+            seeds.append(cwd)
+        }
 
         for seed in seeds {
             var current = (seed as NSString).standardizingPath
@@ -349,7 +519,9 @@ public struct PipiNativeMacRuntime: Sendable {
                     return current
                 }
                 let parent = (current as NSString).deletingLastPathComponent
-                if parent == current || parent.isEmpty { break }
+                if parent == current || parent.isEmpty || parent == "/" || parent == homeDir {
+                    break
+                }
                 current = parent
             }
         }
@@ -364,9 +536,50 @@ public struct PipiNativeMacRuntime: Sendable {
             .appendingPathComponent("resident-state.json", isDirectory: false)
     }
 
+    public static func loadResidentStateDetailed(from url: URL = stateFileUrl()) -> PipiStateLoadResult {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else {
+            return .notFound
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoded = try JSONDecoder().decode(PipiResidentPersistedState.self, from: data)
+            return .loaded(decoded)
+        } catch {
+            let backupURL = backupCorruptStateFile(at: url)
+            return .corrupt(backupURL: backupURL, errorDescription: error.localizedDescription)
+        }
+    }
+
     public static func loadResidentState(from url: URL = stateFileUrl()) -> PipiResidentPersistedState? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(PipiResidentPersistedState.self, from: data)
+        switch loadResidentStateDetailed(from: url) {
+        case .loaded(let state):
+            return state
+        case .notFound, .corrupt:
+            return nil
+        }
+    }
+
+    private static func backupCorruptStateFile(at url: URL) -> URL? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let rawStamp = formatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let dir = url.deletingLastPathComponent()
+        var candidate = dir.appendingPathComponent("resident-state.corrupt-\(rawStamp).json", isDirectory: false)
+        if fm.fileExists(atPath: candidate.path) {
+            let suffix = UUID().uuidString.prefix(6).lowercased()
+            candidate = dir.appendingPathComponent("resident-state.corrupt-\(rawStamp)-\(suffix).json", isDirectory: false)
+        }
+        do {
+            try fm.copyItem(at: url, to: candidate)
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: candidate.path)
+            return candidate
+        } catch {
+            return nil
+        }
     }
 
     public static func saveResidentState(_ state: PipiResidentPersistedState, to url: URL = stateFileUrl()) {
@@ -377,6 +590,7 @@ public struct PipiNativeMacRuntime: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(state) else { return }
         try? data.write(to: url, options: .atomic)
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 }
 
@@ -456,11 +670,12 @@ public final class PipiEmbeddedBridgeSupervisor {
             "--experimental-strip-types",
             cliPath,
             "--port", String(port),
-            "--workspace", repoRoot
+            "--workspace", repoRoot,
+            "--clean"
         ]
         process.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         process.terminationHandler = { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }

@@ -100,7 +100,7 @@ final class PipiBotKitTests: XCTestCase {
 
     @MainActor
     func testAppStoreOfflineLifecycleAndProtocolCodableRoundTrip() async throws {
-        let store = PipiAppStore(autoConnect: false)
+        let store = PipiAppStore(autoConnect: false, seedDemoData: true)
         XCTAssertEqual(store.outcomes.count, 4)
         XCTAssertEqual(store.pendingDecisions.count, 3)
         XCTAssertEqual(store.fleetNodes.count, 5)
@@ -169,11 +169,13 @@ final class PipiBotKitTests: XCTestCase {
             .appendingPathComponent("pipibot-test-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: tempUrl) }
 
+        let secrets = PipiInMemorySecretStore()
         let storeA = PipiAppStore(
             autoConnect: false,
             enableNativeRuntime: true,
             enableEmbeddedBridge: false,
-            stateFileUrl: tempUrl
+            stateFileUrl: tempUrl,
+            secretStore: secrets
         )
         XCTAssertEqual(storeA.connectionMode, .nativeResident)
         await storeA.createOutcome(
@@ -186,12 +188,14 @@ final class PipiBotKitTests: XCTestCase {
         storeA.setKeepAwake(true)
         XCTAssertTrue(storeA.bridgeSupervisor.keepAwakeEnabled)
         storeA.setKeepAwake(false)
+        storeA.flush()
 
         let storeB = PipiAppStore(
             autoConnect: false,
             enableNativeRuntime: true,
             enableEmbeddedBridge: false,
-            stateFileUrl: tempUrl
+            stateFileUrl: tempUrl,
+            secretStore: secrets
         )
         XCTAssertTrue(storeB.outcomes.contains(where: { $0.title == "All-in-One Persist Check" }))
         XCTAssertFalse(storeB.bridgeSupervisor.keepAwakeEnabled)
@@ -206,20 +210,24 @@ final class PipiBotKitTests: XCTestCase {
             .pairTunnel(urlString: "https://mac-origin.pipibot.dev")
         )
         XCTAssertEqual(
-            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/outcomes")!),
-            .openTab(.outcomes)
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/chat")!),
+            .openTab(.chat)
+        )
+        XCTAssertEqual(
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/bots")!),
+            .openTab(.bots)
+        )
+        XCTAssertEqual(
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/tasks")!),
+            .openTab(.tasks)
         )
         XCTAssertEqual(
             PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/needs-you")!),
-            .openTab(.needsYou)
+            .openTab(.tasks)
         )
         XCTAssertEqual(
-            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/muse")!),
-            .openTab(.muse)
-        )
-        XCTAssertEqual(
-            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/fleet")!),
-            .openTab(.fleetSoul)
+            PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/settings")!),
+            .openTab(.settings)
         )
         XCTAssertEqual(
             PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://decision/dec_pr_142/approve")!),
@@ -228,11 +236,11 @@ final class PipiBotKitTests: XCTestCase {
 
         // 2. Apply deep-link actions against store & active tab
         let store = PipiAppStore(autoConnect: false)
-        var activeTab: PipiIOSTab = .outcomes
+        var activeTab: PipiIOSTab = .chat
 
-        if let tabAction = PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/muse")!) {
+        if let tabAction = PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://tab/bots")!) {
             PipiIOSDeepLinkRouter.apply(tabAction, to: store, selectedTab: &activeTab)
-            XCTAssertEqual(activeTab, .muse)
+            XCTAssertEqual(activeTab, .bots)
         }
         if let pairAction = PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://pair?tunnel=https://edge.pipibot.dev")!) {
             PipiIOSDeepLinkRouter.apply(pairAction, to: store, selectedTab: &activeTab)
@@ -240,7 +248,7 @@ final class PipiBotKitTests: XCTestCase {
         }
         if let approveAction = PipiIOSDeepLinkRouter.parse(URL(string: "pipibot://decision/dec_pr_142/approve")!) {
             PipiIOSDeepLinkRouter.apply(approveAction, to: store, selectedTab: &activeTab)
-            XCTAssertEqual(activeTab, .needsYou)
+            XCTAssertEqual(activeTab, .tasks)
         }
 
         // 3. Dynamic Island / Live Activity snapshot persistence round-trip
@@ -261,5 +269,312 @@ final class PipiBotKitTests: XCTestCase {
         let needsYouCat = try XCTUnwrap(categories.first(where: { $0.identifier == PipiIOSNotificationManager.needsYouCategory }))
         XCTAssertTrue(needsYouCat.actions.contains(where: { $0 is UNTextInputNotificationAction && $0.identifier == PipiIOSNotificationManager.steerActionId }))
         #endif
+    }
+
+    @MainActor
+    func testCommercialPersonalBotOnboardingPersonasLocalizationAndInferenceURLs() throws {
+        // 1. System language auto-detection
+        XCTAssertEqual(PipiAppLanguage.detectSystemLanguage(preferredLanguages: ["zh-Hans-CN", "en-US"]), .zhHans)
+        XCTAssertEqual(PipiAppLanguage.detectSystemLanguage(preferredLanguages: ["en-US", "zh-Hans"]), .en)
+        XCTAssertEqual(PipiStrings(resolved: .zhHans).onboardingWelcomeTitle, "欢迎使用 PiPiBot")
+        XCTAssertEqual(PipiStrings(resolved: .en).onboardingWelcomeTitle, "Welcome to PiPiBot")
+
+        // 2. Endpoint URL normalization for OpenAI / Anthropic / Gemini
+        XCTAssertEqual(
+            PipiInferenceEngine.buildOpenAIChatCompletionsURL(baseURL: "https://api.openai.com/v1/")?.absoluteString,
+            "https://api.openai.com/v1/chat/completions"
+        )
+        XCTAssertEqual(
+            PipiInferenceEngine.buildAnthropicMessagesURL(baseURL: "https://api.anthropic.com")?.absoluteString,
+            "https://api.anthropic.com/v1/messages"
+        )
+        XCTAssertEqual(
+            PipiInferenceEngine.buildGeminiGenerateURL(baseURL: "https://generativelanguage.googleapis.com/v1beta", modelId: "gemini-2.5-flash", apiKey: "test-key")?.absoluteString,
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=test-key"
+        )
+
+        // 3. Onboarding, LLM config, Personas & Persistence round-trip
+        let tempUrl = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipibot-commercial-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempUrl) }
+
+        let secrets = PipiInMemorySecretStore()
+        let store = PipiAppStore(autoConnect: false, enableNativeRuntime: true, stateFileUrl: tempUrl, secretStore: secrets)
+        XCTAssertFalse(store.hasCompletedOnboarding)
+        XCTAssertEqual(store.personas.count, 4)
+
+        let cfg = PipiLLMProviderConfig(
+            name: "DeepSeek",
+            kind: .deepseek,
+            apiKey: "sk-test-1234",
+            modelId: "deepseek-chat"
+        )
+        store.upsertLLMProvider(cfg, setAsDefault: true)
+        XCTAssertTrue(store.hasConfiguredEngine)
+        XCTAssertEqual(store.resolvedActiveTarget(), .llm(providerId: cfg.id))
+
+        let customBot = PipiBotPersona(
+            nameZh: "产品顾问",
+            nameEn: "Product Coach",
+            roleZh: "帮你打磨商业化体验",
+            roleEn: "Helps refine commercial UX",
+            greetingZh: "你好，聊聊你的产品想法？",
+            greetingEn: "Hi, let's refine your product.",
+            systemPrompt: "You are a sharp product strategist.",
+            accent: .coral
+        )
+        store.upsertPersona(customBot)
+        store.setLanguage(.zhHans)
+        store.completeOnboarding(selectedPersonaId: customBot.id)
+        let conv = store.createConversation(for: customBot.id)
+        store.flush()
+
+        // Reload in fresh instance
+        let reloaded = PipiAppStore(autoConnect: false, enableNativeRuntime: true, stateFileUrl: tempUrl, secretStore: secrets)
+        XCTAssertTrue(reloaded.hasCompletedOnboarding)
+        XCTAssertEqual(reloaded.language, .zhHans)
+        XCTAssertEqual(reloaded.llmProviders.first?.modelId, "deepseek-chat")
+        XCTAssertEqual(reloaded.activePersona.id, customBot.id)
+        XCTAssertEqual(reloaded.activeConversation?.id, conv.id)
+    }
+
+    @MainActor
+    func testZeroDirtyDataCleanSlateMigrationCodexFlagsStreamingAndRoutines() throws {
+        // 1. Production store starts completely clean with zero demo records
+        let cleanStore = PipiAppStore(autoConnect: false, enableNativeRuntime: false, seedDemoData: false)
+        XCTAssertTrue(cleanStore.outcomes.isEmpty)
+        XCTAssertTrue(cleanStore.decisions.isEmpty)
+        XCTAssertTrue(cleanStore.fleetNodes.isEmpty)
+        XCTAssertNil(cleanStore.lastDigest)
+        XCTAssertFalse(cleanStore.companionSyncEnabled)
+
+        // 2. Codex CLI arguments include --skip-git-repo-check so non-git directories succeed
+        let codexArgs = PipiInferenceEngine.localAgentArguments(for: .codex, prompt: "hello")
+        XCTAssertTrue(codexArgs.contains("--skip-git-repo-check"))
+        XCTAssertTrue(codexArgs.contains("exec"))
+
+        // 3. Streaming SSE parsers & ANSI stripper
+        XCTAssertEqual(
+            PipiInferenceEngine.parseOpenAISSEDataLine("data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}"),
+            "Hello"
+        )
+        XCTAssertNil(PipiInferenceEngine.parseOpenAISSEDataLine("data: [DONE]"))
+        XCTAssertEqual(
+            PipiInferenceEngine.parseAnthropicSSEDataLine("data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"World\"}}"),
+            "World"
+        )
+        XCTAssertEqual(
+            PipiInferenceEngine.parseGeminiSSEDataLine("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hi\"}]}}]}"),
+            "Hi"
+        )
+        XCTAssertEqual(PipiInferenceEngine.stripAnsiEscapeCodes("\u{001B}[32mOK\u{001B}[0m"), "OK")
+
+        // 4. Legacy dirty state migration strips demo entries while preserving real user config & chats
+        let tempUrl = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipibot-dirty-migration-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempUrl) }
+
+        let seededRef = PipiAppStore(autoConnect: false, seedDemoData: true, secretStore: PipiInMemorySecretStore())
+        let realProvider = PipiLLMProviderConfig(name: "OpenAI", kind: .openai, apiKey: "sk-real-key", modelId: "gpt-4o")
+        let realConv = PipiConversation(personaId: "bot_pipi_general", title: "My Real Chat", messages: [PipiChatMessage(role: .user, content: "Hello")])
+        let legacyDirty = PipiResidentPersistedState(
+            outcomes: seededRef.outcomes,
+            decisions: seededRef.decisions,
+            museCards: seededRef.museCards,
+            activeHarness: .pi,
+            themeModeRaw: "system",
+            keepAwakeEnabled: false,
+            updatedAt: "2026-11-19T00:00:00Z",
+            hasCompletedOnboarding: true,
+            languageRaw: "zh-Hans",
+            llmProviders: [realProvider],
+            defaultLLMProviderId: realProvider.id,
+            enabledLocalAgents: [.codex],
+            conversations: [realConv],
+            activeConversationId: realConv.id,
+            schemaMigrationVersion: nil
+        )
+        // Simulate pre-S0 resident-state.json that still contained plaintext "apiKey" in JSON
+        let rawEncoded = try JSONEncoder().encode(legacyDirty)
+        var jsonObj = try XCTUnwrap(try JSONSerialization.jsonObject(with: rawEncoded) as? [String: Any])
+        if var providersJson = jsonObj["llmProviders"] as? [[String: Any]], !providersJson.isEmpty {
+            providersJson[0]["apiKey"] = "sk-real-key"
+            jsonObj["llmProviders"] = providersJson
+        }
+        let legacyBytes = try JSONSerialization.data(withJSONObject: jsonObj, options: [.prettyPrinted])
+        try legacyBytes.write(to: tempUrl, options: .atomic)
+
+        let secrets = PipiInMemorySecretStore()
+        let migrated = PipiAppStore(autoConnect: false, enableNativeRuntime: true, stateFileUrl: tempUrl, secretStore: secrets)
+        XCTAssertTrue(migrated.outcomes.isEmpty)
+        XCTAssertTrue(migrated.decisions.isEmpty)
+        XCTAssertTrue(migrated.museCards.isEmpty)
+        XCTAssertEqual(migrated.llmProviders.first?.apiKey, "sk-real-key")
+        XCTAssertEqual(secrets.secret(for: realProvider.secretAccountKey), "sk-real-key")
+        XCTAssertEqual(migrated.enabledLocalAgents, [.codex])
+        XCTAssertEqual(migrated.conversations.count, 1)
+        XCTAssertEqual(migrated.conversations.first?.title, "My Real Chat")
+
+        // 5. Conversation archive & Bot Routine persistence round-trip
+        migrated.toggleArchiveConversation(realConv.id)
+        XCTAssertTrue(migrated.conversationsForActivePersona.isEmpty)
+        XCTAssertEqual(migrated.archivedConversationsForActivePersona.count, 1)
+
+        let routine = PipiBotRoutine(
+            personaId: "bot_pipi_general",
+            title: "Morning Brief",
+            prompt: "Summarize today's focus",
+            schedule: .daily,
+            hour: 9,
+            minute: 0
+        )
+        migrated.addRoutine(routine)
+        migrated.flush()
+        let reloaded2 = PipiAppStore(autoConnect: false, enableNativeRuntime: true, stateFileUrl: tempUrl, secretStore: secrets)
+        XCTAssertEqual(reloaded2.routines.count, 1)
+        XCTAssertEqual(reloaded2.routines.first?.title, "Morning Brief")
+        XCTAssertEqual(reloaded2.archivedConversationsForActivePersona.count, 1)
+    }
+
+    @MainActor
+    func testAvatarStepDeduplicationAndOriginalRobotIconGrammar() throws {
+        // 1. Multi-view wall-clock tick deduplication prevents double-stepping glitches
+        let engine = PipiProceduralAvatarEngine()
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000.0)
+        engine.stepIfNeeded(at: t0)
+        let afterFirst = engine.telemetrySnapshot().elapsed
+        XCTAssertGreaterThan(afterFirst, 0)
+
+        // Rapid duplicate call 2ms later from a second mounted view must be ignored
+        engine.stepIfNeeded(at: t0.addingTimeInterval(0.002))
+        XCTAssertEqual(engine.telemetrySnapshot().elapsed, afterFirst, accuracy: 1e-9)
+
+        // Normal next frame (16.6ms later) advances cleanly
+        engine.stepIfNeeded(at: t0.addingTimeInterval(0.017))
+        XCTAssertGreaterThan(engine.telemetrySnapshot().elapsed, afterFirst)
+
+        // 2. Original 4-persona hardware-robot motif mapping
+        let personas = PipiBotPersona.defaultPersonas
+        XCTAssertEqual(personas.count, 4)
+        XCTAssertEqual(PipiPersonaMotif.resolve(for: personas[0]), .haloPip)
+        XCTAssertEqual(PipiPersonaMotif.resolve(for: personas[1]), .caret)
+        XCTAssertEqual(PipiPersonaMotif.resolve(for: personas[2]), .nib)
+        XCTAssertEqual(PipiPersonaMotif.resolve(for: personas[3]), .loop)
+
+        // 3. Signature "Pipi Halo" chassis path bounds validity
+        let path = PipiRobotGeometry.chassisPath(in: CGRect(x: 0, y: 0, width: 100, height: 108))
+        XCTAssertFalse(path.isEmpty)
+        XCTAssertGreaterThan(path.boundingRect.width, 95)
+        XCTAssertGreaterThan(path.boundingRect.height, 100)
+
+        // 4. All 4 persona motifs produce distinct non-empty chassis silhouettes
+        let rect = CGRect(x: 0, y: 0, width: 100, height: 108)
+        let rects = PipiPersonaMotif.allCases.map { PipiRobotGeometry.chassisPath(in: rect, motif: $0).boundingRect }
+        XCTAssertEqual(rects.count, 4)
+        for r in rects {
+            XCTAssertGreaterThan(r.width, 80)
+            XCTAssertGreaterThan(r.height, 85)
+        }
+        XCTAssertNotEqual(rects[0], rects[1])
+        XCTAssertNotEqual(rects[2], rects[3])
+    }
+
+    @MainActor
+    func testZoomScalePersistenceAndAttachmentsRoundTrip() throws {
+        let tempUrl = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipibot-zoom-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempUrl) }
+
+        let secrets = PipiInMemorySecretStore()
+        let store = PipiAppStore(autoConnect: false, enableNativeRuntime: true, stateFileUrl: tempUrl, secretStore: secrets)
+        XCTAssertEqual(store.uiZoomScale, 1.0, accuracy: 1e-6)
+        XCTAssertEqual(store.uiZoomPercentLabel, "100%")
+
+        store.zoomIn()
+        store.zoomIn()
+        XCTAssertEqual(store.uiZoomScale, 1.2, accuracy: 1e-6)
+        XCTAssertEqual(store.uiZoomPercentLabel, "120%")
+
+        // Clamp upper bound at 1.40
+        store.setZoomScale(2.5)
+        XCTAssertEqual(store.uiZoomScale, 1.4, accuracy: 1e-6)
+
+        // Clamp lower bound at 0.80
+        store.setZoomScale(0.3)
+        XCTAssertEqual(store.uiZoomScale, 0.8, accuracy: 1e-6)
+
+        store.setZoomScale(1.1)
+        store.flush()
+        let reloaded = PipiAppStore(autoConnect: false, enableNativeRuntime: true, stateFileUrl: tempUrl, secretStore: secrets)
+        XCTAssertEqual(reloaded.uiZoomScale, 1.1, accuracy: 1e-6)
+
+        reloaded.resetZoom()
+        XCTAssertEqual(reloaded.uiZoomScale, 1.0, accuracy: 1e-6)
+
+        // File attachment loading + PipiChatMessage Codable round-trip
+        let txtUrl = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipibot-sample-\(UUID().uuidString).swift")
+        defer { try? FileManager.default.removeItem(at: txtUrl) }
+        try "let answer = 42\n".write(to: txtUrl, atomically: true, encoding: .utf8)
+
+        let att = PipiChatAttachment.fromFileURL(txtUrl)
+        XCTAssertEqual(att.name, txtUrl.lastPathComponent)
+        XCTAssertEqual(att.textContent, "let answer = 42\n")
+        XCTAssertEqual(att.iconName, "doc.text")
+
+        let msg = PipiChatMessage(role: .user, content: "Review this", attachments: [att])
+        let encoded = try JSONEncoder().encode(msg)
+        let decoded = try JSONDecoder().decode(PipiChatMessage.self, from: encoded)
+        XCTAssertEqual(decoded.attachments?.count, 1)
+        XCTAssertEqual(decoded.attachments?.first?.name, att.name)
+    }
+
+    @MainActor
+    func testProjectSessionManagementRenameMoveArchiveAndPersistence() throws {
+        let tempUrl = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipibot-projects-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempUrl) }
+
+        let secrets = PipiInMemorySecretStore()
+        let store = PipiAppStore(autoConnect: false, enableNativeRuntime: true, stateFileUrl: tempUrl, secretStore: secrets)
+        let project = PipiProject(
+            name: "Core Refactor",
+            accent: .emerald,
+            workspacePath: "/tmp/pipi-proj",
+            instructions: "Keep modules small."
+        )
+        store.upsertProject(project)
+        XCTAssertEqual(store.projects.count, 1)
+
+        let conv = store.createConversation(projectId: project.id)
+        XCTAssertEqual(store.conversations(inProject: project.id).count, 1)
+        XCTAssertEqual(store.effectiveWorkspaceDirectory, "/tmp/pipi-proj")
+
+        store.renameConversation(conv.id, title: "Refactor Plan")
+        XCTAssertEqual(store.activeConversation?.title, "Refactor Plan")
+
+        // Move out to ungrouped & archive
+        store.moveConversation(conv.id, toProject: nil)
+        XCTAssertEqual(store.conversations(inProject: project.id).count, 0)
+        XCTAssertEqual(store.ungroupedConversationsForActivePersona.count, 1)
+
+        store.toggleArchiveConversation(conv.id)
+        XCTAssertEqual(store.allArchivedConversations.count, 1)
+
+        // Move back into project automatically unarchives
+        store.moveConversation(conv.id, toProject: project.id)
+        XCTAssertEqual(store.allArchivedConversations.count, 0)
+        XCTAssertEqual(store.conversations(inProject: project.id).count, 1)
+        store.flush()
+
+        // Persistence round-trip
+        let reloaded = PipiAppStore(autoConnect: false, enableNativeRuntime: true, stateFileUrl: tempUrl, secretStore: secrets)
+        XCTAssertEqual(reloaded.projects.first?.name, "Core Refactor")
+        XCTAssertEqual(reloaded.conversations(inProject: project.id).first?.title, "Refactor Plan")
+
+        // Deleting a project preserves its conversations as ungrouped
+        reloaded.deleteProject(project.id)
+        XCTAssertTrue(reloaded.projects.isEmpty)
+        XCTAssertEqual(reloaded.ungroupedConversationsForActivePersona.count, 1)
     }
 }

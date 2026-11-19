@@ -36,15 +36,14 @@ public enum PipiIOSDeepLinkRouter {
         case "tab":
             guard let target = pathParts.first?.lowercased() else { return nil }
             switch target {
-            case "outcomes": return .openTab(.outcomes)
-            case "needs-you", "needsyou": return .openTab(.needsYou)
-            case "muse": return .openTab(.muse)
-            case "fleet", "soul": return .openTab(.fleetSoul)
+            case "chat", "muse": return .openTab(.chat)
+            case "bots", "outcomes": return .openTab(.bots)
+            case "tasks", "needs-you", "needsyou": return .openTab(.tasks)
+            case "settings", "fleet", "soul": return .openTab(.settings)
             default: return nil
             }
 
         case "decision":
-            // pipibot://decision/<id>/approve
             guard pathParts.count >= 2,
                   pathParts[1].lowercased() == "approve",
                   !pathParts[0].isEmpty else {
@@ -69,24 +68,23 @@ public enum PipiIOSDeepLinkRouter {
         switch action {
         case .pairTunnel(let urlString):
             store.daemonEndpoint = urlString
-            store.noticeBanner = "Paired with Cloudflare Tunnel: \(urlString)"
+            store.noticeBanner = store.strings.t("已连接到远程地址", "Connected to remote endpoint")
             Task { await store.refreshAllFromDaemon() }
 
         case .openTab(let tab):
             selectedTab = tab
-            store.noticeBanner = "Opened \(tab.title) via deep link"
 
         case .approveDecision(let decisionId):
-            selectedTab = .needsYou
+            selectedTab = .tasks
             let optionId = store.decisions
                 .first(where: { $0.id == decisionId })?
                 .recommendedOptionId ?? "approve"
             Task {
-                await store.resolveDecision(decisionId, optionId: optionId, note: "Approved via pipibot:// deep link")
+                await store.resolveDecision(decisionId, optionId: optionId, note: "Approved via pipibot://")
             }
 
         case .triggerDream:
-            selectedTab = .fleetSoul
+            selectedTab = .settings
             Task { await store.runNightlyDreaming() }
         }
     }
@@ -142,7 +140,7 @@ public enum PipiIOSWidgetBridge {
             avatarState: store.avatarEngine.state,
             expression: meta.expression,
             activeHarness: store.activeHarness,
-            activeOutcomeTitle: store.outcomes.first?.title ?? "Autonomous Fleet",
+            activeOutcomeTitle: store.activePersona.name(store.resolvedLanguage),
             pendingDecisionsCount: store.pendingDecisions.count,
             tunnelRttMs: store.tunnelStatus.tunnelRttMs,
             understandingScorePct: store.understandingScore.overall,
@@ -185,21 +183,22 @@ public enum PipiIOSNotificationManager {
     public static let openSoulActionId = "OPEN_SOUL_ACTION"
 
     public static func buildNotificationCategories() -> Set<UNNotificationCategory> {
+        let s = PipiStrings(.system)
         let approveAction = UNNotificationAction(
             identifier: approveActionId,
-            title: "Approve",
+            title: s.approve,
             options: [.authenticationRequired]
         )
         let steerAction = UNTextInputNotificationAction(
             identifier: steerActionId,
-            title: "Steer",
+            title: s.t("补充说明", "Reply"),
             options: [.authenticationRequired],
-            textInputButtonTitle: "Send Steer",
-            textInputPlaceholder: "Guide sub-session..."
+            textInputButtonTitle: s.send,
+            textInputPlaceholder: s.chatPlaceholderCompact
         )
         let rejectAction = UNNotificationAction(
             identifier: rejectActionId,
-            title: "Reject",
+            title: s.reject,
             options: [.destructive]
         )
         let needsYouCat = UNNotificationCategory(
@@ -211,12 +210,12 @@ public enum PipiIOSNotificationManager {
 
         let approveDiff = UNNotificationAction(
             identifier: approveDiffActionId,
-            title: "Commit to USER.md",
+            title: s.t("保存到记忆", "Save Memory"),
             options: [.authenticationRequired]
         )
         let openSoul = UNNotificationAction(
             identifier: openSoulActionId,
-            title: "Review Soul Diff",
+            title: s.t("查看详情", "Review"),
             options: [.foreground]
         )
         let digestCat = UNNotificationCategory(
@@ -252,7 +251,7 @@ public enum PipiIOSNotificationManager {
         guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = decision.title
-        content.subtitle = "Needs You · \(decision.category.displayName)"
+        content.subtitle = "PipiBot · \(decision.category.displayName)"
         content.body = decision.summary
         content.categoryIdentifier = needsYouCategory
         content.sound = .default
@@ -272,15 +271,15 @@ public enum PipiIOSNotificationManager {
 }
 #endif
 
-// MARK: - 4. Apple AppIntents (Siri, Shortcuts & iPhone Action Button)
+// MARK: - 4. Apple AppIntents (Siri, Shortcuts & Action Button)
 
 #if canImport(AppIntents)
 @available(iOS 17.0, macOS 14.0, *)
 public struct PipiApproveTopDecisionIntent: AppIntent {
-    public static let title: LocalizedStringResource = "Approve Top PipiBot Decision"
-    public static let description = IntentDescription("Approves the highest-priority pending Needs You escalation across your PipiBot fleet.")
+    public static let title: LocalizedStringResource = "Approve Top PipiBot Request"
+    public static let description = IntentDescription("Approves the highest-priority pending request in PipiBot.")
 
-    @Parameter(title: "Approval Note")
+    @Parameter(title: "Note")
     public var note: String?
 
     public init() {}
@@ -289,12 +288,12 @@ public struct PipiApproveTopDecisionIntent: AppIntent {
         let summary = await MainActor.run { () -> String in
             let store = PipiAppStore(autoConnect: false, enableNativeRuntime: true)
             guard let top = store.pendingDecisions.first else {
-                return "All Needs You decisions are already clear."
+                return store.strings.approvalsEmptyTitle
             }
             Task {
-                await store.resolveDecision(top.id, optionId: top.recommendedOptionId, note: note ?? "Approved via Siri / Action Button")
+                await store.resolveDecision(top.id, optionId: top.recommendedOptionId, note: note ?? "Approved via Shortcuts")
             }
-            return "Approved \(top.title) across \(store.onlineFleetCount) fleet nodes."
+            return store.strings.t("已批准：\(top.title)", "Approved: \(top.title)")
         }
         return .result(dialog: IntentDialog(stringLiteral: summary))
     }
@@ -302,8 +301,8 @@ public struct PipiApproveTopDecisionIntent: AppIntent {
 
 @available(iOS 17.0, macOS 14.0, *)
 public struct PipiTriggerNightlyDreamIntent: AppIntent {
-    public static let title: LocalizedStringResource = "Run PipiBot Nightly Dreaming"
-    public static let description = IntentDescription("Triggers L0-L3 memory consolidation and computes the updated Understanding Score.")
+    public static let title: LocalizedStringResource = "Consolidate PipiBot Memory"
+    public static let description = IntentDescription("Consolidates your personal PipiBot memory preferences.")
 
     public init() {}
 
@@ -313,7 +312,7 @@ public struct PipiTriggerNightlyDreamIntent: AppIntent {
             Task { await store.runNightlyDreaming() }
             let snapshot = PipiIOSWidgetBridge.snapshot(from: store)
             try? PipiIOSWidgetBridge.saveSnapshot(snapshot)
-            return String(format: "Nightly Dreaming started. Understanding Score %.1f%%.", store.understandingScore.overall)
+            return store.strings.t("已开始整理 PipiBot 个人记忆。", "Started PipiBot memory consolidation.")
         }
         return .result(dialog: IntentDialog(stringLiteral: dialogText))
     }
@@ -321,10 +320,10 @@ public struct PipiTriggerNightlyDreamIntent: AppIntent {
 
 @available(iOS 17.0, macOS 14.0, *)
 public struct PipiAskHarnessIntent: AppIntent {
-    public static let title: LocalizedStringResource = "Ask PipiBot Harness"
-    public static let description = IntentDescription("Routes an instruction to Pi, Claude Code, Codex, OpenCode, or BYOK.")
+    public static let title: LocalizedStringResource = "Ask PipiBot"
+    public static let description = IntentDescription("Send a quick message to your active PipiBot persona.")
 
-    @Parameter(title: "Instruction")
+    @Parameter(title: "Message")
     public var prompt: String
 
     public init() {}
@@ -332,8 +331,8 @@ public struct PipiAskHarnessIntent: AppIntent {
     public func perform() async throws -> some IntentResult & ProvidesDialog {
         let reply = await MainActor.run { () -> String in
             let store = PipiAppStore(autoConnect: false, enableNativeRuntime: true)
-            Task { await store.sendChatMessage(prompt) }
-            return "Routed via \(store.activeHarness.displayName): \(prompt)"
+            Task { await store.sendPersonalMessage(prompt) }
+            return store.strings.t("已发送给 PipiBot：\(prompt)", "Sent to PipiBot: \(prompt)")
         }
         return .result(dialog: IntentDialog(stringLiteral: reply))
     }
@@ -345,29 +344,28 @@ public struct PipiIOSShortcutsProvider: AppShortcutsProvider {
         AppShortcut(
             intent: PipiApproveTopDecisionIntent(),
             phrases: [
-                "Approve decision with \(.applicationName)",
-                "Clear Needs You inbox in \(.applicationName)"
+                "Approve request in \(.applicationName)",
+                "Clear pending approvals in \(.applicationName)"
             ],
-            shortTitle: "Approve Decision",
+            shortTitle: "Approve Request",
             systemImageName: "checkmark.seal.fill"
         )
         AppShortcut(
             intent: PipiTriggerNightlyDreamIntent(),
             phrases: [
-                "Run nightly dream in \(.applicationName)",
-                "Consolidate memory with \(.applicationName)"
+                "Consolidate memory in \(.applicationName)"
             ],
-            shortTitle: "Nightly Dream",
-            systemImageName: "moon.stars.fill"
+            shortTitle: "Consolidate Memory",
+            systemImageName: "brain"
         )
         AppShortcut(
             intent: PipiAskHarnessIntent(),
             phrases: [
-                "Ask \(.applicationName) to inspect my fleet",
-                "Route task with \(.applicationName)"
+                "Ask \(.applicationName) a question",
+                "Chat with \(.applicationName)"
             ],
-            shortTitle: "Ask Harness",
-            systemImageName: "sparkles"
+            shortTitle: "Ask PipiBot",
+            systemImageName: "bubble.left.and.bubble.right.fill"
         )
     }
 }

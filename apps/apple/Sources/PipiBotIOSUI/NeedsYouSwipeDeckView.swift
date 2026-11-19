@@ -16,21 +16,23 @@ public struct NeedsYouSwipeDeckView: View {
         self.onHaptic = onHaptic
     }
 
+    private var s: PipiStrings { store.strings }
+
     public var body: some View {
         ZStack {
             VStack(spacing: PipiTokens.spacing16) {
                 if let topDecision = store.pendingDecisions.first {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Needs You Inbox")
+                            Text(s.approvalsTitle)
                                 .font(PipiTokens.fontTitle)
                                 .foregroundStyle(PipiTokens.textPrimary)
-                            Text("\(store.pendingDecisions.count) high-signal decisions awaiting sign-off")
+                            Text(s.t("还有 \(store.pendingDecisions.count) 项待确认", "\(store.pendingDecisions.count) pending approvals"))
                                 .font(PipiTokens.fontCaption)
                                 .foregroundStyle(PipiTokens.textSecondary)
                         }
                         Spacer()
-                        Text("Swipe or Tap")
+                        Text(s.t("滑动或点击", "Swipe or Tap"))
                             .font(PipiTokens.fontMicro)
                             .foregroundStyle(PipiTokens.textMuted)
                             .padding(.horizontal, PipiTokens.spacing8)
@@ -80,9 +82,9 @@ public struct NeedsYouSwipeDeckView: View {
                 } else {
                     PipiEmptyState(
                         systemImage: "checkmark.seal.fill",
-                        title: "Needs You Inbox Clear",
-                        message: "Your autonomous fleet handled routine operations and surfaced zero pending escalations.",
-                        buttonTitle: "Trigger Outcome Check",
+                        title: s.approvalsEmptyTitle,
+                        message: s.approvalsEmptyMessage,
+                        buttonTitle: s.runCheck,
                         buttonAction: {
                             if let firstId = store.outcomes.first?.id {
                                 Task { await store.evaluateOutcome(firstId) }
@@ -95,30 +97,17 @@ public struct NeedsYouSwipeDeckView: View {
             if let evidence = inspectedEvidence {
                 PipiSheet(
                     title: evidence.kind.label,
-                    subtitle: evidence.r2Key,
+                    subtitle: evidence.caption,
                     detent: .expanded,
                     onClose: { inspectedEvidence = nil }
                 ) {
                     VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
                         PipiListCard(
                             title: evidence.caption,
-                            subtitle: "Zero-egress artifact hosted on Cloudflare R2 (`$0` egress) with 15m HMAC signature.",
-                            badgeText: "R2 Verified",
+                            subtitle: s.t("已通过 PipiBot 安全同步", "Verified attachment from PipiBot"),
+                            badgeText: s.t("已验证", "Verified"),
                             badgeColor: PipiTokens.stateSuccess
                         )
-
-                        VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                            Text("Before / After Verification Summary")
-                                .font(PipiTokens.fontHeadline)
-                                .foregroundStyle(PipiTokens.textPrimary)
-                            Text("First visit & repeat visit recordings captured automatically on isolated staging runner. Metrics pass all target constraints.")
-                                .font(PipiTokens.fontBody)
-                                .foregroundStyle(PipiTokens.textSecondary)
-                        }
-                        .padding(PipiTokens.spacing16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(PipiTokens.bgSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
                     }
                 }
             }
@@ -147,10 +136,6 @@ public struct NeedsYouSwipeDeckView: View {
                     .clipShape(Capsule())
 
                 Spacer()
-
-                Text(decision.sourceNodeId)
-                    .font(PipiTokens.fontMonoSmall)
-                    .foregroundStyle(PipiTokens.textMuted)
             }
 
             VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
@@ -166,10 +151,6 @@ public struct NeedsYouSwipeDeckView: View {
 
             if !decision.evidence.isEmpty {
                 VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                    Text("Cloudflare R2 Evidence")
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textMuted)
-
                     ForEach(decision.evidence) { ref in
                         Button {
                             inspectedEvidence = ref

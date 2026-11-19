@@ -5,9 +5,10 @@ import PipiBotIOSUI
 @main
 struct PipiBotIOSApp: App {
     @State private var store = PipiAppStore(
-        autoConnect: true,
+        autoConnect: false,
         enableNativeRuntime: true,
-        enableEmbeddedBridge: false
+        enableEmbeddedBridge: false,
+        seedDemoData: false
     )
     @Environment(\.scenePhase) private var scenePhase
 
@@ -33,7 +34,7 @@ struct PipiBotIOSApp: App {
                         Task { await store.refreshAllFromDaemon() }
                     case .background, .inactive:
                         syncLiveActivitySnapshot()
-                        store.saveResidentState()
+                        store.flush()
                     @unknown default:
                         break
                     }

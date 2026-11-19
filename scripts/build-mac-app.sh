@@ -20,6 +20,11 @@ if [[ ! -x "$BUILT_BINARY" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$REPO_ROOT/assets/icons/AppIcon.icns" ]]; then
+  echo "==> Generating app icons..."
+  swift "$REPO_ROOT/scripts/generate-app-icons.swift"
+fi
+
 echo "==> Packaging $APP_BUNDLE..."
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
@@ -27,6 +32,7 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 
 cp "$BUILT_BINARY" "$APP_BUNDLE/Contents/MacOS/PipiBotMacApp"
 chmod +x "$APP_BUNDLE/Contents/MacOS/PipiBotMacApp"
+cp "$REPO_ROOT/assets/icons/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -35,24 +41,35 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <dict>
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>zh-Hans</string>
+  </array>
   <key>CFBundleDisplayName</key>
-  <string>PipiBot</string>
+  <string>PiPiBot</string>
   <key>CFBundleExecutable</key>
   <string>PipiBotMacApp</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleIconName</key>
+  <string>AppIcon</string>
   <key>CFBundleIdentifier</key>
   <string>ai.pipibot.mac</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>PipiBot</string>
+  <string>PiPiBot</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.2.0-beta</string>
+  <string>0.8.0</string>
   <key>CFBundleVersion</key>
-  <string>2</string>
+  <string>8</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>PiPiBot optionally reads workspace git status when pointed to a Desktop project.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>LSUIElement</key>
@@ -66,6 +83,21 @@ if [[ -d "$REPO_ROOT/design-system" ]]; then
 fi
 if [[ -d "$REPO_ROOT/apps/ios-web" ]]; then
   cp -R "$REPO_ROOT/apps/ios-web" "$APP_BUNDLE/Contents/Resources/ios-web"
+fi
+
+# Bundle self-contained embedded HTTP/SSE bridge runtime inside Contents/Resources/runtime
+RUNTIME_DIR="$APP_BUNDLE/Contents/Resources/runtime"
+mkdir -p "$RUNTIME_DIR/packages" "$RUNTIME_DIR/apps"
+for pkg in protocol core daemon; do
+  if [[ -d "$REPO_ROOT/packages/$pkg" ]]; then
+    cp -R "$REPO_ROOT/packages/$pkg" "$RUNTIME_DIR/packages/$pkg"
+  fi
+done
+if [[ -d "$REPO_ROOT/design-system" ]]; then
+  cp -R "$REPO_ROOT/design-system" "$RUNTIME_DIR/design-system"
+fi
+if [[ -d "$REPO_ROOT/apps/ios-web" ]]; then
+  cp -R "$REPO_ROOT/apps/ios-web" "$RUNTIME_DIR/apps/ios-web"
 fi
 
 echo "==> Ad-hoc code signing $APP_BUNDLE..."

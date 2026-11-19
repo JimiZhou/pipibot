@@ -358,31 +358,32 @@ public final class PipiProceduralAvatarEngine {
     public private(set) var shape: AvatarShape = .orb
     public private(set) var expression: AvatarExpression9 = .neutral
     public private(set) var preset: AvatarPresetKind = .idle
-    public private(set) var elapsed: Double = 0.0
+    @ObservationIgnored public private(set) var elapsed: Double = 0.0
 
-    public private(set) var currentRadii: [Double]
-    private var fromRadii: [Double]
-    private var toRadii: [Double]
+    @ObservationIgnored public private(set) var currentRadii: [Double]
+    @ObservationIgnored private var fromRadii: [Double]
+    @ObservationIgnored private var toRadii: [Double]
 
-    private var amountSpring = EulerSpringChannel(value: 0, target: 0, stiffness: 360, damping: 18)
-    private var swapSpring = EulerSpringChannel(value: 1, target: 1, stiffness: 210, damping: 19)
-    private var spinSpring = EulerSpringChannel(value: 0, target: 0, stiffness: 240, damping: 17)
-    private var gazeXSpring = EulerSpringChannel(value: 0, target: 0, stiffness: 150, damping: 16)
-    private var gazeYSpring = EulerSpringChannel(value: 0, target: 0, stiffness: 150, damping: 16)
+    @ObservationIgnored private var amountSpring = EulerSpringChannel(value: 0, target: 0, stiffness: 360, damping: 18)
+    @ObservationIgnored private var swapSpring = EulerSpringChannel(value: 1, target: 1, stiffness: 210, damping: 19)
+    @ObservationIgnored private var spinSpring = EulerSpringChannel(value: 0, target: 0, stiffness: 240, damping: 17)
+    @ObservationIgnored private var gazeXSpring = EulerSpringChannel(value: 0, target: 0, stiffness: 150, damping: 16)
+    @ObservationIgnored private var gazeYSpring = EulerSpringChannel(value: 0, target: 0, stiffness: 150, damping: 16)
 
-    public private(set) var tracks = AvatarTracksSnapshot()
-    public private(set) var leftEye3D: SIMD3<Double> = PipiProceduralAvatarEngine.leftEyeSphereBase
-    public private(set) var rightEye3D: SIMD3<Double> = PipiProceduralAvatarEngine.rightEyeSphereBase
-    public private(set) var gazeThetaRad: Double = 0.0
-    public private(set) var blinkActive: Bool = false
-    public private(set) var blinkClosure: Double = 0.0
-    private var blinkElapsed: Double = 0.0
-    private var nextAutoBlinkAt: Double = 2.6
+    @ObservationIgnored public private(set) var tracks = AvatarTracksSnapshot()
+    @ObservationIgnored public private(set) var leftEye3D: SIMD3<Double> = PipiProceduralAvatarEngine.leftEyeSphereBase
+    @ObservationIgnored public private(set) var rightEye3D: SIMD3<Double> = PipiProceduralAvatarEngine.rightEyeSphereBase
+    @ObservationIgnored public private(set) var gazeThetaRad: Double = 0.0
+    @ObservationIgnored public private(set) var blinkActive: Bool = false
+    @ObservationIgnored public private(set) var blinkClosure: Double = 0.0
+    @ObservationIgnored private var blinkElapsed: Double = 0.0
+    @ObservationIgnored private var nextAutoBlinkAt: Double = 2.6
 
-    private var pointerGaze: CGPoint = .zero
-    private var lastPointerMoveTime: Double = -10.0
-    private var accumulator: Double = 0.0
-    private var rng = SeededMulberryRng()
+    @ObservationIgnored private var pointerGaze: CGPoint = .zero
+    @ObservationIgnored private var lastPointerMoveTime: Double = -10.0
+    @ObservationIgnored private var accumulator: Double = 0.0
+    @ObservationIgnored private var rng = SeededMulberryRng()
+    @ObservationIgnored private var lastWallTimestamp: TimeInterval?
 
     public var autoBlink: Bool = true
     public var cursorTrack: Bool = true
@@ -403,8 +404,8 @@ public final class PipiProceduralAvatarEngine {
         setShape(desc.shape, immediate: immediate)
 
         if !immediate {
-            amountSpring.impulse(2.8)
-            spinSpring.impulse(newState == .needsYou || newState == .needsYouUrgent ? -140.0 : 110.0)
+            amountSpring.impulse(2.4)
+            spinSpring.impulse(newState == .needsYou || newState == .needsYouUrgent ? -120.0 : 88.0)
         }
     }
 
@@ -418,8 +419,8 @@ public final class PipiProceduralAvatarEngine {
             swapSpring.snap(1.0)
         } else {
             swapSpring.snap(0.0)
-            swapSpring.setTarget(1.0, stiffness: 210.0, damping: 19.0)
-            amountSpring.impulse(1.9)
+            swapSpring.setTarget(1.0, stiffness: 320.0, damping: 28.0)
+            amountSpring.impulse(1.6)
         }
     }
 
@@ -445,6 +446,19 @@ public final class PipiProceduralAvatarEngine {
         amountSpring.impulse(4.8)
         let dir = rng.next() > 0.5 ? 1.0 : -1.0
         spinSpring.impulse(dir * 185.0)
+    }
+
+    public func stepIfNeeded(at date: Date) {
+        let ts = date.timeIntervalSinceReferenceDate
+        guard let prev = lastWallTimestamp else {
+            lastWallTimestamp = ts
+            step(deltaSec: PipiAvatarMath.fixedDt)
+            return
+        }
+        let dt = ts - prev
+        guard dt >= 0.008 else { return }
+        lastWallTimestamp = ts
+        step(deltaSec: min(0.04, dt))
     }
 
     public func step(deltaSec: Double) {

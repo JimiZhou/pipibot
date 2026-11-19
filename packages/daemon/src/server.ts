@@ -53,6 +53,8 @@ export interface PipiResidentServerOptions {
   byokConfigs?: ByokProviderConfig[];
   pulseIntervalMs?: number;
   seedMemoryIfEmpty?: boolean;
+  seedDefaults?: boolean;
+  seedFleet?: boolean;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -251,9 +253,9 @@ export class PipiResidentServer {
       drivers: createSimulatedFallbackDrivers(),
     });
 
-    this.outcomeEngine = new PipiOutcomeEngine({ seedDefaults: true });
+    this.outcomeEngine = new PipiOutcomeEngine({ seedDefaults: options.seedDefaults !== false });
     this.cueSensor = new PipiCueSensor({ memory: this.memoryEngine, workspacePath: this.workspacePath });
-    this.fleetManager = new PipiFleetManager({ memory: this.memoryEngine, seedFleet: true });
+    this.fleetManager = new PipiFleetManager({ memory: this.memoryEngine, seedFleet: options.seedFleet !== false });
 
     this.outcomeEngine.onEvent((evt) => {
       if (evt.type === 'decision.needs_you') {

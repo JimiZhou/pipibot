@@ -32,12 +32,18 @@ else
   exit 1
 fi
 
+if [[ ! -f "$REPO_ROOT/assets/icons/ios/AppIcon60x60@3x.png" ]]; then
+  echo "==> Generating app icons..."
+  swift "$REPO_ROOT/scripts/generate-app-icons.swift"
+fi
+
 echo "==> Packaging $APP_BUNDLE..."
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE"
 
 cp "$BUILT_BINARY" "$APP_BUNDLE/PipiBotIOSApp"
 chmod +x "$APP_BUNDLE/PipiBotIOSApp"
+cp "$REPO_ROOT/assets/icons/ios/"*.png "$APP_BUNDLE/"
 
 if [[ -d "$PRODUCTS_DIR/PipiBotIOSUI.appintents" ]]; then
   mkdir -p "$APP_BUNDLE/Metadata.appintents"
@@ -51,10 +57,45 @@ cat > "$APP_BUNDLE/Info.plist" <<'PLIST'
 <dict>
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>zh-Hans</string>
+  </array>
   <key>CFBundleDisplayName</key>
   <string>PipiBot</string>
   <key>CFBundleExecutable</key>
   <string>PipiBotIOSApp</string>
+  <key>CFBundleIconFiles</key>
+  <array>
+    <string>AppIcon60x60</string>
+    <string>AppIcon76x76</string>
+  </array>
+  <key>CFBundleIcons</key>
+  <dict>
+    <key>CFBundlePrimaryIcon</key>
+    <dict>
+      <key>CFBundleIconFiles</key>
+      <array>
+        <string>AppIcon60x60</string>
+      </array>
+      <key>UIPrerenderedIcon</key>
+      <true/>
+    </dict>
+  </dict>
+  <key>CFBundleIcons~ipad</key>
+  <dict>
+    <key>CFBundlePrimaryIcon</key>
+    <dict>
+      <key>CFBundleIconFiles</key>
+      <array>
+        <string>AppIcon60x60</string>
+        <string>AppIcon76x76</string>
+      </array>
+      <key>UIPrerenderedIcon</key>
+      <true/>
+    </dict>
+  </dict>
   <key>CFBundleIdentifier</key>
   <string>ai.pipibot.ios</string>
   <key>CFBundleInfoDictionaryVersion</key>
@@ -64,9 +105,9 @@ cat > "$APP_BUNDLE/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.2.0-beta</string>
+  <string>0.8.0</string>
   <key>CFBundleVersion</key>
-  <string>2</string>
+  <string>8</string>
   <key>CFBundleSupportedPlatforms</key>
   <array>
     <string>iPhoneSimulator</string>

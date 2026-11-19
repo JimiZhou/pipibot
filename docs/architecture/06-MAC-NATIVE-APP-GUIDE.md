@@ -1,8 +1,8 @@
 # 06 · Mac All-in-One 原生应用架构与功能指南 (`PipiBot.app`)
 
-> **版本基线**: `v0.2.0-beta` (Wave 3 All-in-One 原生 macOS 应用升级)
+> **版本基线**: `v0.3.0-s2` (S0–S2 Native Shell & Session Core 升级)
 > **目标形态**: 单一原生 `PipiBot.app` (`ai.pipibot.mac`)，开箱即用、零手动终端守护进程
-> **相关文档**: [05 Mac/iOS V1 实现规范](./05-MAC-AND-IOS-V1-IMPLEMENTATION.md) · [02 系统架构与 Harness](./02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) · [03 Cloudflare 与 Fleet](./03-CLOUDFLARE-AND-FLEET-INFRA.md) · [04 记忆与自我进化](./04-MEMORY-AND-SELF-EVOLUTION.md) · [UI/UX 设计系统](../design-system/01-UIUX-DESIGN-SYSTEM.md)
+> **相关文档**: [08 Bot Runtime 与体验蓝图](./08-BOT-RUNTIME-AND-EXPERIENCE-BLUEPRINT.md) · [05 Mac/iOS V1 实现规范](./05-MAC-AND-IOS-V1-IMPLEMENTATION.md) · [02 系统架构与 Harness](./02-SYSTEM-ARCHITECTURE-AND-HARNESS.md) · [UI/UX 设计系统](../design-system/01-UIUX-DESIGN-SYSTEM.md)
 
 ---
 
@@ -55,9 +55,15 @@ flowchart TB
 
 | 桌面入口 | 底层 SwiftUI / AppKit 实现 | 交互形态与热键 | 核心使用场景 |
 | :--- | :--- | :--- | :--- |
-| **1. MenuBar 活体常驻胶囊** | `MenuBarExtra(..., style: .window)` (`PipiBotMacApp.swift`) | 常驻 macOS 顶部菜单栏：`22×22pt` 活体 `PipiAvatarView` + 待审批角标；点击展开 `380pt` Popover | 零切换成本瞄一眼当前状态、检视 5 端 Dots 活力条、Keep-Awake 与 Bridge 状态开关、1-Click 批准首要 `Needs You` 决策。 |
-| **2. 全局无焦点悬浮胶囊** | `ManusCueFloatingPanel` (`NSPanel` `.nonactivatingPanel` + `.borderless`) | 全局命令 / 快捷键 **`⌥Space`**（`ManusCuePanelController`）唤起 `560×156pt` 玻璃拟态胶囊，可跨全屏桌面置顶悬浮 | 正在 Xcode / VS Code / 终端 / 浏览器专注工作时**不抢占当前窗口焦点**，读取前台应用与 Git 分支意图后提供 3 个 1-Click Cue 行动，回车或点击即后台派发。 |
-| **3. 全功能主工作台** | `MacOutcomeStudioView` (`WindowGroup("PipiBot Outcome Studio")`) | 最小 `960×680pt` 双栏 `NavigationSplitView`，底部锚定 `PipiBottomBar`（主题切换 + 原生/桥接同步） | 全面管理跨越研发、工作、生活、基建的 8 大核心功能模块，支持同屏预览 iOS 伴侣端与 53 状态头像实验室。 |
+| **1. MenuBar 活体常驻胶囊** | `MenuBarExtra(..., style: .window)` (`PipiBotMacApp.swift`) | 常驻 macOS 顶部菜单栏：待审批角标 + 快捷输入；发送时自动**新建会话** | 零切换成本瞄一眼当前状态、快速发起新会话、1-Click 批准首要 `Needs You` 决策。 |
+| **2. 全局快捷浮窗 (`⌥Space`)** | `PipiQuickBarController` + `PipiQuickBarKeyPanel` (`NSPanel` 子类，`canBecomeKey`) | Carbon `RegisterEventHotKey` 全局 **`⌥Space`**（任意 App 前台有效）；Esc / 失焦收起；顶部中央展开与收回 | 随时随地提问并在面板内**新建会话并流式直出回答**；按 **`⌘↩`** 无缝切换到主窗口继续。 |
+| **3. 原生三栏主工作台** | `NavigationSplitView` + `.inspector(isPresented:)` + `.toolbar` (`PipiWorkspaceView`) | 可折叠/可调宽侧边栏（`⌃⌘S`、`SidebarCommands`）；右侧 `.inspector` 推开正文（Plan / Changes / Context）；统一原生标题栏可拖动且避让红绿灯 | 全局搜索与 **`⌘K` 命令面板**、**需要你（Needs You）**统一收件箱、跨 Bot 全局会话流、多会话并发运行与结构化事件时间线。 |
+
+### 2.1 S2 原生外壳信息架构与工艺规则 (`Blueprint §7`)
+
+- **全局侧边栏 IA**：顶部搜索框 + `⌘K` 命令面板（检索会话标题、消息正文、Bot 与命令）→ **需要你 (Needs You)** 收件箱入口与角标 → **全局会话列表**（按「进行中/需要你 → 置顶 → 今天 → 昨天 → 前 7 天 → 更早」分组，每行显示 Bot 头像、状态点与相对时间，支持右键/菜单置顶）→ **项目分组** → 底部紧凑 **Bots 头像筛选行** + `+` → 静默 Host 徽标（`🖥 本机 · 在线 / This Mac · Online`）。
+- **字体缩放与无障碍**：移除整窗 `scaleEffect`，通过 `PipiTokens.textScale` + `EnvironmentValues.pipiTextScale` 缩放字号 Token（保留 `⌘+` / `⌘-` / `⌘0` 与 HUD）；所有纯图标按钮均具备 `accessibilityLabel`；最后一条回复操作常驻可见并补充消息右键菜单与 `accessibilityAction`。
+- **动效与材质层级**：默认与抽屉弹簧统一为 `response 0.3, damping 1.0`（无动量手势不回弹）；侧栏采用更厚重的结构材质（`.pipiStructuralMaterial()`），浮窗采用轻量玻璃（`.pipiLiquidGlass()`），不叠两层玻璃，并完整适配 `accessibilityReduceTransparency` 与 `accessibilityReduceMotion`。
 
 ---
 
@@ -114,3 +120,13 @@ npm run verify
 1. **无 GUI 的 Headless 服务器 / Linux VPS**：没有 AppKit/SwiftUI 桌面环境，需要纯 Node.js 无头常驻服务。
 2. **纯 CLI / 浏览器 PWA 独立调试**：在不启动 macOS GUI 应用的前提下，单独在浏览器打开 `http://127.0.0.1:4242/ios` 或调试 `/api/v1/*` 接口。
 3. **CI / 自动化集成测试**：执行 `npm run test:daemon` 对 REST/SSE 契约进行无桌面环境回归测试。
+
+---
+
+## 5. Mac 原生 UI 规范更新（2026-11-19 Redesign）
+
+- **产品品牌名统一**：所有用户可见字符串、窗口/菜单标题与 `CFBundleDisplayName`/`CFBundleName` 统一使用 **`PiPiBot`**；代码模块/目标名（`PipiBotKit`、`PipiBotMacApp`、`PipiTokens`）及构建包路径 `dist/PipiBot.app` 保持兼容不变。
+- **Devin 极简灰度表面系统**：Light 模式采用纯白/中性灰阶（`#FFFFFF` 画布、`#F7F7F8` 侧边栏、`#EFEFF1` 悬停、`#171717` 主文字与强调），Dark 模式采用中性炭灰（`#0F1012` / `#141518` / `#181A1E`）；色彩仅保留给运行状态点与 16–36pt Bot 身份图标。
+- **Devin 风格左侧导航与 Bots Hub (`PipiBotsHubView`)**：侧边栏顶部为 `+ 新建任务` 分割按钮 + `⌘K` 触发器；固定 2 个主导航项（`需要你`、`Bots`）；统一按时间分组的 `任务` 列表（单 Bot 会话 + 协作群聊，带 `全部 / 群聊 / Bot` 筛选）；底部精简为单行 `Host 状态弹窗 + 设置按钮`（`44pt`）。`Bots` 页面默认展示 2 列高密度 Bot 卡片网格并支持切换 `3D 空间`，点开 Bot 详情 Sheet 可配置权限等级与例行任务（`Routines`）。
+- **两层接地式输入区与 Session Artifacts 检查器 (`PipiBotInspectorView`)**：会话底部为 `bgCanvas` 实底接地的两层输入区（Tier 1：`+` 文件/指令菜单、调用 `setEffectivePermissionTier(_:)` 的权限选择器、引擎选择器、单色发送按钮；Tier 2：24pt Bot 切换器与完整工作区路径）。右侧 `.inspector` 专注展示当前会话的 `计划` / `改动` / `上下文`，不再混入 Bot 传记或例行任务编辑；所有自定义 Chevron 的 macOS `Menu` 均启用 `.menuIndicator(.hidden)`。
+- **4-Tab 系统设置信息架构 (`PipiSettingsView`)**：设置页收拢为 **`通用`、`模型与引擎`、`运行环境与同步`、`记忆与数据`** 四个分段，采用 `192pt` 左侧栏 + `600pt` 分组白卡 + `1px` 行间分隔线；已移除 `PipiSettingsTab.personas` 与 `PipiPersonaEditorSheet`。

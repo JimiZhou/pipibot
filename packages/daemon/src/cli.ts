@@ -16,6 +16,7 @@ export interface ParsedCliArgs {
   host: string;
   workspacePath?: string;
   printPlistOnly: boolean;
+  clean: boolean;
   help: boolean;
 }
 
@@ -24,6 +25,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
   let host = process.env.PIPIBOT_HOST ?? '127.0.0.1';
   let workspacePath: string | undefined;
   let printPlistOnly = false;
+  let clean = false;
   let help = false;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -32,6 +34,8 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
       help = true;
     } else if (arg === '--print-plist') {
       printPlistOnly = true;
+    } else if (arg === '--clean') {
+      clean = true;
     } else if (arg === '--port' || arg === '-p') {
       const next = argv[i + 1];
       if (next) {
@@ -54,7 +58,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
     }
   }
 
-  return { port, host, workspacePath, printPlistOnly, help };
+  return { port, host, workspacePath, printPlistOnly, clean, help };
 }
 
 export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> {
@@ -69,7 +73,8 @@ export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> 
         'Options:',
         `  -p, --port <port>       Listen port (default: ${DEFAULT_DAEMON_PORT} or PIPIBOT_PORT)`,
         '      --host <host>       Bind host (default: 127.0.0.1)',
-        '      --workspace <dir>   Workspace root for Manus Cue & Outcomes',
+        '      --workspace <dir>   Workspace root',
+        '      --clean             Start without demo seed data',
         '      --print-plist       Print macOS launchd plist XML and exit',
         '  -h, --help              Show help',
       ].join('\n'),
@@ -81,6 +86,9 @@ export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> 
     port: opts.port,
     host: opts.host,
     workspacePath: opts.workspacePath,
+    seedDefaults: !opts.clean,
+    seedFleet: !opts.clean,
+    seedMemoryIfEmpty: !opts.clean,
   });
 
   if (opts.printPlistOnly) {

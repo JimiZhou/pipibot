@@ -6,28 +6,28 @@ import UIKit
 #endif
 
 public enum PipiIOSTab: String, CaseIterable, Sendable, Identifiable {
-    case outcomes
-    case needsYou
-    case muse
-    case fleetSoul
+    case chat
+    case bots
+    case tasks
+    case settings
 
     public var id: String { rawValue }
 
-    public var title: String {
+    public func title(_ s: PipiStrings) -> String {
         switch self {
-        case .outcomes: return "Outcomes"
-        case .needsYou: return "Needs You"
-        case .muse: return "Muse"
-        case .fleetSoul: return "Fleet"
+        case .chat: return s.tabChat
+        case .bots: return s.tabBots
+        case .tasks: return s.tabTasks
+        case .settings: return s.tabSettings
         }
     }
 
     public var iconName: String {
         switch self {
-        case .outcomes: return "target"
-        case .needsYou: return "tray.and.arrow.down.fill"
-        case .muse: return "square.grid.2x2.fill"
-        case .fleetSoul: return "circle.grid.3x3.fill"
+        case .chat: return "bubble.left.and.bubble.right.fill"
+        case .bots: return "person.2.fill"
+        case .tasks: return "checklist"
+        case .settings: return "gearshape.fill"
         }
     }
 }
@@ -35,105 +35,58 @@ public enum PipiIOSTab: String, CaseIterable, Sendable, Identifiable {
 public struct PipiIOSCompanionRootView: View {
     @Bindable public var store: PipiAppStore
 
-    @State private var selectedTab: PipiIOSTab = .outcomes
-    @State private var domainFilter: OutcomeDomain?
-    @State private var showCreateOutcomeSheet = false
-    @State private var showHarnessSheet = false
-    @State private var showIntegrationsSheet = false
-    @State private var lastSnapshotSummary: String = "Ready"
-    @State private var newTitle = ""
-    @State private var newGoal = ""
-    @State private var newDomain: OutcomeDomain = .dev
-    @State private var newHarness: HarnessProvider = .pi
-    @State private var newBudget = "2.00"
+    @State private var selectedTab: PipiIOSTab = .chat
+    @State private var draftInput: String = ""
+    @State private var showAddModelSheet = false
+    @State private var modelPreset: PipiLLMProviderKind = .openai
+    @State private var modelApiKey: String = ""
+    @State private var modelBaseURL: String = PipiLLMProviderKind.openai.defaultBaseURL
+    @State private var modelId: String = PipiLLMProviderKind.openai.defaultModelId
+    @State private var testResultText: String?
 
     public init(store: PipiAppStore) {
         self.store = store
     }
+
+    private var s: PipiStrings { store.strings }
+    private var lang: PipiResolvedLanguage { store.resolvedLanguage }
+    private var activeAccent: Color { PipiTokens.color(for: store.activePersona.accent) }
 
     public var body: some View {
         ZStack(alignment: .bottom) {
             PipiTokens.bgCanvas
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                dynamicIslandHeader
-                    .padding(.top, PipiTokens.spacing8)
-                    .padding(.horizontal, PipiTokens.spacing16)
-                    .padding(.bottom, PipiTokens.spacing12)
-
-                Group {
-                    switch selectedTab {
-                    case .outcomes:
-                        outcomesPage
-                    case .needsYou:
-                        NeedsYouSwipeDeckView(store: store, onHaptic: triggerHaptic)
-                    case .muse:
-                        MuseSpatialCanvasView(store: store, onOpenHarnessSheet: { showHarnessSheet = true })
-                    case .fleetSoul:
-                        DotsFleetAndTunnelView(store: store)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                // Grounded bottom bar (never box-in-box floating card)
-                PipiBottomBar {
-                    HStack(spacing: PipiTokens.spacing8) {
-                        ForEach(PipiIOSTab.allCases) { tab in
-                            bottomTabButton(tab)
-                        }
-                    }
-                }
+            if !store.hasCompletedOnboarding {
+                iosOnboardingView
+            } else {
+                mainTabShell
             }
 
-            if showCreateOutcomeSheet {
+            if showAddModelSheet {
                 PipiFormSheet(
-                    title: "New Outcome Contract",
-                    subtitle: "Define an autonomous goal & daily budget ceiling",
+                    title: s.addModelProvider,
+                    subtitle: s.t("配置任意云端大模型 API 或本地兼容接口", "Connect a cloud LLM API or compatible endpoint"),
                     detent: .compact,
-                    submitLabel: "Launch Outcome Bot",
-                    submitIcon: "sparkles",
-                    onCancel: { showCreateOutcomeSheet = false },
+                    submitLabel: s.saveAndUse,
+                    submitIcon: "checkmark.circle.fill",
+                    onCancel: { showAddModelSheet = false },
                     onSubmit: {
-                        let budget = Double(newBudget) ?? 2.0
-                        Task {
-                            await store.createOutcome(
-                                title: newTitle,
-                                domain: newDomain,
-                                goal: newGoal,
-                                preferredHarness: newHarness,
-                                dailyBudgetUsd: budget
-                            )
+                        let cfg = PipiLLMProviderConfig(
+                            name: modelPreset.displayName,
+                            kind: modelPreset,
+                            baseURL: modelBaseURL,
+                            apiKey: modelApiKey,
+                            modelId: modelId.isEmpty ? modelPreset.defaultModelId : modelId
+                        )
+                        if cfg.isReady {
+                            store.upsertLLMProvider(cfg, setAsDefault: true)
                             triggerHaptic(.success)
-                            newTitle = ""
-                            newGoal = ""
-                            showCreateOutcomeSheet = false
+                            showAddModelSheet = false
                         }
                     }
                 ) {
-                    outcomeFormFields
-                }
-            }
-
-            if showHarnessSheet {
-                PipiSheet(
-                    title: "Universal Harness Router",
-                    subtitle: "Zero-duplicate-key local CLIs + BYOK pi-ai",
-                    detent: .expanded,
-                    onClose: { showHarnessSheet = false }
-                ) {
-                    harnessRouterSheetContent
-                }
-            }
-
-            if showIntegrationsSheet {
-                PipiSheet(
-                    title: "iOS System Integrations",
-                    subtitle: "AppIntents · Lock-Screen Steer · Dynamic Island · Deep Links",
-                    detent: .expanded,
-                    onClose: { showIntegrationsSheet = false }
-                ) {
-                    systemIntegrationsSheetContent
+                    iosModelFormFields
                 }
             }
         }
@@ -146,183 +99,252 @@ public struct PipiIOSCompanionRootView: View {
         }
     }
 
-    // MARK: - Dynamic Island Live Activity Header
+    // MARK: - Compact iOS First-Launch Setup
 
-    private var dynamicIslandHeader: some View {
-        VStack(spacing: PipiTokens.spacing8) {
-            // Single obsidian Dynamic Island pill with content on top layer
-            ZStack {
-                Capsule(style: .continuous)
-                    .fill(PipiTokens.dynamicIslandShell)
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(PipiTokens.dynamicIslandStroke, lineWidth: 1)
-                    )
+    private var iosOnboardingView: some View {
+        ScrollView {
+            VStack(spacing: PipiTokens.spacing20) {
+                Spacer(minLength: 24)
+                PipiAvatarView(engine: store.avatarEngine, size: 96, accentOverride: activeAccent)
 
-                HStack(spacing: PipiTokens.spacing12) {
-                    PipiAvatarView(engine: store.avatarEngine, size: 28, compactMode: true)
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(PipiProceduralAvatarEngine.metadata(for: store.avatarEngine.state).label)
-                            .font(PipiTokens.fontCaption.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textInverse)
-                            .lineLimit(1)
-
-                        Text("\(store.activeHarness.shortLabel) · \(store.onlineFleetCount)/\(store.fleetNodes.count) nodes")
-                            .font(PipiTokens.fontMonoSmall)
-                            .foregroundStyle(PipiTokens.color(for: store.activeHarness))
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: PipiTokens.spacing4)
-
-                    if !store.pendingDecisions.isEmpty {
-                        Button {
-                            selectedTab = .needsYou
-                            triggerHaptic(.light)
-                        } label: {
-                            Text("\(store.pendingDecisions.count) Needs You")
-                                .font(PipiTokens.fontMicro)
-                                .foregroundStyle(PipiTokens.stateWarning)
-                                .padding(.horizontal, PipiTokens.spacing8)
-                                .padding(.vertical, 4)
-                                .background(PipiTokens.stateWarningBg)
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        PipiDotIndicator(vitality: .alive, color: PipiTokens.stateSuccess, size: 7)
-                    }
-
-                    Button {
-                        showIntegrationsSheet = true
-                        triggerHaptic(.light)
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(PipiTokens.textInverse)
-                            .frame(width: 28, height: 28)
-                            .background(PipiTokens.soulPrimary.opacity(0.32))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, PipiTokens.spacing12)
-            }
-            .frame(height: 44)
-
-            if let notice = store.noticeBanner {
-                HStack(spacing: PipiTokens.spacing8) {
-                    Circle()
-                        .fill(store.connectionMode == .liveDaemon ? PipiTokens.stateSuccess : PipiTokens.soulPrimary)
-                        .frame(width: 6, height: 6)
-                    Text(notice)
-                        .font(PipiTokens.fontCaption)
+                VStack(spacing: PipiTokens.spacing8) {
+                    Text(s.onboardingWelcomeTitle)
+                        .font(PipiTokens.fontHero)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Text(s.appTagline)
+                        .font(PipiTokens.fontBody)
                         .foregroundStyle(PipiTokens.textSecondary)
-                        .lineLimit(1)
-                    Spacer()
-                    Button {
-                        Task { await store.refreshAllFromDaemon() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(PipiTokens.textMuted)
-                    }
-                    .buttonStyle(.plain)
+                        .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, PipiTokens.spacing4)
+
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    iosModelFormFields
+                }
+                .padding(PipiTokens.spacing16)
+                .background(PipiTokens.bgSurface)
+                .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous).stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous))
+
+                PipiActionButton(s.onboardingStartChatting, systemImage: "arrow.right", tone: .primary, density: .mobile, fullWidth: true) {
+                    let cfg = PipiLLMProviderConfig(
+                        name: modelPreset.displayName,
+                        kind: modelPreset,
+                        baseURL: modelBaseURL,
+                        apiKey: modelApiKey,
+                        modelId: modelId.isEmpty ? modelPreset.defaultModelId : modelId
+                    )
+                    if cfg.isReady {
+                        store.upsertLLMProvider(cfg, setAsDefault: true)
+                    }
+                    store.completeOnboarding()
+                    triggerHaptic(.success)
+                }
+
+                Button(s.skipForNow) {
+                    store.completeOnboarding()
+                }
+                .buttonStyle(.plain)
+                .font(PipiTokens.fontCaption)
+                .foregroundStyle(PipiTokens.textMuted)
+            }
+            .padding(PipiTokens.spacing20)
+        }
+    }
+
+    // MARK: - Main Shell
+
+    private var mainTabShell: some View {
+        VStack(spacing: 0) {
+            dynamicIslandHeader
+                .padding(.top, PipiTokens.spacing8)
+                .padding(.horizontal, PipiTokens.spacing16)
+                .padding(.bottom, PipiTokens.spacing12)
+
+            Group {
+                switch selectedTab {
+                case .chat:
+                    chatPage
+                case .bots:
+                    botsPage
+                case .tasks:
+                    NeedsYouSwipeDeckView(store: store, onHaptic: triggerHaptic)
+                case .settings:
+                    settingsPage
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            PipiBottomBar {
+                HStack(spacing: PipiTokens.spacing8) {
+                    ForEach(PipiIOSTab.allCases) { tab in
+                        bottomTabButton(tab)
+                    }
+                }
             }
         }
     }
 
-    // MARK: - Outcomes Page
+    // MARK: - Top Status Pill
 
-    private var filteredOutcomes: [OutcomeResponsibility] {
-        guard let domainFilter else { return store.outcomes }
-        return store.outcomes.filter { $0.domain == domainFilter }
-    }
+    private var dynamicIslandHeader: some View {
+        ZStack {
+            Capsule(style: .continuous)
+                .fill(PipiTokens.dynamicIslandShell)
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(PipiTokens.dynamicIslandStroke, lineWidth: 1)
+                )
 
-    private var outcomesPage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
-                PipiDock(
-                    avatarEngine: store.avatarEngine,
-                    title: "Outcome Manager",
-                    subtitle: "\(store.outcomes.count) active responsibilities · $0 Edge",
-                    actionTitle: "New Bot",
-                    actionIcon: "plus",
-                    density: .mobile
-                ) {
-                    showCreateOutcomeSheet = true
-                    triggerHaptic(.medium)
+            HStack(spacing: PipiTokens.spacing12) {
+                PipiBotPersonaGlyph(persona: store.activePersona, size: 26, isSelected: true)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(store.activePersona.name(lang))
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textInverse)
+                        .lineLimit(1)
+
+                    Text(store.generatingStatusText ?? store.activeEngineDisplayLabel())
+                        .font(PipiTokens.fontMonoSmall)
+                        .foregroundStyle(store.hasConfiguredEngine ? activeAccent : PipiTokens.stateWarning)
+                        .lineLimit(1)
                 }
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: PipiTokens.spacing8) {
-                        domainChip(title: "All", domain: nil)
-                        ForEach(OutcomeDomain.allCases) { domain in
-                            domainChip(title: domain.displayName, domain: domain)
+                Spacer(minLength: PipiTokens.spacing4)
+
+                if !store.pendingDecisions.isEmpty {
+                    Button {
+                        selectedTab = .tasks
+                        triggerHaptic(.light)
+                    } label: {
+                        Text("\(store.pendingDecisions.count)")
+                            .font(PipiTokens.fontMicro)
+                            .foregroundStyle(PipiTokens.stateWarning)
+                            .padding(.horizontal, PipiTokens.spacing8)
+                            .padding(.vertical, 4)
+                            .background(PipiTokens.stateWarningBg)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    PipiDotIndicator(vitality: .alive, color: PipiTokens.stateSuccess, size: 7)
+                }
+            }
+            .padding(.horizontal, PipiTokens.spacing12)
+        }
+        .frame(height: 44)
+    }
+
+    // MARK: - Tab 1: Chat
+
+    private var chatPage: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: PipiTokens.spacing12) {
+                    if let conv = store.activeConversation, !conv.messages.isEmpty {
+                        ForEach(conv.messages) { msg in
+                            HStack {
+                                if msg.role == .user { Spacer(minLength: 40) }
+                                Text(msg.content)
+                                    .font(PipiTokens.fontBody)
+                                    .foregroundStyle(msg.role == .user ? PipiTokens.textInverse : PipiTokens.textPrimary)
+                                    .padding(PipiTokens.spacing12)
+                                    .background(msg.role == .user ? activeAccent : PipiTokens.bgSurface)
+                                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                                if msg.role != .user { Spacer(minLength: 40) }
+                            }
+                        }
+                    } else {
+                        VStack(spacing: PipiTokens.spacing16) {
+                            Spacer(minLength: 20)
+                            PipiAvatarView(
+                                engine: store.avatarEngine,
+                                size: 76,
+                                accentOverride: activeAccent,
+                                personaAccent: store.activePersona.accent,
+                                motif: PipiPersonaMotif.resolve(for: store.activePersona)
+                            )
+                            Text(store.activePersona.greeting(lang))
+                                .font(PipiTokens.fontBody)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, PipiTokens.spacing16)
+
+                            ForEach(store.activePersona.starterPrompts(lang), id: \.self) { prompt in
+                                Button {
+                                    Task { await store.sendPersonalMessage(prompt) }
+                                } label: {
+                                    Text(prompt)
+                                        .font(PipiTokens.fontCaption)
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(PipiTokens.spacing12)
+                                        .background(PipiTokens.bgSurface)
+                                        .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusMD).stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, PipiTokens.spacing16)
+                .padding(.bottom, PipiTokens.spacing16)
+            }
 
-                if filteredOutcomes.isEmpty {
-                    PipiEmptyState(
-                        systemImage: "target",
-                        title: "No Outcomes in This Domain",
-                        message: "Create an autonomous Outcome Bot to monitor goals, delegate child sessions, and surface clean decisions.",
-                        buttonTitle: "Create Outcome",
-                        buttonAction: { showCreateOutcomeSheet = true }
-                    )
-                    .padding(.vertical, PipiTokens.spacing24)
-                } else {
-                    ForEach(filteredOutcomes) { outcome in
-                        let statusColor = statusBadgeColor(outcome.status)
-                        PipiListCard(
-                            title: outcome.title,
-                            subtitle: outcome.goal,
-                            badgeText: outcome.status.displayLabel,
-                            badgeColor: statusColor,
-                            leading: {
-                                Image(systemName: iconForDomain(outcome.domain))
-                                    .font(.system(size: PipiTokens.buttonIconMobile, weight: .semibold))
-                                    .foregroundStyle(PipiTokens.color(for: outcome.domain))
-                                    .frame(width: 38, height: 38)
-                                    .background(PipiTokens.color(for: outcome.domain).opacity(0.14))
-                                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-                            },
-                            trailing: {
-                                Text(outcome.preferredHarness.shortLabel)
-                                    .font(PipiTokens.fontMonoSmall)
-                                    .foregroundStyle(PipiTokens.color(for: outcome.preferredHarness))
-                                    .padding(.horizontal, PipiTokens.spacing8)
-                                    .padding(.vertical, 4)
-                                    .background(PipiTokens.bgInset)
-                                    .clipShape(Capsule())
-                            },
-                            footer: {
-                                HStack(spacing: PipiTokens.spacing8) {
-                                    Text(String(format: "$%.2f / $%.2f today", outcome.spentTodayUsd, outcome.dailyBudgetUsd))
-                                        .font(PipiTokens.fontMonoSmall)
-                                        .foregroundStyle(PipiTokens.textMuted)
+            HStack(spacing: PipiTokens.spacing8) {
+                TextField(s.chatPlaceholderCompact, text: $draftInput)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, PipiTokens.spacing12)
+                    .frame(height: PipiTokens.buttonHeightMobile)
+                    .background(PipiTokens.bgSurface)
+                    .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusMD).stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
 
-                                    Spacer()
-
-                                    PipiActionButton(
-                                        "Evaluate",
-                                        systemImage: "play.fill",
-                                        tone: .secondary,
-                                        density: .mobile
-                                    ) {
-                                        Task {
-                                            await store.evaluateOutcome(outcome.id)
-                                            triggerHaptic(.light)
-                                        }
-                                    }
-                                }
-                            }
-                        )
+                PipiActionButton(s.send, systemImage: "arrow.up", tone: .primary, density: .mobile) {
+                    let text = draftInput
+                    draftInput = ""
+                    Task {
+                        await store.sendPersonalMessage(text)
+                        triggerHaptic(.light)
                     }
+                }
+            }
+            .padding(.horizontal, PipiTokens.spacing16)
+            .padding(.vertical, PipiTokens.spacing8)
+        }
+    }
+
+    // MARK: - Tab 2: Bots (Personas)
+
+    private var botsPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                ForEach(store.personas) { persona in
+                    let isSelected = store.activePersona.id == persona.id
+                    let accent = PipiTokens.color(for: persona.accent)
+                    PipiListCard(
+                        title: persona.name(lang),
+                        subtitle: persona.role(lang),
+                        badgeText: isSelected ? s.enabled : nil,
+                        badgeColor: accent,
+                        leading: {
+                            PipiBotPersonaGlyph(persona: persona, size: 38, isSelected: isSelected)
+                        },
+                        footer: {
+                            PipiActionButton(
+                                s.t("开始对话", "Chat Now"),
+                                systemImage: "bubble.left.fill",
+                                tone: isSelected ? .primary : .secondary,
+                                density: .mobile,
+                                fullWidth: true
+                            ) {
+                                store.selectPersona(persona.id)
+                                selectedTab = .chat
+                                triggerHaptic(.light)
+                            }
+                        }
+                    )
                 }
             }
             .padding(.horizontal, PipiTokens.spacing16)
@@ -330,193 +352,121 @@ public struct PipiIOSCompanionRootView: View {
         }
     }
 
-    private func domainChip(title: String, domain: OutcomeDomain?) -> some View {
-        let isSelected = domainFilter == domain
-        return Button {
-            domainFilter = domain
-            triggerHaptic(.light)
-        } label: {
-            Text(title)
-                .font(PipiTokens.fontCaption.weight(.semibold))
-                .foregroundStyle(isSelected ? PipiTokens.textInverse : PipiTokens.textSecondary)
-                .padding(.horizontal, PipiTokens.spacing12)
-                .frame(height: 32)
-                .background(isSelected ? PipiTokens.soulPrimary : PipiTokens.bgSurface)
-                .overlay(
-                    Capsule().stroke(isSelected ? PipiTokens.soulPrimary : PipiTokens.borderSubtle, lineWidth: 1)
-                )
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
+    // MARK: - Tab 4: Settings
 
-    // MARK: - Form Sheet Fields
-
-    private var outcomeFormFields: some View {
-        VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
-            VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                Text("Bot Title")
-                    .font(PipiTokens.fontCaption.weight(.semibold))
-                    .foregroundStyle(PipiTokens.textSecondary)
-                TextField("e.g., Weekly API Parity Bot", text: $newTitle)
-                    .textFieldStyle(.plain)
-                    .padding(PipiTokens.spacing12)
-                    .background(PipiTokens.bgSurface)
-                    .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusSM).stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM))
-            }
-
-            VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                Text("Outcome Goal")
-                    .font(PipiTokens.fontCaption.weight(.semibold))
-                    .foregroundStyle(PipiTokens.textSecondary)
-                TextField("Describe target end-state & success metrics", text: $newGoal, axis: .vertical)
-                    .lineLimit(3...5)
-                    .textFieldStyle(.plain)
-                    .padding(PipiTokens.spacing12)
-                    .background(PipiTokens.bgSurface)
-                    .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusSM).stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM))
-            }
-
-            HStack(spacing: PipiTokens.spacing12) {
-                VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                    Text("Domain")
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-                    Picker("Domain", selection: $newDomain) {
-                        ForEach(OutcomeDomain.allCases) { d in
-                            Text(d.displayName).tag(d)
-                        }
-                    }
-                    .labelsHidden()
-                }
-
-                VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                    Text("Harness")
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-                    Picker("Harness", selection: $newHarness) {
-                        ForEach(HarnessProvider.allCases) { h in
-                            Text(h.shortLabel).tag(h)
-                        }
-                    }
-                    .labelsHidden()
-                }
-
-                VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                    Text("USD/day")
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-                    TextField("2.00", text: $newBudget)
-                        .textFieldStyle(.plain)
-                        .padding(PipiTokens.spacing8)
-                        .frame(width: 72)
-                        .background(PipiTokens.bgSurface)
-                        .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusXS).stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusXS))
-                }
-            }
-        }
-    }
-
-    // MARK: - Harness Router Sheet Content
-
-    private var harnessRouterSheetContent: some View {
-        VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
-            ForEach(store.harnessProbes) { probe in
-                let isSelected = store.activeHarness == probe.provider
-                let accent = PipiTokens.color(for: probe.provider)
+    private var settingsPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
                 PipiListCard(
-                    title: probe.provider.displayName,
-                    subtitle: "\(probe.binaryPath ?? "runtime") · \(probe.authSource ?? "local auth")",
-                    badgeText: isSelected ? "Active" : (probe.authenticated ? "Ready" : "Offline"),
-                    badgeColor: isSelected ? accent : (probe.authenticated ? PipiTokens.stateSuccess : PipiTokens.textMuted),
+                    title: s.languageSectionTitle,
+                    subtitle: s.languageSectionDesc,
+                    footer: {
+                        Picker("", selection: Binding(
+                            get: { store.language },
+                            set: { store.setLanguage($0) }
+                        )) {
+                            ForEach(PipiAppLanguage.allCases) { option in
+                                Text(option.displayName(in: lang)).tag(option)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+                )
+
+                PipiListCard(
+                    title: s.appearanceSectionTitle,
+                    subtitle: s.t("外观模式", "Theme mode"),
+                    footer: {
+                        Picker("", selection: Binding(
+                            get: { store.themeMode },
+                            set: { store.setThemeMode($0) }
+                        )) {
+                            ForEach(PipiThemeMode.allCases) { mode in
+                                Text(mode.localizedLabel(lang)).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+                )
+
+                PipiListCard(
+                    title: s.settingsModels,
+                    subtitle: store.hasConfiguredEngine ? store.activeEngineDisplayLabel() : s.engineStatusUnconfigured,
+                    badgeText: store.hasConfiguredEngine ? s.agentStatusReady : nil,
+                    badgeColor: PipiTokens.stateSuccess,
+                    footer: {
+                        PipiActionButton(s.addModelProvider, systemImage: "plus", tone: .primary, density: .mobile, fullWidth: true) {
+                            showAddModelSheet = true
+                        }
+                    }
+                )
+
+                PipiListCard(
+                    title: s.companionSyncToggleTitle,
+                    subtitle: store.companionSyncEnabled ? store.daemonEndpoint : s.companionSyncToggleDesc,
+                    badgeText: store.companionSyncEnabled ? (store.connectionMode == .liveDaemon ? s.agentStatusReady : s.t("已开启", "On")) : s.disabled,
+                    badgeColor: store.companionSyncEnabled ? PipiTokens.stateSuccess : PipiTokens.textMuted,
                     trailing: {
-                        PipiActionButton(
-                            isSelected ? "Selected" : "Route Here",
-                            systemImage: isSelected ? "checkmark" : "arrow.triangle.branch",
-                            tone: isSelected ? .primary : .secondary,
-                            density: .mobile
-                        ) {
-                            store.activeHarness = probe.provider
-                            store.avatarEngine.setState(store.avatarState(for: probe.provider))
-                            triggerHaptic(.medium)
-                            showHarnessSheet = false
+                        Toggle("", isOn: Binding(
+                            get: { store.companionSyncEnabled },
+                            set: { store.setCompanionSyncEnabled($0) }
+                        ))
+                        .labelsHidden()
+                    },
+                    footer: {
+                        if store.companionSyncEnabled {
+                            PipiActionButton(s.refresh, systemImage: "arrow.clockwise", tone: .secondary, density: .mobile, fullWidth: true) {
+                                Task { await store.refreshAllFromDaemon() }
+                            }
                         }
                     }
                 )
             }
+            .padding(.horizontal, PipiTokens.spacing16)
+            .padding(.bottom, PipiTokens.spacing24)
         }
     }
 
-    // MARK: - Native iOS System Integrations Sheet
-
-    private var systemIntegrationsSheetContent: some View {
+    private var iosModelFormFields: some View {
         VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
-            PipiListCard(
-                title: "Siri & iPhone Action Button (AppIntents)",
-                subtitle: "PipiApproveTopDecisionIntent, PipiTriggerNightlyDreamIntent, PipiAskHarnessIntent registered via PipiIOSShortcutsProvider.",
-                badgeText: "AppIntents",
-                badgeColor: PipiTokens.soulPrimary
-            )
-
-            PipiListCard(
-                title: "Lock-Screen UNTextInput Steer",
-                subtitle: "NEEDS_YOU_DECISION & EVOLUTION_DIGEST categories enable direct Approve, Steer (text input), and Reject from iOS lock screen.",
-                badgeText: "Notifications",
-                badgeColor: PipiTokens.stateWarning,
-                footer: {
-                    HStack(spacing: PipiTokens.spacing8) {
-                        PipiActionButton("Arm Categories", systemImage: "bell.badge.fill", tone: .secondary, density: .mobile) {
-                            #if canImport(UserNotifications)
-                            Task {
-                                _ = await PipiIOSNotificationManager.requestAuthorizationIfNeeded()
-                                if let top = store.pendingDecisions.first {
-                                    await PipiIOSNotificationManager.scheduleNeedsYouNotification(for: top)
-                                }
-                                store.noticeBanner = "Lock-screen notification categories armed"
-                            }
-                            #endif
-                        }
-                    }
+            Picker(s.providerPreset, selection: $modelPreset) {
+                ForEach(PipiLLMProviderKind.allCases) { kind in
+                    Text(kind.localizedName(lang)).tag(kind)
                 }
-            )
+            }
+            .onChange(of: modelPreset) { _, next in
+                modelBaseURL = next.defaultBaseURL
+                modelId = next.defaultModelId
+            }
 
-            PipiListCard(
-                title: "Dynamic Island & Widget Snapshot Bridge",
-                subtitle: "Live Activity state: \(lastSnapshotSummary)",
-                badgeText: "ActivityKit Ready",
-                badgeColor: PipiTokens.stateSuccess,
-                footer: {
-                    PipiActionButton("Sync Snapshot Now", systemImage: "arrow.triangle.2.circlepath", tone: .primary, density: .mobile, fullWidth: true) {
-                        let snap = PipiIOSWidgetBridge.snapshot(from: store)
-                        try? PipiIOSWidgetBridge.saveSnapshot(snap)
-                        lastSnapshotSummary = "\(snap.avatarState.rawValue) · \(snap.pendingDecisionsCount) pending"
-                        triggerHaptic(.success)
-                    }
-                }
-            )
+            SecureField(s.apiKeyPlaceholder, text: $modelApiKey)
+                .textFieldStyle(.plain)
+                .padding(PipiTokens.spacing12)
+                .background(PipiTokens.bgInset)
+                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
 
-            PipiListCard(
-                title: "pipibot:// Deep-Link & Tunnel Pairing",
-                subtitle: "Supports pipibot://pair?tunnel=..., pipibot://tab/needs-you, and pipibot://decision/<id>/approve.",
-                badgeText: "URL Scheme",
-                badgeColor: PipiTokens.soulSecondary,
-                footer: {
-                    PipiActionButton("Test Needs-You Deep Link", systemImage: "link", tone: .secondary, density: .mobile, fullWidth: true) {
-                        if let url = URL(string: "pipibot://tab/needs-you"),
-                           let action = PipiIOSDeepLinkRouter.parse(url) {
-                            PipiIOSDeepLinkRouter.apply(action, to: store, selectedTab: &selectedTab)
-                            showIntegrationsSheet = false
-                        }
-                    }
-                }
-            )
+            TextField(s.modelNameLabel, text: $modelId)
+                .textFieldStyle(.plain)
+                .padding(PipiTokens.spacing12)
+                .background(PipiTokens.bgInset)
+                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+
+            TextField(s.baseUrlLabel, text: $modelBaseURL)
+                .textFieldStyle(.plain)
+                .font(PipiTokens.fontMono)
+                .padding(PipiTokens.spacing12)
+                .background(PipiTokens.bgInset)
+                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+
+            if let testResultText {
+                Text(testResultText)
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+            }
         }
     }
-
-    // MARK: - Bottom Bar Button
 
     private func bottomTabButton(_ tab: PipiIOSTab) -> some View {
         let isSelected = selectedTab == tab
@@ -531,7 +481,7 @@ public struct PipiIOSCompanionRootView: View {
                         .foregroundStyle(isSelected ? PipiTokens.soulPrimary : PipiTokens.textMuted)
                         .frame(height: 22)
 
-                    if tab == .needsYou && !store.pendingDecisions.isEmpty {
+                    if tab == .tasks && !store.pendingDecisions.isEmpty {
                         Circle()
                             .fill(PipiTokens.stateError)
                             .frame(width: 7, height: 7)
@@ -539,7 +489,7 @@ public struct PipiIOSCompanionRootView: View {
                     }
                 }
 
-                Text(tab.title)
+                Text(tab.title(s))
                     .font(PipiTokens.fontMicro)
                     .foregroundStyle(isSelected ? PipiTokens.textPrimary : PipiTokens.textMuted)
                     .lineLimit(1)
@@ -550,27 +500,6 @@ public struct PipiIOSCompanionRootView: View {
             .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
         }
         .buttonStyle(.plain)
-    }
-
-    // MARK: - Helpers
-
-    private func iconForDomain(_ domain: OutcomeDomain) -> String {
-        switch domain {
-        case .dev: return "chevron.left.forwardslash.chevron.right"
-        case .work: return "briefcase.fill"
-        case .dailyLife: return "heart.text.square.fill"
-        case .infra: return "server.rack"
-        }
-    }
-
-    private func statusBadgeColor(_ status: OutcomeStatus) -> Color {
-        switch status {
-        case .active, .achieved: return PipiTokens.stateSuccess
-        case .evaluating, .delegating: return PipiTokens.stateInfo
-        case .needsYou: return PipiTokens.stateWarning
-        case .paused: return PipiTokens.textMuted
-        case .failed: return PipiTokens.stateError
-        }
     }
 
     public enum HapticKind: Sendable {

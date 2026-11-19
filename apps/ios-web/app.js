@@ -1,7 +1,7 @@
 /**
- * PipiBot Companion PWA & Stageshow Live Controller
+ * PipiBot Companion Web App Controller
  * Connects to @pipibot/daemon (/api/v1/* + SSE /api/v1/events) with automatic
- * offline fallback so every view works both live and in static preview.
+ * offline fallback and system-language adaptation.
  */
 
 const avatarModuleUrl =
@@ -194,6 +194,22 @@ export async function initApp() {
   const { PipiAvatar } = await import(avatarModuleUrl);
   const state = createSeedState();
   const $ = (sel) => document.querySelector(sel);
+
+  const isZh = typeof navigator !== 'undefined' && String(navigator.language || '').toLowerCase().startsWith('zh');
+  const i18n = {
+    brandTitle: isZh ? 'PipiBot · 个人 AI 助手' : 'PipiBot · Personal AI',
+    quickAction: isZh ? '快捷' : 'Quick',
+    tabTasks: isZh ? '任务' : 'Tasks',
+    tabApprovals: isZh ? '待确认' : 'Approvals',
+    tabChat: isZh ? '对话' : 'Chat',
+    tabDevices: isZh ? '设备' : 'Devices',
+    tabMemory: isZh ? '记忆' : 'Memory',
+  };
+  document.documentElement.lang = isZh ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    const key = el.getAttribute('data-i18n');
+    if (key && i18n[key]) el.textContent = i18n[key];
+  });
 
   // Mount live 120Hz PipiAvatars
   const toolbarAvatar = new PipiAvatar($('#toolbar-avatar-mount'), { size: 32, initialState: state.avatarState, interactive: false, cursorTrack: false });
@@ -501,9 +517,9 @@ export async function initApp() {
   function renderMuseTab(container) {
     container.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="font-size:16px;">Muse Canvas &amp; Chat</strong>
+        <strong style="font-size:16px;">${isZh ? 'PipiBot 对话' : 'PipiBot Chat'}</strong>
         <button class="pipi-btn pipi-btn-desktop" id="btn-voice-toggle" type="button">
-          <span>${state.voiceListening ? 'Stop Voice' : 'Voice Interrupt'}</span>
+          <span>${state.voiceListening ? (isZh ? '停止语音' : 'Stop Voice') : (isZh ? '语音输入' : 'Voice')}</span>
         </button>
       </div>
       <div class="muse-grid">
@@ -560,8 +576,8 @@ export async function initApp() {
     const rtt = state.cloudflare?.tunnelRttMs ?? 18;
     container.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="font-size:16px;">Dots Fleet (${state.nodes.length})</strong>
-        <span class="pipi-pill is-ok mono">$0/mo CF · ${rtt}ms</span>
+        <strong style="font-size:16px;">${isZh ? '已连接设备' : 'Connected Devices'} (${state.nodes.length})</strong>
+        <span class="pipi-pill is-ok mono">${rtt}ms</span>
       </div>
       ${state.nodes.map((node) => `
         <article class="pipi-list-card">

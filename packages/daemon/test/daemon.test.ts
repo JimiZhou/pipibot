@@ -56,12 +56,36 @@ describe('PipiBot V1 Mac Resident Daemon (@pipibot/daemon)', () => {
   });
 
   test('CLI argument parsing handles ports, hosts, workspace, and flags', () => {
-    const parsed = parseCliArgs(['--port', '4343', '--host', '0.0.0.0', '--workspace', '/tmp/ws', '--print-plist']);
+    const parsed = parseCliArgs(['--port', '4343', '--host', '0.0.0.0', '--workspace', '/tmp/ws', '--print-plist', '--clean']);
     assert.equal(parsed.port, 4343);
     assert.equal(parsed.host, '0.0.0.0');
     assert.equal(parsed.workspacePath, '/tmp/ws');
     assert.equal(parsed.printPlistOnly, true);
+    assert.equal(parsed.clean, true);
     assert.equal(parsed.help, false);
+  });
+
+  test('Clean mode starts without demo outcomes, decisions, or mock fleet nodes', async () => {
+    const cleanDir = mkdtempSync(join(tmpdir(), 'pipibot-clean-test-'));
+    const cleanServer = new PipiResidentServer({
+      port: 0,
+      host: '127.0.0.1',
+      repoRoot: REAL_REPO_ROOT,
+      dataDir: cleanDir,
+      seedDefaults: false,
+      seedFleet: false,
+      seedMemoryIfEmpty: false,
+    });
+    try {
+      const url = await cleanServer.start();
+      const outcomesRes = await requestJson<{ outcomes: unknown[] }>(url, '/api/v1/outcomes');
+      const decisionsRes = await requestJson<{ decisions: unknown[] }>(url, '/api/v1/decisions');
+      assert.equal(outcomesRes.data.outcomes.length, 0);
+      assert.equal(decisionsRes.data.decisions.length, 0);
+    } finally {
+      await cleanServer.stop();
+      rmSync(cleanDir, { recursive: true, force: true });
+    }
   });
 
   test('GET / and GET /api/v1/status return daemon metadata, CORS headers, and 53-state avatar status', async () => {

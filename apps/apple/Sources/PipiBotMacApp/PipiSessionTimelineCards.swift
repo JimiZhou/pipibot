@@ -407,12 +407,40 @@ public struct PipiInlineApprovalCard: View {
                     .foregroundStyle(isPending ? PipiTokens.stateWarning : PipiTokens.textSecondary)
                     .textCase(.uppercase)
 
+                if let risk = approval.riskLevel {
+                    let riskFg: Color = {
+                        switch risk {
+                        case .low: return PipiTokens.stateSuccess
+                        case .medium: return PipiTokens.stateWarning
+                        case .high, .critical: return PipiTokens.stateError
+                        }
+                    }()
+                    let riskBg: Color = {
+                        switch risk {
+                        case .low: return PipiTokens.stateSuccessBg
+                        case .medium: return PipiTokens.bgInset
+                        case .high, .critical: return PipiTokens.stateErrorBg
+                        }
+                    }()
+                    Text(risk.label(strings.lang))
+                        .font(PipiTokens.fontMicro.weight(.semibold))
+                        .foregroundStyle(riskFg)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(riskBg)
+                        .clipShape(Capsule())
+                }
+
                 Spacer()
 
                 if !isPending {
                     let statusText: String = {
                         switch approval.status {
-                        case .approved: return strings.approvalApprovedBadge
+                        case .approved:
+                            if let gran = approval.chosenGranularity {
+                                return "\(strings.approvalApprovedBadge) · \(gran.label(strings.lang))"
+                            }
+                            return strings.approvalApprovedBadge
                         case .denied: return strings.approvalDeniedBadge
                         case .expired: return strings.approvalExpiredBadge
                         case .pending: return ""
@@ -438,28 +466,34 @@ public struct PipiInlineApprovalCard: View {
                         .font(PipiTokens.fontCaption)
                         .foregroundStyle(PipiTokens.textSecondary)
                 }
+
+                if let rationale = approval.rationale, !rationale.isEmpty {
+                    Text(rationale)
+                        .font(PipiTokens.fontMicro)
+                        .foregroundStyle(PipiTokens.textMuted)
+                }
             }
 
             if isPending {
-                HStack(spacing: PipiTokens.spacing8) {
-                    ForEach(approval.options) { opt in
-                        let tone: PipiButtonTone = {
-                            switch opt.style {
-                            case .primary: return .primary
-                            case .secondary: return .secondary
-                            case .destructive: return .destructive
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        approvalOptionButtons
+                        Spacer(minLength: 0)
+                    }
+                    VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            ForEach(Array(approval.options.prefix(2))) { opt in
+                                approvalOptionButton(opt)
                             }
-                        }()
-                        PipiActionButton(
-                            opt.label,
-                            systemImage: opt.style == .primary ? "checkmark" : nil,
-                            tone: tone,
-                            density: .desktopCompact
-                        ) {
-                            onResolve(opt.id)
+                        }
+                        if approval.options.count > 2 {
+                            HStack(spacing: PipiTokens.spacing8) {
+                                ForEach(Array(approval.options.dropFirst(2))) { opt in
+                                    approvalOptionButton(opt)
+                                }
+                            }
                         }
                     }
-                    Spacer()
                 }
             }
         }
@@ -470,6 +504,31 @@ public struct PipiInlineApprovalCard: View {
                 .stroke(isPending ? PipiTokens.stateWarning.opacity(0.45) : PipiTokens.borderSubtle, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var approvalOptionButtons: some View {
+        ForEach(approval.options) { opt in
+            approvalOptionButton(opt)
+        }
+    }
+
+    private func approvalOptionButton(_ opt: PipiSessionApproval.Option) -> some View {
+        let tone: PipiButtonTone = {
+            switch opt.style {
+            case .primary: return .primary
+            case .secondary: return .secondary
+            case .destructive: return .destructive
+            }
+        }()
+        return PipiActionButton(
+            opt.label,
+            systemImage: opt.style == .primary ? "checkmark" : nil,
+            tone: tone,
+            density: .desktopCompact
+        ) {
+            onResolve(opt.id)
+        }
     }
 }
 

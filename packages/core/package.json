@@ -18,15 +18,77 @@
     "./memory-engine": {
       "types": "./src/memory-engine.ts",
       "default": "./src/memory-engine.ts"
+    },
+    "./model-scheduler": {
+      "types": "./src/model-scheduler.ts",
+      "default": "./src/model-scheduler.ts"
+    },
+    "./permission-guardrail": {
+      "types": "./src/permission-guardrail.ts",
+      "default": "./src/permission-guardrail.ts"
+    },
+    "./personal-wiki": {
+      "types": "./src/personal-wiki.ts",
+      "default": "./src/personal-wiki.ts"
+    },
+    "./bot-memory": {
+      "types": "./src/bot-memory.ts",
+      "default": "./src/bot-memory.ts"
+    },
+    "./proactive-engine": {
+      "types": "./src/proactive-engine.ts",
+      "default": "./src/proactive-engine.ts"
+    },
+    "./alter-ego": {
+      "types": "./src/alter-ego.ts",
+      "default": "./src/alter-ego.ts"
+    },
+    "./team-protocol": {
+      "types": "./src/team-protocol.ts",
+      "default": "./src/team-protocol.ts"
+    },
+    "./builtin-skills": {
+      "types": "./src/builtin-skills.ts",
+      "default": "./src/builtin-skills.ts"
+    },
+    "./pocket-notes": {
+      "types": "./src/pocket-notes.ts",
+      "default": "./src/pocket-notes.ts"
+    },
+    "./pipibot-cli": {
+      "types": "./src/pipibot-cli.ts",
+      "default": "./src/pipibot-cli.ts"
+    },
+    "./model-autopilot": {
+      "types": "./src/model-autopilot.ts",
+      "default": "./src/model-autopilot.ts"
+    },
+    "./local-llm-gateway": {
+      "types": "./src/local-llm-gateway.ts",
+      "default": "./src/local-llm-gateway.ts"
+    },
+    "./voice-engine": {
+      "types": "./src/voice-engine.ts",
+      "default": "./src/voice-engine.ts"
+    },
+    "./computer-use": {
+      "types": "./src/computer-use.ts",
+      "default": "./src/computer-use.ts"
     }
   },
   "dependencies": {
     "@pipibot/protocol": "workspace:*"
   },
   "scripts": {
-    "check": "node --experimental-strip-types ./src/harness-router.ts && node --experimental-strip-types ./src/memory-engine.ts",
+    "check": "node --experimental-strip-types ./src/harness-router.ts && node --experimental-strip-types ./src/memory-engine.ts && node --experimental-strip-types ./src/model-scheduler.ts && node --experimental-strip-types ./src/permission-guardrail.ts && node --experimental-strip-types ./src/personal-wiki.ts && node --experimental-strip-types ./src/bot-memory.ts && node --experimental-strip-types ./src/proactive-engine.ts && node --experimental-strip-types ./src/alter-ego.ts && node --experimental-strip-types ./src/team-protocol.ts && node --experimental-strip-types ./src/builtin-skills.ts && node --experimental-strip-types ./src/pocket-notes.ts && node --experimental-strip-types ./src/model-autopilot.ts && node --experimental-strip-types ./src/local-llm-gateway.ts && node --experimental-strip-types ./src/voice-engine.ts && node --experimental-strip-types ./src/computer-use.ts && node --experimental-strip-types ./src/pipibot-cli.ts --help >/dev/null",
     "check:router": "node --experimental-strip-types ./src/harness-router.ts",
-    "check:memory": "node --experimental-strip-types ./src/memory-engine.ts"
+    "check:memory": "node --experimental-strip-types ./src/memory-engine.ts",
+    "check:wave1": "node --experimental-strip-types ./src/model-scheduler.ts && node --experimental-strip-types ./src/permission-guardrail.ts",
+    "check:wave2": "node --experimental-strip-types ./src/personal-wiki.ts && node --experimental-strip-types ./src/bot-memory.ts && node --experimental-strip-types ./src/proactive-engine.ts",
+    "check:wave3": "node --experimental-strip-types ./src/alter-ego.ts && node --experimental-strip-types ./src/team-protocol.ts && node --experimental-strip-types ./src/builtin-skills.ts && node --experimental-strip-types ./src/pocket-notes.ts && node --experimental-strip-types ./src/pipibot-cli.ts --help >/dev/null",
+    "check:wave4": "node --experimental-strip-types ./src/model-autopilot.ts && node --experimental-strip-types ./src/local-llm-gateway.ts && node --experimental-strip-types ./src/voice-engine.ts",
+    "check:wave5": "node --experimental-strip-types ./src/computer-use.ts",
+    "test": "node --experimental-strip-types --test ./test/wave1.test.ts ./test/wave2.test.ts ./test/wave3.test.ts ./test/wave4.test.ts ./test/wave5.test.ts"
   },
   "engines": {
     "node": ">=22.6.0"

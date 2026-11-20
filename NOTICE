@@ -1,0 +1,82 @@
+PiPiBot — Third-Party Notices & Upstream Attribution
+====================================================
+
+Copyright (c) 2026 JimiZhou & PipiBot Contributors
+Licensed under the MIT License (see root `LICENSE`).
+
+---------------------------------------------------------------------------
+Clean-Room Engineering & License Boundary Policy
+---------------------------------------------------------------------------
+
+PiPiBot is released under the MIT License. All source code, prompts, UI
+components, and visual assets in this repository are original, clean-room
+implementations unless explicitly noted below.
+
+When PiPiBot absorbs architectural concepts or UX patterns from upstream
+open-source projects whose licenses carry additional conditions (such as
+modified Apache-2.0 licenses), we follow strict clean-room rules:
+
+  1. ZERO source code, prompt templates, frontend components, logos, or
+     binary assets are copied verbatim from non-MIT repositories.
+  2. Every inspired module is designed and implemented independently from
+     scratch in Swift 6 / TypeScript for PiPiBot's native local-first stack.
+  3. Upstream projects are credited transparently here, in README files,
+     in roadmap documents, and in source file headers.
+
+---------------------------------------------------------------------------
+Upstream Architectural Inspirations (Clean-Room Attribution)
+---------------------------------------------------------------------------
+
+1. Linger (`simplexai-labs/linger`)
+   Repository: https://github.com/simplexai-labs/linger
+   Copyright:  (c) 2026 SIMPLEX AI TECHNOLOGIES PTE. LTD.
+   License:    Linger Open Source License (modified Apache License 2.0 with
+               hosted-service and frontend logo/copyright conditions)
+   Scope:      Architectural & UX inspiration only (zero code/assets copied):
+               - Preemptive 7-level priority model scheduling, interactive
+                 reserved slot, AIMD adaptive concurrency, and resumable
+                 session yielding
+               - Two-tier permission guardrail (static rules + independent
+                 Risk x Authorization LLM judge, prompt-injection isolation,
+                 critical hard stops, operation idempotency)
+               - Personal entity Wiki with verified source citations &
+                 dual-channel zero-embedding search
+               - Per-agent isolated experiential memory & prompt-cache-safe
+                 recall injection
+               - Proactive anti-fatigue guardrails, Prepare pre-briefing, and
+                 nightly Clue-to-Rule implicit self-improvement
+               - Meta/AlterEgo background task delegation & `team.md`
+                 multi-agent collaboration topologies
+               - Hardware-adaptive Model Autopilot & isolated CLI Gateway
+                 environment overlays
+               - Computer Use concurrency lanes (signed-in browser + desktop
+                 accessibility yielding to human focus + write-ahead journal)
+
+2. PolyStrata (`simplexai-labs/PolyStrata`) & Strata (`Niko1221/Strata`)
+   Repository: https://github.com/simplexai-labs/PolyStrata
+               https://github.com/Niko1221/Strata
+   Copyright:  (c) 2026 Niko1221 and the Strata contributors
+               (c) 2026 VecSzn and the PolyStrata contributors
+   License:    MIT License
+   Scope:      Optional external local MoE inference engine adapter & model
+               catalog integration (Wave 4 #07: Apple Silicon Metal+SSD
+               prefetch beta & PipiFleet Linux/Windows 12-model MoE offload).
+               Any external PolyStrata/Strata binary or runtime remains
+               governed by its upstream MIT License.
+
+3. Devin Bots (Cognition AI)
+   Scope:      Architectural inspiration for Outcome Ownership ("From Tasks
+               to Outcomes"), Responsibility Specs, and Needs-You escalation.
+
+4. Pi Coding Agent (`@mariozechner/pi-coding-agent` / `pi-ai`)
+   Scope:      Architectural inspiration for minimalist 4-tool extensible
+               agent kernel (`read`/`write`/`edit`/`bash`) & extension hooks.
+
+5. GrokBot Animation Anatomy & Grok Bot 0.18 Reconstructed
+   Scope:      Inspiration for 192-ray procedural SVG/SwiftUI physics avatar,
+               250ms activity pulse, and Routed MCP Bridge patterns.
+
+6. Manus Cue, Dots, Muse & OpenPencil
+   Scope:      Inspiration for ambient floating quick-bar (`⌥Space`), micro-
+               dot vitality telemetry, spatial voice collaboration, and
+               5-rule design-system governance.

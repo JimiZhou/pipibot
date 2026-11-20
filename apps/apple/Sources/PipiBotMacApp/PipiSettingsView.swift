@@ -8,6 +8,7 @@ import AppKit
 public enum PipiSettingsTab: String, CaseIterable, Identifiable, Sendable {
     case general
     case aiEngine
+    case voice
     case runtimeSync
     case memoryPrivacy
 
@@ -17,6 +18,7 @@ public enum PipiSettingsTab: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .general: return "gearshape"
         case .aiEngine: return "cpu"
+        case .voice: return "waveform"
         case .runtimeSync: return "desktopcomputer"
         case .memoryPrivacy: return "lock.shield"
         }
@@ -26,8 +28,23 @@ public enum PipiSettingsTab: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .general: return s.settingsGeneral
         case .aiEngine: return s.settingsAIEngine
+        case .voice: return s.settingsVoice
         case .runtimeSync: return s.settingsRuntimeSync
         case .memoryPrivacy: return s.settingsMemory
+        }
+    }
+}
+
+private enum PipiAddLocalModelMode: String, CaseIterable, Identifiable {
+    case hardwarePlan
+    case existingPlatform
+
+    var id: String { rawValue }
+
+    func title(_ s: PipiStrings) -> String {
+        switch self {
+        case .hardwarePlan: return s.t("智能硬件规划", "Smart Hardware Plan")
+        case .existingPlatform: return s.t("接入已有平台", "Existing Platform")
         }
     }
 }
@@ -56,6 +73,36 @@ public struct PipiSettingsView: View {
     // Destructive confirmations
     @State private var showClearAllChatsConfirmation = false
     @State private var clearedBanner = false
+
+    // Wave 4 (#07 Local Model Autopilot / Gateway & #10 Daily Voice BYOK Keychain Inputs)
+    @State private var gatewayActionFeedback: String? = nil
+    @State private var overlayPreviewMessage: String? = nil
+    @State private var cloudSttKeyDraft: String = ""
+    @State private var cloudTtsKeyDraft: String = ""
+    @State private var voiceKeysLoaded: Bool = false
+    @State private var voiceKeysSavedBanner: Bool = false
+    @State private var showAboutSheet: Bool = false
+    @State private var isVersionFooterHovered: Bool = false
+    @State private var showAdvancedLocalRuntime: Bool = false
+    @State private var showLocalCLIAgentsSection: Bool = false
+    @State private var showAdvancedVoiceSettings: Bool = false
+    @State private var showMacPermissionsDrawer: Bool = false
+    @State private var showComputerUseDrawer: Bool = false
+    @State private var showMemorySharingDetails: Bool = false
+    @State private var showSafetyProactiveDrawer: Bool = false
+    @State private var selectedPlatformModels: [PipiLocalModelPlatformKind: String] = [:]
+    @State private var localPlatformFeedback: String? = nil
+    @State private var showAddLocalModelSheet: Bool = false
+    @State private var addLocalModelMode: PipiAddLocalModelMode = .hardwarePlan
+    @State private var selectedPlannedCatalogModelId: String = ""
+    @State private var selectedDeployPlatformOption: String = "auto"
+    @State private var customLocalEndpointDraft: String = "http://127.0.0.1:11434"
+    @State private var customLocalModelDraft: String = "qwen2.5:14b"
+    @State private var customLocalPlatformDraft: PipiLocalModelPlatformKind = .ollama
+    @State private var copiedRemoteLink: Bool = false
+    @State private var copiedBrewCmd: Bool = false
+    @State private var showLegacyDaemonBridge: Bool = false
+    @State private var macTestFeedback: String? = nil
 
     public init(
         store: PipiAppStore,
@@ -116,15 +163,34 @@ public struct PipiSettingsView: View {
 
                 Spacer()
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(s.appName)
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-                    Text("\(s.versionLabel) \(store.daemonVersion)")
-                        .font(PipiTokens.fontMonoSmall)
-                        .foregroundStyle(PipiTokens.textMuted)
+                Button {
+                    showAboutSheet = true
+                } label: {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.appName)
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text("\(s.versionLabel) \(store.appDisplayVersion)")
+                                .font(PipiTokens.fontMonoSmall)
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(isVersionFooterHovered ? PipiTokens.textPrimary : PipiTokens.textMuted)
+                    }
+                    .padding(.horizontal, PipiTokens.spacing8)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .fill(isVersionFooterHovered ? PipiTokens.bgSurfaceHover : Color.clear)
+                    )
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, PipiTokens.spacing8)
+                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.985))
+                .onHover { isVersionFooterHovered = $0 }
+                .help(s.aboutTitle)
                 .padding(.bottom, PipiTokens.spacing16)
             }
             .padding(.horizontal, PipiTokens.spacing12)
@@ -169,6 +235,8 @@ public struct PipiSettingsView: View {
                             generalTab
                         case .aiEngine:
                             aiEngineTab
+                        case .voice:
+                            voiceTab
                         case .runtimeSync:
                             runtimeSyncTab
                         case .memoryPrivacy:
@@ -179,7 +247,7 @@ public struct PipiSettingsView: View {
                     .padding(PipiTokens.spacing24)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .scrollIndicators(.hidden)
+                .pipiHideScrollbars()
                 .background(PipiTokens.bgCanvas)
             }
         }
@@ -187,6 +255,18 @@ public struct PipiSettingsView: View {
         .sheet(isPresented: $showModelEditor) {
             modelEditorSheet
                 .frame(minWidth: 500, minHeight: 460)
+        }
+        .sheet(isPresented: $showAddLocalModelSheet) {
+            addLocalModelSheet
+                .frame(minWidth: 560, minHeight: 520)
+        }
+        .sheet(isPresented: $showAboutSheet) {
+            PipiAboutSheetView(
+                store: store,
+                onClose: { showAboutSheet = false }
+            )
+            .environment(\.pipiTextScale, store.uiZoomScale)
+            .frame(minWidth: 580, minHeight: 560)
         }
     }
 
@@ -196,66 +276,55 @@ public struct PipiSettingsView: View {
         VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
             settingsGroup(title: s.t("外观与语言", "Appearance & Language")) {
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
                         Text(s.languageSectionTitle)
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
                             .foregroundStyle(PipiTokens.textPrimary)
-                        Text(s.languageSectionDesc)
-                            .font(PipiTokens.fontCaption)
-                            .foregroundStyle(PipiTokens.textSecondary)
+                        PipiInfoHelpButton(title: s.languageSectionTitle, message: s.languageSectionDesc)
                     }
                     Spacer(minLength: PipiTokens.spacing12)
-                    Picker("", selection: Binding(
-                        get: { store.language },
-                        set: { store.setLanguage($0) }
-                    )) {
-                        ForEach(PipiAppLanguage.allCases) { option in
-                            Text(option.displayName(in: lang)).tag(option)
-                        }
+                    PipiSelectMenu(
+                        options: PipiAppLanguage.allCases,
+                        selection: Binding(
+                            get: { store.language },
+                            set: { store.setLanguage($0) }
+                        ),
+                        width: 156
+                    ) { option in
+                        option.displayName(in: lang)
                     }
-                    .labelsHidden()
-                    .frame(width: 150)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
 
                 settingsRowDivider
 
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(s.appearanceSectionTitle)
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textPrimary)
-                        Text(s.t("自动适配系统深浅色，或手动固定外观", "Match system appearance or pick a fixed mode"))
-                            .font(PipiTokens.fontCaption)
-                            .foregroundStyle(PipiTokens.textSecondary)
-                    }
+                    Text(s.appearanceSectionTitle)
+                        .font(PipiTokens.fontSubheadline.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
                     Spacer(minLength: PipiTokens.spacing12)
-                    Picker("", selection: Binding(
-                        get: { store.themeMode },
-                        set: { store.setThemeMode($0) }
-                    )) {
-                        ForEach(PipiThemeMode.allCases) { mode in
-                            Text(mode.localizedLabel(lang)).tag(mode)
-                        }
+                    PipiSegmentedControl(
+                        options: PipiThemeMode.allCases,
+                        selection: Binding(
+                            get: { store.themeMode },
+                            set: { store.setThemeMode($0) }
+                        )
+                    ) { mode in
+                        mode.localizedLabel(lang)
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 210)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
 
                 settingsRowDivider
 
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
                         Text(s.zoomSectionTitle)
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
                             .foregroundStyle(PipiTokens.textPrimary)
-                        Text(s.zoomSectionDesc)
-                            .font(PipiTokens.fontCaption)
-                            .foregroundStyle(PipiTokens.textSecondary)
+                        PipiInfoHelpButton(title: s.zoomSectionTitle, message: s.zoomSectionDesc)
                     }
                     Spacer(minLength: PipiTokens.spacing12)
                     HStack(spacing: PipiTokens.spacing8) {
@@ -266,7 +335,11 @@ public struct PipiSettingsView: View {
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(PipiTokens.textPrimary)
                                 .frame(width: 28, height: 28)
-                                .background(PipiTokens.bgSurfaceHover)
+                                .background(PipiTokens.buttonSecondaryBg)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                        .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                                )
                                 .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
                         }
                         .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
@@ -284,7 +357,7 @@ public struct PipiSettingsView: View {
                                 .background(PipiTokens.bgInset)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
-                                        .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+                                        .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
                                 )
                                 .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
                         }
@@ -298,7 +371,11 @@ public struct PipiSettingsView: View {
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(PipiTokens.textPrimary)
                                 .frame(width: 28, height: 28)
-                                .background(PipiTokens.bgSurfaceHover)
+                                .background(PipiTokens.buttonSecondaryBg)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                        .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                                )
                                 .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
                         }
                         .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
@@ -307,27 +384,28 @@ public struct PipiSettingsView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
             }
 
             settingsGroup(title: s.t("快捷键", "Shortcuts")) {
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
                         Text(s.t("全局快捷浮窗", "Global Quick Bar"))
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
                             .foregroundStyle(PipiTokens.textPrimary)
-                        Text(s.t("随时通过 ⌥Space 呼出桌面悬浮对话框，快速向当前 Bot 提问", "Press ⌥Space anywhere on your Mac to summon the floating PiPiBot bar"))
-                            .font(PipiTokens.fontCaption)
-                            .foregroundStyle(PipiTokens.textSecondary)
+                        PipiInfoHelpButton(
+                            title: s.t("全局快捷浮窗", "Global Quick Bar"),
+                            message: s.t("按 ⌥Space 在任意应用前方呼出或收起悬浮输入框。", "Press ⌥Space anywhere on macOS to toggle the floating prompt bar.")
+                        )
                     }
                     Spacer(minLength: PipiTokens.spacing12)
                     shortcutBadge("⌥Space")
-                    PipiActionButton(s.t("打开浮窗", "Open"), tone: .secondary, density: .desktopCompact) {
+                    PipiActionButton(s.t("打开", "Open"), tone: .secondary, density: .desktopCompact) {
                         onToggleQuickBar()
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
 
                 settingsRowDivider
 
@@ -354,18 +432,30 @@ public struct PipiSettingsView: View {
                 .padding(.vertical, 12)
             }
 
-            // Quiet bottom action row for onboarding replay
-            HStack {
-                PipiActionButton(
-                    s.onboardingReopenGuide,
-                    systemImage: "arrow.counterclockwise",
-                    tone: .ghost,
-                    density: .desktopCompact
-                ) {
-                    onClose?()
-                    store.reopenOnboarding()
+            // Guided Setup re-entry card
+            settingsGroup(title: s.t("引导式配置", "Guided Setup")) {
+                HStack(spacing: PipiTokens.spacing12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.t("逐步配置模型、系统权限与默认助手", "Configure models, macOS permissions, and assistants step by step"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.t("如初次启动时跳过了配置，可随时由此重新进入分步向导。", "Reopen the guided wizard anytime if you skipped initial setup."))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                    }
+                    Spacer()
+                    PipiActionButton(
+                        s.t("启动引导式配置", "Launch Guided Setup"),
+                        systemImage: "wand.and.stars",
+                        tone: .secondary,
+                        density: .desktopCompact
+                    ) {
+                        onClose?()
+                        store.reopenOnboarding(atStep: 0)
+                    }
                 }
-                Spacer()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
         }
     }
@@ -376,17 +466,12 @@ public struct PipiSettingsView: View {
         Binding(
             get: {
                 switch store.defaultExecutionTarget {
-                case .auto:
-                    return .auto
                 case .llm(let pid):
                     if store.readyLLMProviders.contains(where: { $0.id == pid }) {
                         return .llm(providerId: pid)
                     }
                     return .auto
-                case .localAgent(let kind):
-                    if store.usableLocalAgents.contains(where: { $0.kind == kind }) {
-                        return .localAgent(kind)
-                    }
+                case .auto, .localAgent:
                     return .auto
                 }
             },
@@ -396,42 +481,121 @@ public struct PipiSettingsView: View {
         )
     }
 
+    private var defaultRoutingDisplayName: String {
+        switch defaultRoutingSelection.wrappedValue {
+        case .auto:
+            return s.t("自动选择默认模型", "Auto Default Model")
+        case .llm(let pid):
+            if let cfg = store.readyLLMProviders.first(where: { $0.id == pid }) {
+                return "\(cfg.name) · \(cfg.modelId)"
+            }
+            return s.t("自动选择默认模型", "Auto Default Model")
+        case .localAgent:
+            return s.t("自动选择默认模型", "Auto Default Model")
+        }
+    }
+
     private var aiEngineTab: some View {
         VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
-            // Group 1: Default Strategy
-            settingsGroup(title: s.t("默认策略", "Default Strategy")) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(s.t("默认执行路由", "Default Execution Route"))
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+            // Group 1: Built-in PiPi Engine + Backing LLM Strategy
+            settingsGroup(title: s.t("默认执行引擎", "Default Execution Engine")) {
+                HStack(spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 6) {
+                        Text(s.t("核心智能体引擎", "Core Agent Engine"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
                             .foregroundStyle(PipiTokens.textPrimary)
-                        Text(s.t("未单独指定引擎时优先使用该目标", "Used when a Bot or turn does not override the engine"))
-                            .font(PipiTokens.fontCaption)
-                            .foregroundStyle(PipiTokens.textSecondary)
+                        PipiInfoHelpButton(
+                            title: s.t("PiPi 内置引擎（基于 Pi 内核）", "PiPi Built-in Engine (pi Core)"),
+                            message: s.t(
+                                "PiPi 是以 pi 为底层的内置智能体执行引擎，负责工具调用、上下文记忆与多助手协同；Claude Code / Codex / OpenCode 作为外部协作 Agent 由 PiPi 按需调用。",
+                                "PiPi is the built-in agent engine powered by pi core. External CLI agents (Claude Code, Codex, OpenCode) are invoked on demand by PiPi rather than replacing it."
+                            )
+                        )
                     }
                     Spacer(minLength: PipiTokens.spacing12)
-                    Picker("", selection: defaultRoutingSelection) {
-                        Text(s.autoRouteEngine).tag(PipiExecutionTarget.auto)
-                        if !store.readyLLMProviders.isEmpty {
-                            Section(s.cloudAndLocalLLMs) {
-                                ForEach(store.readyLLMProviders) { cfg in
-                                    Text("\(cfg.name) · \(cfg.modelId)").tag(PipiExecutionTarget.llm(providerId: cfg.id))
-                                }
-                            }
-                        }
-                        if !store.usableLocalAgents.isEmpty {
-                            Section(s.localAgents) {
-                                ForEach(store.usableLocalAgents) { ag in
-                                    Text(ag.kind.displayName).tag(PipiExecutionTarget.localAgent(ag.kind))
-                                }
-                            }
-                        }
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(PipiTokens.stateSuccess)
+                            .frame(width: 6, height: 6)
+                        Text(s.t("PiPi（内置 Pi 引擎）", "PiPi (Built-in pi Core)"))
+                            .font(PipiTokens.fontCaption.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textPrimary)
                     }
-                    .labelsHidden()
-                    .frame(width: 210)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(PipiTokens.bgSurfaceHover)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
+                HStack {
+                    HStack(spacing: 6) {
+                        Text(s.t("默认驱动模型", "Default Backing Model"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(
+                            title: s.t("默认驱动模型", "Default Backing Model"),
+                            message: s.t("为 PiPi 内置引擎选择默认使用的云端或本地大模型；助手未单独覆盖时均使用该模型。", "Select the default cloud or local LLM powering the built-in PiPi engine.")
+                        )
+                    }
+                    Spacer(minLength: PipiTokens.spacing12)
+                    Menu {
+                        Button {
+                            defaultRoutingSelection.wrappedValue = .auto
+                        } label: {
+                            if defaultRoutingSelection.wrappedValue == .auto {
+                                Label(s.t("自动选择默认模型", "Auto Default Model"), systemImage: "checkmark")
+                            } else {
+                                Text(s.t("自动选择默认模型", "Auto Default Model"))
+                            }
+                        }
+                        if !store.readyLLMProviders.isEmpty {
+                            Divider()
+                            ForEach(store.readyLLMProviders) { cfg in
+                                let target = PipiExecutionTarget.llm(providerId: cfg.id)
+                                Button {
+                                    defaultRoutingSelection.wrappedValue = target
+                                } label: {
+                                    if defaultRoutingSelection.wrappedValue == target {
+                                        Label("\(cfg.name) · \(cfg.modelId)", systemImage: "checkmark")
+                                    } else {
+                                        Text("\(cfg.name) · \(cfg.modelId)")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Text(defaultRoutingDisplayName)
+                                .font(PipiTokens.fontCaption.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 4)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(width: 216, height: 32)
+                        .background(PipiTokens.buttonSecondaryBg)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                    }
+                    .pipiPlainMenu()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
 
                 #if os(macOS)
                 settingsRowDivider
@@ -457,73 +621,12 @@ public struct PipiSettingsView: View {
                 #endif
             }
 
-            // Group 2: Local CLI Agents
+            // Group 2: Installed Local Model Platforms (Ollama / LM Studio / llama.cpp / MLX / vLLM / PolyStrata)
+            localModelPlatformsSection
+
+            // Group 3: Cloud & Custom LLM APIs
             settingsGroup(
-                title: s.localAgents,
-                trailing: {
-                    PipiActionButton(s.rescanAgents, systemImage: "arrow.clockwise", tone: .ghost, density: .desktopCompact) {
-                        Task { await store.refreshLocalAgents() }
-                    }
-                }
-            ) {
-                ForEach(Array(store.localAgentStatuses.enumerated()), id: \.element.id) { idx, agent in
-                    if idx > 0 {
-                        settingsRowDivider
-                    }
-
-                    let statusText: String = {
-                        if agent.authenticated { return s.agentStatusReady }
-                        if agent.installed { return s.agentStatusNeedsLogin }
-                        return s.agentStatusNotInstalled
-                    }()
-                    let statusColor: Color = {
-                        if agent.authenticated { return PipiTokens.stateSuccess }
-                        if agent.installed { return PipiTokens.stateWarning }
-                        return PipiTokens.textMuted
-                    }()
-
-                    HStack(spacing: PipiTokens.spacing12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: PipiTokens.spacing8) {
-                                Text(agent.kind.displayName)
-                                    .font(PipiTokens.fontSubheadline.weight(.semibold))
-                                    .foregroundStyle(PipiTokens.textPrimary)
-
-                                HStack(spacing: 4) {
-                                    Circle()
-                                        .fill(statusColor)
-                                        .frame(width: 6, height: 6)
-                                    Text(statusText)
-                                        .font(PipiTokens.fontMicro)
-                                        .foregroundStyle(statusColor)
-                                }
-                            }
-
-                            Text(agent.binaryPath ?? agent.authHint)
-                                .font(PipiTokens.fontMonoSmall)
-                                .foregroundStyle(PipiTokens.textMuted)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-
-                        Spacer(minLength: PipiTokens.spacing12)
-
-                        Toggle("", isOn: Binding(
-                            get: { store.enabledLocalAgents.contains(agent.kind) },
-                            set: { store.toggleLocalAgent(agent.kind, enabled: $0, setAsDefaultIfFirst: true) }
-                        ))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(!agent.installed)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 13)
-                }
-            }
-
-            // Group 3: Cloud & Local LLM APIs
-            settingsGroup(
-                title: s.cloudAndLocalLLMs,
+                title: s.t("云端与自定义模型", "Cloud & Custom Models"),
                 trailing: {
                     PipiActionButton(s.t("添加模型", "Add Model"), systemImage: "plus", tone: .primary, density: .desktopCompact) {
                         openNewModelEditor()
@@ -533,15 +636,15 @@ public struct PipiSettingsView: View {
                 if store.llmProviders.isEmpty {
                     HStack(spacing: PipiTokens.spacing12) {
                         Image(systemName: "cpu")
-                            .font(.system(size: 16))
+                            .font(.system(size: 15))
                             .foregroundStyle(PipiTokens.textMuted)
-                        Text(s.t("尚未添加大模型 API（也可直接使用上方的本地 CLI Agent）。", "No LLM API added yet (or use a local CLI agent above)."))
+                        Text(s.t("尚未配置云端模型，可直接点击上方「添加模型」或拉起本地模型。", "No cloud model added yet. Add a model or launch a local platform above."))
                             .font(PipiTokens.fontCaption)
                             .foregroundStyle(PipiTokens.textSecondary)
                         Spacer()
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 14)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 } else {
                     ForEach(Array(store.llmProviders.enumerated()), id: \.element.id) { idx, cfg in
                         if idx > 0 {
@@ -615,14 +718,14 @@ public struct PipiSettingsView: View {
                                     Image(systemName: "ellipsis")
                                         .font(.system(size: 13, weight: .semibold))
                                         .foregroundStyle(PipiTokens.textSecondary)
-                                        .frame(width: 28, height: 28)
+                                        .frame(width: 32, height: 32)
                                         .background(
                                             RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
-                                                .fill(PipiTokens.bgSurface)
+                                                .fill(PipiTokens.buttonSecondaryBg)
                                         )
                                         .overlay(
                                             RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
-                                                .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+                                                .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
                                         )
                                 }
                                 .pipiPlainMenu()
@@ -642,19 +745,1232 @@ public struct PipiSettingsView: View {
                             }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
+                        .padding(.vertical, 12)
+                    }
+                }
+            }
+
+            // Group 4 (Collapsible): External Sub-Agents invoked on-demand by PiPi
+            settingsDisclosureCard(
+                icon: "terminal",
+                title: s.localAgents,
+                summary: s.t("已挂载 \(store.usableLocalAgents.count) 项 · 由 PiPi 按需委派执行代码与终端任务", "\(store.usableLocalAgents.count) mounted · Invoked on demand by PiPi"),
+                isExpanded: $showLocalCLIAgentsSection
+            ) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 6) {
+                        Text(s.t("外部 Agent 不替代 PiPi，仅在复杂编码或使用 /claude · /codex · /opencode 时按需调用。", "External agents never replace PiPi; PiPi calls them on demand or via /claude, /codex, /opencode."))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Spacer()
+                        PipiActionButton(s.rescanAgents, systemImage: "arrow.clockwise", tone: .ghost, density: .desktopCompact) {
+                            Task { await store.refreshLocalAgents() }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+
+                    settingsRowDivider
+
+                    ForEach(Array(store.localAgentStatuses.enumerated()), id: \.element.id) { idx, agent in
+                        if idx > 0 {
+                            settingsRowDivider
+                        }
+
+                        let statusText: String = {
+                            if agent.authenticated { return s.agentStatusReady }
+                            if agent.installed { return s.agentStatusNeedsLogin }
+                            return s.agentStatusNotInstalled
+                        }()
+                        let statusColor: Color = {
+                            if agent.authenticated { return PipiTokens.stateSuccess }
+                            if agent.installed { return PipiTokens.stateWarning }
+                            return PipiTokens.textMuted
+                        }()
+
+                        HStack(spacing: PipiTokens.spacing12) {
+                            Text(agent.kind.displayName)
+                                .font(PipiTokens.fontSubheadline.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(statusColor)
+                                    .frame(width: 6, height: 6)
+                                Text(statusText)
+                                    .font(PipiTokens.fontMicro)
+                                    .foregroundStyle(statusColor)
+                            }
+
+                            Spacer(minLength: PipiTokens.spacing12)
+
+                            Toggle("", isOn: Binding(
+                                get: { store.enabledLocalAgents.contains(agent.kind) },
+                                set: { store.toggleLocalAgent(agent.kind, enabled: $0, setAsDefaultIfFirst: false) }
+                            ))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .disabled(!agent.installed)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                    }
+                }
+            }
+
+            // Group 5 (Collapsible Advanced): Loopback Unified Gateway & Isolated CLI Injection
+            settingsDisclosureCard(
+                icon: "slider.horizontal.3",
+                title: s.t("高级：本地统一网关与 CLI 隔离注入", "Advanced: Loopback Gateway & CLI Overlays"),
+                summary: store.localGatewayStatus.isRunning
+                    ? s.t("网关运行中 · \(store.localGatewayStatus.origin)", "Gateway running · \(store.localGatewayStatus.origin)")
+                    : s.t("本机回环 OpenAI/Anthropic 兼容网关 · 外部工具环境变量注入", "Loopback OpenAI/Anthropic gateway · Isolated CLI overlays"),
+                isExpanded: $showAdvancedLocalRuntime
+            ) {
+                localUnifiedGatewaySection
+                    .padding(PipiTokens.spacing12)
+            }
+        }
+        .task {
+            _ = await store.scanLocalModelPlatforms()
+        }
+    }
+
+    // MARK: - Mainstream Installed Local Model Platforms (Ollama / LM Studio / llama.cpp / MLX / vLLM / PolyStrata)
+
+    private var localModelPlatformsSection: some View {
+        let installed = store.localModelPlatformManager.installedPlatforms
+
+        return settingsGroup(
+            title: s.t("本地模型", "Local Models"),
+            trailing: {
+                HStack(spacing: 6) {
+                    PipiActionButton(
+                        store.localModelPlatformManager.isScanning ? s.t("扫描中...", "Scanning...") : s.t("检测", "Scan"),
+                        systemImage: "arrow.clockwise",
+                        tone: .ghost,
+                        density: .desktopCompact
+                    ) {
+                        Task { _ = await store.scanLocalModelPlatforms() }
+                    }
+
+                    PipiActionButton(
+                        s.t("添加本地模型", "Add Local Model"),
+                        systemImage: "plus",
+                        tone: .primary,
+                        density: .desktopCompact
+                    ) {
+                        selectedPlannedCatalogModelId = store.modelAutopilotPlan.primaryModel.id
+                        addLocalModelMode = .hardwarePlan
+                        showAddLocalModelSheet = true
+                    }
+                }
+            }
+        ) {
+            if installed.isEmpty {
+                HStack(spacing: PipiTokens.spacing12) {
+                    Image(systemName: "desktopcomputer")
+                        .font(.system(size: 14))
+                        .foregroundStyle(PipiTokens.textMuted)
+                    Text(s.t("未检测到已启动的本地模型平台，点击右上角「添加本地模型」进行智能规划部署或接入本地引擎。", "No running local platform detected. Click Add Local Model to plan & deploy or connect a local engine."))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            } else {
+                ForEach(Array(installed.enumerated()), id: \.element.id) { idx, platform in
+                    if idx > 0 {
+                        settingsRowDivider
+                    }
+                    localPlatformRow(platform)
+                }
+            }
+
+            if let feedback = localPlatformFeedback ?? store.localModelDeployStatus ?? store.localModelPlatformManager.lastLaunchNote {
+                settingsRowDivider
+                Text(feedback)
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
+        }
+    }
+
+    private func localPlatformRow(_ platform: PipiLocalPlatformStatus) -> some View {
+        let isLaunching = store.localModelPlatformManager.launchingPlatform == platform.kind
+        let selectedModel = selectedPlatformModels[platform.kind] ?? platform.availableModels.first ?? platform.kind.defaultFallbackModelId
+
+        return HStack(spacing: PipiTokens.spacing12) {
+            Circle()
+                .fill(platform.running ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
+                .frame(width: 7, height: 7)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(platform.kind.displayName)
+                        .font(PipiTokens.fontSubheadline.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Text(platform.running ? s.t("运行中", "Running") : s.t("已安装", "Installed"))
+                        .font(PipiTokens.fontMicro)
+                        .foregroundStyle(platform.running ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
+                }
+                Text(
+                    platform.availableModels.isEmpty
+                        ? ":\(platform.kind.defaultPort)"
+                        : s.t("发现 \(platform.availableModels.count) 个本地模型", "\(platform.availableModels.count) local models")
+                )
+                .font(PipiTokens.fontMonoSmall)
+                .foregroundStyle(PipiTokens.textMuted)
+            }
+
+            Spacer(minLength: 8)
+
+            if !platform.availableModels.isEmpty {
+                Menu {
+                    ForEach(platform.availableModels, id: \.self) { m in
+                        Button {
+                            selectedPlatformModels[platform.kind] = m
+                        } label: {
+                            let display = (m as NSString).lastPathComponent
+                            if selectedModel == m {
+                                Label(display, systemImage: "checkmark")
+                            } else {
+                                Text(display)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text((selectedModel as NSString).lastPathComponent)
+                            .font(PipiTokens.fontMonoSmall)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 8.5, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: 164, minHeight: 28, maxHeight: 28)
+                    .background(PipiTokens.buttonSecondaryBg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                }
+                .pipiPlainMenu()
+            }
+
+            PipiActionButton(
+                isLaunching ? s.t("拉起中...", "Starting...") : s.t("拉起并使用", "Launch & Use"),
+                systemImage: platform.running ? "bolt.fill" : "play.fill",
+                tone: platform.running ? .secondary : .primary,
+                density: .desktopCompact
+            ) {
+                Task {
+                    let res = await store.launchAndUseLocalPlatformModel(
+                        platform: platform.kind,
+                        modelId: selectedModel
+                    )
+                    localPlatformFeedback = res.message
+                }
+            }
+            .disabled(isLaunching)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+    }
+
+    private func settingsDisclosureCard<Content: View>(
+        icon: String,
+        title: String,
+        summary: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                    isExpanded.wrappedValue.toggle()
+                }
+            } label: {
+                HStack(spacing: PipiTokens.spacing12) {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(summary)
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: isExpanded.wrappedValue ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PipiTokens.textMuted)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded.wrappedValue {
+                settingsRowDivider
+                content()
+            }
+        }
+        .background(PipiTokens.bgElevated)
+        .overlay(
+            RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+    }
+
+    // MARK: - Unified Add Local Model Sheet (Option 1: Smart Hardware Plan & Immediate Deploy · Option 2: Connect Existing Platform)
+
+    private var addLocalModelSheet: some View {
+        let plan = store.modelAutopilotPlan
+        let hw = store.hardwareProfile
+        let allCatalogEntries: [PipiLocalModelCatalogEntry] = {
+            var seen = Set<String>()
+            var ordered: [PipiLocalModelCatalogEntry] = []
+            for item in ([plan.primaryModel] + plan.alternatives + PipiModelAutopilot.polyStrataMoECatalog) {
+                if seen.insert(item.id).inserted {
+                    ordered.append(item)
+                }
+            }
+            return ordered
+        }()
+        let chosenEntry = allCatalogEntries.first(where: { $0.id == selectedPlannedCatalogModelId }) ?? plan.primaryModel
+        let preferredPlatform: PipiLocalModelPlatformKind? = PipiLocalModelPlatformKind(rawValue: selectedDeployPlatformOption)
+        let resolvedDeploy = PipiLocalModelPlatformManager.resolveDeploymentTarget(
+            for: chosenEntry,
+            preferredPlatform: preferredPlatform,
+            installed: store.localModelPlatformManager.platforms
+        )
+
+        return VStack(spacing: 0) {
+            HStack {
+                Text(s.t("添加本地模型", "Add Local Model"))
+                    .font(PipiTokens.fontHeadline)
+                    .foregroundStyle(PipiTokens.textPrimary)
+                Spacer()
+                PipiGhostIconButton(
+                    systemImage: "xmark",
+                    size: 28,
+                    iconSize: 12,
+                    cornerRadius: PipiTokens.radiusPill,
+                    accessibilityLabel: s.close
+                ) {
+                    showAddLocalModelSheet = false
+                }
+            }
+            .padding(.horizontal, PipiTokens.spacing20)
+            .padding(.vertical, PipiTokens.spacing12)
+            .background(PipiTokens.bgCanvas)
+
+            Rectangle()
+                .fill(PipiTokens.borderSubtle)
+                .frame(height: 1)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+                    PipiSegmentedControl(
+                        options: PipiAddLocalModelMode.allCases,
+                        selection: $addLocalModelMode,
+                        label: { $0.title(s) }
+                    )
+
+                    if addLocalModelMode == .hardwarePlan {
+                        // Hardware Profile Summary
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "memorychip")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                Text("\(hw.cpuModel) · \(hw.cpuCores)C · \(String(format: "%.0f", hw.totalRamGb))GB RAM")
+                                    .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                Spacer()
+                                Button {
+                                    _ = store.refreshHardwareAndModelPlan()
+                                    selectedPlannedCatalogModelId = store.modelAutopilotPlan.primaryModel.id
+                                } label: {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 11.5, weight: .medium))
+                                        .foregroundStyle(PipiTokens.textSecondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help(s.refresh)
+                            }
+                            Text(
+                                s.t(
+                                    "可用磁盘 \(String(format: "%.0f", hw.freeDiskGb)) GB · 语言模型内存预算 \(String(format: "%.1f", plan.languageModelMemoryBudgetGb)) GB · 推荐上下文 \(plan.plannedContextWindow / 1024)K",
+                                    "Free SSD \(String(format: "%.0f", hw.freeDiskGb)) GB · LM Budget \(String(format: "%.1f", plan.languageModelMemoryBudgetGb)) GB · Context \(plan.plannedContextWindow / 1024)K"
+                                )
+                            )
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        }
+                        .padding(12)
+                        .background(PipiTokens.bgElevated)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+
+                        // Planned Model & Engine Selection
+                        settingsGroup(title: s.t("选择部署模型与推理平台", "Model & Inference Platform")) {
+                            HStack(spacing: PipiTokens.spacing12) {
+                                Text(s.t("部署模型", "Model"))
+                                    .font(PipiTokens.fontSubheadline.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                Spacer()
+                                Menu {
+                                    ForEach(allCatalogEntries) { entry in
+                                        Button {
+                                            selectedPlannedCatalogModelId = entry.id
+                                        } label: {
+                                            let tag = entry.id == plan.primaryModel.id ? " (\(s.t("推荐", "Recommended")))" : ""
+                                            if chosenEntry.id == entry.id {
+                                                Label("\(entry.displayName)\(tag)", systemImage: "checkmark")
+                                            } else {
+                                                Text("\(entry.displayName)\(tag)")
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Text(chosenEntry.displayName)
+                                            .font(PipiTokens.fontCaption.weight(.medium))
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                            .lineLimit(1)
+                                        Spacer(minLength: 4)
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.system(size: 9.5, weight: .semibold))
+                                            .foregroundStyle(PipiTokens.textMuted)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .frame(width: 248, height: 32)
+                                    .background(PipiTokens.buttonSecondaryBg)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                            .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                                }
+                                .pipiPlainMenu()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 11)
+
+                            settingsRowDivider
+
+                            HStack(spacing: PipiTokens.spacing12) {
+                                Text(s.t("目标推理引擎", "Target Platform"))
+                                    .font(PipiTokens.fontSubheadline.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                Spacer()
+                                Menu {
+                                    Button {
+                                        selectedDeployPlatformOption = "auto"
+                                    } label: {
+                                        let autoLabel = s.t("自动匹配（\(resolvedDeploy.platform.displayName)）", "Auto (\(resolvedDeploy.platform.displayName))")
+                                        if selectedDeployPlatformOption == "auto" {
+                                            Label(autoLabel, systemImage: "checkmark")
+                                        } else {
+                                            Text(autoLabel)
+                                        }
+                                    }
+                                    Divider()
+                                    ForEach(PipiLocalModelPlatformKind.allCases) { kind in
+                                        Button {
+                                            selectedDeployPlatformOption = kind.rawValue
+                                        } label: {
+                                            if selectedDeployPlatformOption == kind.rawValue {
+                                                Label(kind.displayName, systemImage: "checkmark")
+                                            } else {
+                                                Text(kind.displayName)
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Text(
+                                            selectedDeployPlatformOption == "auto"
+                                                ? s.t("自动（\(resolvedDeploy.platform.displayName)）", "Auto (\(resolvedDeploy.platform.displayName))")
+                                                : (preferredPlatform?.displayName ?? resolvedDeploy.platform.displayName)
+                                        )
+                                        .font(PipiTokens.fontCaption.weight(.medium))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                        .lineLimit(1)
+                                        Spacer(minLength: 4)
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.system(size: 9.5, weight: .semibold))
+                                            .foregroundStyle(PipiTokens.textMuted)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .frame(width: 248, height: 32)
+                                    .background(PipiTokens.buttonSecondaryBg)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                            .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                                }
+                                .pipiPlainMenu()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 11)
+
+                            settingsRowDivider
+
+                            HStack(spacing: PipiTokens.spacing12) {
+                                HStack(spacing: 6) {
+                                    Text(s.t("Apple Silicon 分层预取（PolyStrata）", "Apple Silicon Tiered Prefetch"))
+                                        .font(PipiTokens.fontSubheadline.weight(.medium))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                    PipiInfoHelpButton(
+                                        title: s.t("PolyStrata 内存分层预取", "PolyStrata Tiered Prefetch"),
+                                        message: s.t("常用模型层常驻统一内存、冷层从 SSD 按需预取；未安装时自动选用 Ollama / LM Studio / MLX / llama.cpp。", "Keeps hot layers in unified memory and prefetches cold layers from SSD; falls back to Ollama, LM Studio, MLX, or llama.cpp.")
+                                    )
+                                }
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { store.localGatewayConfig.enableMacPolyStrataBeta },
+                                    set: { next in
+                                        var cfg = store.localGatewayConfig
+                                        cfg.enableMacPolyStrataBeta = next
+                                        store.updateLocalGatewayConfig(cfg)
+                                    }
+                                ))
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                        }
+
+                        if let status = store.localModelDeployStatus {
+                            Text(status)
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(PipiTokens.bgElevated)
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                        }
+
+                        HStack(spacing: PipiTokens.spacing8) {
+                            PipiActionButton(
+                                store.isRunningModelSelfTest ? s.t("自测中...", "Testing...") : s.runQASelfTestAction,
+                                systemImage: "checkmark.seal",
+                                tone: .secondary,
+                                density: .desktopCompact
+                            ) {
+                                Task { _ = await store.runLocalModelSelfTest() }
+                            }
+                            .disabled(store.isRunningModelSelfTest)
+
+                            Spacer()
+
+                            PipiActionButton(
+                                store.isDeployingLocalModel ? s.t("正在部署...", "Deploying...") : s.t("立即部署", "Deploy Now"),
+                                systemImage: "arrow.down.circle.fill",
+                                tone: .primary,
+                                density: .desktopCompact
+                            ) {
+                                Task {
+                                    let res = await store.deployPlannedLocalModel(
+                                        entry: chosenEntry,
+                                        preferredPlatform: preferredPlatform
+                                    )
+                                    localPlatformFeedback = res.message
+                                    if res.succeeded {
+                                        showAddLocalModelSheet = false
+                                    }
+                                }
+                            }
+                            .disabled(store.isDeployingLocalModel)
+                        }
+                    } else {
+                        // Option 2: Connect Existing Local Platform or Custom Loopback Server
+                        settingsGroup(title: s.t("接入已安装平台或自定义回环服务", "Connect Local Platform or Loopback Server")) {
+                            HStack(spacing: PipiTokens.spacing12) {
+                                Text(s.t("本地平台", "Platform"))
+                                    .font(PipiTokens.fontSubheadline.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                Spacer()
+                                PipiSelectMenu(
+                                    options: PipiLocalModelPlatformKind.allCases,
+                                    selection: $customLocalPlatformDraft,
+                                    width: 220
+                                ) { kind in
+                                    kind.displayName
+                                }
+                                .onChange(of: customLocalPlatformDraft) { _, next in
+                                    customLocalEndpointDraft = next.openAIBaseURL
+                                    if let found = store.localModelPlatformManager.platforms.first(where: { $0.kind == next }),
+                                       let firstModel = found.availableModels.first {
+                                        customLocalModelDraft = firstModel
+                                    } else {
+                                        customLocalModelDraft = next.defaultFallbackModelId
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 11)
+
+                            settingsRowDivider
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(s.t("本地服务地址", "Local Endpoint URL"))
+                                    .font(PipiTokens.fontMicro.weight(.semibold))
+                                    .foregroundStyle(PipiTokens.textMuted)
+                                PipiTextField("http://127.0.0.1:11434", text: $customLocalEndpointDraft, monospaced: true, height: 32)
+
+                                Text(s.t("模型名称 / 本地权重路径", "Model ID / GGUF Path"))
+                                    .font(PipiTokens.fontMicro.weight(.semibold))
+                                    .foregroundStyle(PipiTokens.textMuted)
+                                    .padding(.top, 2)
+                                PipiTextField(customLocalPlatformDraft.defaultFallbackModelId, text: $customLocalModelDraft, monospaced: true, height: 32)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                        }
+
+                        HStack {
+                            Spacer()
+                            PipiActionButton(
+                                s.t("拉起并添加", "Launch & Add"),
+                                systemImage: "play.fill",
+                                tone: .primary,
+                                density: .desktopCompact
+                            ) {
+                                let trimmedURL = customLocalEndpointDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                                let trimmedModel = customLocalModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !trimmedModel.isEmpty else { return }
+                                Task {
+                                    let res = await store.launchAndUseLocalPlatformModel(
+                                        platform: customLocalPlatformDraft,
+                                        modelId: trimmedModel
+                                    )
+                                    if !res.succeeded && !trimmedURL.isEmpty {
+                                        // Allow registering a running custom loopback endpoint directly
+                                        let cfg = PipiLLMProviderConfig(
+                                            id: "local_\(customLocalPlatformDraft.rawValue)_\(UUID().uuidString.prefix(4).lowercased())",
+                                            name: customLocalPlatformDraft.displayName,
+                                            kind: customLocalPlatformDraft.providerKind,
+                                            baseURL: trimmedURL,
+                                            apiKey: customLocalPlatformDraft == .ollama ? "" : "local-engine",
+                                            modelId: trimmedModel,
+                                            isEnabled: true
+                                        )
+                                        store.upsertLLMProvider(cfg, setAsDefault: true)
+                                        localPlatformFeedback = s.t("已添加本地模型 \(trimmedModel)", "Added local model \(trimmedModel)")
+                                    } else {
+                                        localPlatformFeedback = res.message
+                                    }
+                                    showAddLocalModelSheet = false
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(PipiTokens.spacing20)
+            }
+            .pipiHideScrollbars()
+            .background(PipiTokens.bgCanvas)
+        }
+        .preferredColorScheme(store.themeMode.colorSchemeOverride)
+        .task {
+            _ = await store.scanLocalModelPlatforms()
+        }
+    }
+
+    // MARK: - Wave 4 (#07) Local Unified LLM Gateway & CLI Reverse Injection Section
+
+    private var localUnifiedGatewaySection: some View {
+        settingsGroup(
+            title: s.localGatewayTitle,
+            trailing: {
+                if store.localGatewayStatus.isRunning {
+                    PipiActionButton(s.stopGatewayAction, systemImage: "stop.circle", tone: .ghost, density: .desktopCompact) {
+                        Task {
+                            await store.stopLocalGateway()
+                            gatewayActionFeedback = s.t("本地服务已停止", "Local service stopped")
+                        }
+                    }
+                } else {
+                    PipiActionButton(s.startGatewayAction, systemImage: "play.circle.fill", tone: .primary, density: .desktopCompact) {
+                        Task {
+                            do {
+                                let status = try await store.startLocalGateway()
+                                gatewayActionFeedback = s.t("已监听 \(status.origin)", "Listening on \(status.origin)")
+                            } catch {
+                                gatewayActionFeedback = error.localizedDescription
+                            }
+                        }
+                    }
+                }
+            }
+        ) {
+            // Active Model Source Mode
+            HStack(spacing: PipiTokens.spacing12) {
+                HStack(spacing: 6) {
+                    Text(s.t("模型来源", "Model Source"))
+                        .font(PipiTokens.fontSubheadline.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    PipiInfoHelpButton(
+                        title: s.t("模型来源", "Model Source"),
+                        message: s.t("在本地模型、订阅工具与自定义 API 间切换；离开本地模式时自动释放内存。", "Switch among Local, Subscription, and BYOK; leaving Local automatically frees memory.")
+                    )
+                }
+                Spacer(minLength: PipiTokens.spacing12)
+                PipiSelectMenu(
+                    options: PipiModelSourceMode.allCases,
+                    selection: Binding(
+                        get: { store.localGatewayConfig.sourceMode },
+                        set: { nextMode in
+                            Task {
+                                let res = await store.switchModelSourceMode(nextMode, confirmedInterruptActiveRuns: true)
+                                gatewayActionFeedback = res.message
+                            }
+                        }
+                    ),
+                    width: 204
+                ) { mode in
+                    mode.label(lang)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            settingsRowDivider
+
+            // Loopback Status & Local Upstream Endpoint
+            VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                HStack(spacing: PipiTokens.spacing8) {
+                    Circle()
+                        .fill(store.localGatewayStatus.isRunning ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                        .frame(width: 7, height: 7)
+                    Text(
+                        store.localGatewayStatus.isRunning
+                            ? s.t("运行中 · \(store.localGatewayStatus.origin)", "Running · \(store.localGatewayStatus.origin)")
+                            : s.t("未启动 · 仅监听本机 127.0.0.1", "Stopped · Loopback 127.0.0.1 only")
+                    )
+                    .font(PipiTokens.fontCaption.weight(.medium))
+                    .foregroundStyle(PipiTokens.textPrimary)
+                    Spacer()
+                }
+
+                HStack(spacing: PipiTokens.spacing12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(s.t("本地上游地址", "Upstream URL"))
+                            .font(PipiTokens.fontMicro)
+                            .foregroundStyle(PipiTokens.textMuted)
+                        PipiTextField(
+                            "http://127.0.0.1:11438/v1",
+                            text: Binding(
+                                get: { store.localGatewayConfig.localUpstreamBaseURL },
+                                set: { val in
+                                    var cfg = store.localGatewayConfig
+                                    cfg.localUpstreamBaseURL = val
+                                    store.updateLocalGatewayConfig(cfg)
+                                }
+                            ),
+                            monospaced: true,
+                            height: 32
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(s.t("模型标识", "Model ID"))
+                            .font(PipiTokens.fontMicro)
+                            .foregroundStyle(PipiTokens.textMuted)
+                        PipiTextField(
+                            "qwen3.8-27b-ud-q4_k_m",
+                            text: Binding(
+                                get: { store.localGatewayConfig.selectedLocalModelId },
+                                set: { val in
+                                    var cfg = store.localGatewayConfig
+                                    cfg.selectedLocalModelId = val
+                                    store.updateLocalGatewayConfig(cfg)
+                                }
+                            ),
+                            monospaced: true,
+                            height: 32
+                        )
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            settingsRowDivider
+
+            // Reverse-Inject into CLI Agents via Isolated Environment Overlays
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                HStack(spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 6) {
+                        Text(s.reverseInjectCLITitle)
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(title: s.reverseInjectCLITitle, message: s.reverseInjectCLIDesc)
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.localGatewayConfig.reverseInjectCLIAgents },
+                        set: { next in
+                            var cfg = store.localGatewayConfig
+                            cfg.reverseInjectCLIAgents = next
+                            store.updateLocalGatewayConfig(cfg)
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+
+                HStack(spacing: PipiTokens.spacing8) {
+                    PipiActionButton(s.t("查看隔离目录", "Inspect Isolation Paths"), systemImage: "folder.badge.gearshape", tone: .ghost, density: .desktopCompact) {
+                        Task {
+                            do {
+                                let claude = try await store.prepareIsolatedCLIOverlay(for: .claudeCode)
+                                let codex = try await store.prepareIsolatedCLIOverlay(for: .codex)
+                                let pi = try await store.prepareIsolatedCLIOverlay(for: .pi)
+                                overlayPreviewMessage = "CLAUDE_CONFIG_DIR=\(claude.overlayDir.path)\nCODEX_HOME=\(codex.overlayDir.path)\nPI_CODING_AGENT_DIR=\(pi.overlayDir.path)"
+                            } catch {
+                                overlayPreviewMessage = error.localizedDescription
+                            }
+                        }
+                    }
+                    Spacer()
+                }
+
+                if let msg = overlayPreviewMessage ?? gatewayActionFeedback {
+                    Text(msg)
+                        .font(PipiTokens.fontMonoSmall)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        .textSelection(.enabled)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(PipiTokens.bgSurfaceHover)
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+    }
+
+    // MARK: - 2.5 Personal Daily Voice Tab (Wave 4 · #10: On-Device First + BYOK Cloud API)
+
+    private var voiceTab: some View {
+        let allowsCloud = store.voiceConfig.privacyPolicy != .onDeviceOnly
+        let timbres = PipiDailyVoiceEngine.availableVoiceTimbres()
+        let selectedTimbre = PipiDailyVoiceEngine.resolveTimbre(id: store.voiceConfig.selectedVoiceProfileId)
+
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
+            // Group 1: Timbre, Speech Rate & Auto Playback
+            settingsGroup(title: s.t("音色与通话播报", "Voice Timbre & Playback")) {
+                // Multi-voice timbre selector + live preview
+                HStack(spacing: PipiTokens.spacing8) {
+                    HStack(spacing: 6) {
+                        Text(s.t("默认音色", "Default Timbre"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(
+                            title: s.t("多音色配置", "Voice Timbres"),
+                            message: s.t("选择全局默认音色；您也可以在每个智能体的编辑页为其指定专属音色。", "Choose the global default voice; each assistant can also override with its own dedicated timbre.")
+                        )
+                    }
+                    Spacer(minLength: PipiTokens.spacing12)
+                    PipiSelectMenu(
+                        options: timbres,
+                        selection: Binding(
+                            get: { selectedTimbre },
+                            set: { next in
+                                var cfg = store.voiceConfig
+                                cfg.selectedVoiceProfileId = next.id
+                                if let cloudVoice = next.cloudVoiceName {
+                                    cfg.cloudTts.voiceName = cloudVoice
+                                }
+                                store.updateVoiceConfig(cfg)
+                            }
+                        ),
+                        width: 212
+                    ) { option in
+                        option.displayName(lang)
+                    }
+                    PipiActionButton(s.t("试听", "Preview"), systemImage: "play.fill", tone: .secondary, density: .desktopCompact) {
+                        store.previewVoiceProfile(selectedTimbre.id)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
+                // Speech rate slider
+                HStack(spacing: PipiTokens.spacing12) {
+                    Text(s.t("播报语速", "Speech Rate"))
+                        .font(PipiTokens.fontSubheadline.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Spacer()
+                    Text(String(format: "%.2fx", store.voiceConfig.speechRate))
+                        .font(PipiTokens.fontMonoSmall)
+                        .monospacedDigit()
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        .frame(width: 44, alignment: .trailing)
+                    Slider(
+                        value: Binding(
+                            get: { store.voiceConfig.speechRate },
+                            set: { val in
+                                var cfg = store.voiceConfig
+                                cfg.speechRate = val
+                                store.updateVoiceConfig(cfg)
+                            }
+                        ),
+                        in: 0.70...1.40,
+                        step: 0.05
+                    )
+                    .frame(width: 176)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
+                // Auto speak replies
+                HStack(spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 6) {
+                        Text(s.t("回复自动语音播报", "Auto-Speak Replies"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(
+                            title: s.t("回复自动语音播报", "Auto-Speak Replies"),
+                            message: s.t("语音通话模式下自动播报回复内容，播报期间开口可随时打断。", "Reads responses aloud in Voice Call mode with instant speech interruption.")
+                        )
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.voiceConfig.autoSpeakMuseReplies },
+                        set: { val in
+                            var cfg = store.voiceConfig
+                            cfg.autoSpeakMuseReplies = val
+                            store.updateVoiceConfig(cfg)
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                settingsRowDivider
+
+                HStack(spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 6) {
+                        Text(s.t("语音隐私策略", "Voice Privacy Policy"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(
+                            title: s.t("语音隐私策略", "Voice Privacy Policy"),
+                            message: s.t("「仅端侧」模式下所有识别与合成均在本机完成，不向外部发送音频数据。", "On-Device Only processes all speech locally with zero audio egress.")
+                        )
+                    }
+                    Spacer(minLength: PipiTokens.spacing12)
+                    PipiSelectMenu(
+                        options: PipiVoicePrivacyPolicy.allCases,
+                        selection: Binding(
+                            get: { store.voiceConfig.privacyPolicy },
+                            set: { val in
+                                var cfg = store.voiceConfig
+                                cfg.privacyPolicy = val
+                                store.updateVoiceConfig(cfg)
+                            }
+                        ),
+                        width: 212
+                    ) { policy in
+                        policy.label(lang)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+
+            // Collapsible Advanced Voice Parameters & Cloud BYOK Engines
+            settingsDisclosureCard(
+                icon: "slider.horizontal.3",
+                title: s.t("高级：识别灵敏度与语音引擎", "Advanced: Recognition & Voice Engines"),
+                summary: s.t(
+                    "\(store.voiceConfig.preferredSttProvider.label(lang)) · \(store.voiceConfig.preferredTtsProvider.label(lang))",
+                    "\(store.voiceConfig.preferredSttProvider.label(lang)) · \(store.voiceConfig.preferredTtsProvider.label(lang))"
+                ),
+                isExpanded: $showAdvancedVoiceSettings
+            ) {
+                VStack(spacing: 0) {
+                    HStack(spacing: PipiTokens.spacing12) {
+                        Text(s.t("默认语音模式", "Default Voice Mode"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Spacer()
+                        PipiSelectMenu(
+                            options: PipiVoiceInteractionMode.allCases,
+                            selection: Binding(
+                                get: { store.voiceConfig.defaultMode },
+                                set: { val in
+                                    var cfg = store.voiceConfig
+                                    cfg.defaultMode = val
+                                    store.updateVoiceConfig(cfg)
+                                }
+                            ),
+                            width: 212
+                        ) { mode in
+                            mode.label(lang)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+
+                    settingsRowDivider
+
+                    HStack(spacing: PipiTokens.spacing12) {
+                        HStack(spacing: 6) {
+                            Text(s.t("人声检测灵敏度", "Voice Sensitivity"))
+                                .font(PipiTokens.fontSubheadline.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            PipiInfoHelpButton(
+                                title: s.t("人声检测与回声过滤", "Voice Detection & Echo Gate"),
+                                message: s.t("播音期间自动提高收音门槛以过滤扬声器回声，检测到连续人声即停止播报并切换聆听。", "Raises threshold while speaking to reject speaker echo and switches to listening on sustained user speech.")
+                            )
+                        }
+                        Spacer()
+                        Text(String(format: "%.2f", store.voiceConfig.vadSensitivity))
+                            .font(PipiTokens.fontMonoSmall)
+                            .monospacedDigit()
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .frame(width: 44, alignment: .trailing)
+                        Slider(
+                            value: Binding(
+                                get: { store.voiceConfig.vadSensitivity },
+                                set: { val in
+                                    var cfg = store.voiceConfig
+                                    cfg.vadSensitivity = val
+                                    store.updateVoiceConfig(cfg)
+                                }
+                            ),
+                            in: 0.15...0.95,
+                            step: 0.05
+                        )
+                        .frame(width: 176)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+
+                    settingsRowDivider
+
+                    HStack(spacing: PipiTokens.spacing12) {
+                        Text(s.t("播音期防回声倍率", "Echo Filter Multiplier"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Spacer()
+                        Text(String(format: "%.1fx", store.voiceConfig.echoGateMultiplier))
+                            .font(PipiTokens.fontMonoSmall)
+                            .monospacedDigit()
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .frame(width: 44, alignment: .trailing)
+                        Slider(
+                            value: Binding(
+                                get: { store.voiceConfig.echoGateMultiplier },
+                                set: { val in
+                                    var cfg = store.voiceConfig
+                                    cfg.echoGateMultiplier = val
+                                    store.updateVoiceConfig(cfg)
+                                }
+                            ),
+                            in: 1.6...4.0,
+                            step: 0.2
+                        )
+                        .frame(width: 176)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+
+                    settingsRowDivider
+
+                    HStack(spacing: PipiTokens.spacing12) {
+                        Text(s.t("语音识别引擎", "Speech Recognition"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Spacer()
+                        PipiSelectMenu(
+                            options: [PipiVoiceEngineProvider.appleOnDevice, .whisperKit, .mlxAudio, .openaiByok, .deepgramByok, .customByok],
+                            selection: Binding(
+                                get: { store.voiceConfig.preferredSttProvider },
+                                set: { val in
+                                    var cfg = store.voiceConfig
+                                    cfg.preferredSttProvider = val
+                                    store.updateVoiceConfig(cfg)
+                                }
+                            ),
+                            width: 212
+                        ) { p in
+                            p.label(lang)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+
+                    settingsRowDivider
+
+                    HStack(spacing: PipiTokens.spacing12) {
+                        Text(s.t("语音合成引擎", "Speech Synthesis"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Spacer()
+                        PipiSelectMenu(
+                            options: [PipiVoiceEngineProvider.appleOnDevice, .mlxAudio, .openaiByok, .elevenlabsByok, .customByok],
+                            selection: Binding(
+                                get: { store.voiceConfig.preferredTtsProvider },
+                                set: { val in
+                                    var cfg = store.voiceConfig
+                                    cfg.preferredTtsProvider = val
+                                    store.updateVoiceConfig(cfg)
+                                }
+                            ),
+                            width: 212
+                        ) { p in
+                            p.label(lang)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+
+                    if allowsCloud {
+                        settingsRowDivider
+
+                        VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                            HStack(spacing: 6) {
+                                Text(s.t("云端语音接口与音色", "Cloud Voice API & Timbre"))
+                                    .font(PipiTokens.fontCaption.weight(.semibold))
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                                PipiInfoHelpButton(
+                                    title: s.t("密钥存储", "Credential Storage"),
+                                    message: s.t("云端语音密钥仅存储于 macOS 钥匙串（Keychain），不以明文写入本地文件。", "Cloud voice API keys are stored exclusively in macOS Keychain.")
+                                )
+                                Spacer()
+                                Menu {
+                                    ForEach(PipiVoiceTimbreOption.cloudVoiceNames, id: \.self) { voiceName in
+                                        Button {
+                                            var cfg = store.voiceConfig
+                                            cfg.cloudTts.voiceName = voiceName
+                                            store.updateVoiceConfig(cfg)
+                                        } label: {
+                                            if store.voiceConfig.cloudTts.voiceName == voiceName {
+                                                Label(voiceName, systemImage: "checkmark")
+                                            } else {
+                                                Text(voiceName)
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Text(s.t("云端音色：\(store.voiceConfig.cloudTts.voiceName)", "Cloud Voice: \(store.voiceConfig.cloudTts.voiceName)"))
+                                            .font(PipiTokens.fontCaption.weight(.medium))
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.system(size: 9.5, weight: .semibold))
+                                            .foregroundStyle(PipiTokens.textMuted)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .frame(height: 28)
+                                    .background(PipiTokens.buttonSecondaryBg)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                            .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                                }
+                                .pipiPlainMenu()
+                            }
+
+                            HStack(spacing: PipiTokens.spacing12) {
+                                PipiTextField(
+                                    "https://api.openai.com/v1",
+                                    text: Binding(
+                                        get: { store.voiceConfig.cloudStt.baseURL },
+                                        set: { val in
+                                            var cfg = store.voiceConfig
+                                            cfg.cloudStt.baseURL = val
+                                            store.updateVoiceConfig(cfg)
+                                        }
+                                    ),
+                                    monospaced: true,
+                                    height: 32
+                                )
+                                PipiTextField(
+                                    "gpt-4o-mini-transcribe",
+                                    text: Binding(
+                                        get: { store.voiceConfig.cloudStt.modelId },
+                                        set: { val in
+                                            var cfg = store.voiceConfig
+                                            cfg.cloudStt.modelId = val
+                                            store.updateVoiceConfig(cfg)
+                                        }
+                                    ),
+                                    monospaced: true,
+                                    height: 32
+                                )
+                            }
+
+                            HStack(spacing: PipiTokens.spacing12) {
+                                PipiSecureField(s.t("识别 API Key", "STT API Key"), text: $cloudSttKeyDraft, height: 32)
+                                PipiSecureField(s.t("合成 API Key", "TTS API Key"), text: $cloudTtsKeyDraft, height: 32)
+                                PipiActionButton(s.save, systemImage: "key.fill", tone: .secondary, density: .desktopCompact) {
+                                    store.setVoiceCloudSttApiKey(cloudSttKeyDraft)
+                                    store.setVoiceCloudTtsApiKey(cloudTtsKeyDraft)
+                                    voiceKeysSavedBanner = true
+                                }
+                            }
+
+                            if voiceKeysSavedBanner {
+                                Text(s.t("密钥已保存至系统钥匙串。", "Credentials saved to Keychain."))
+                                    .font(PipiTokens.fontCaption)
+                                    .foregroundStyle(PipiTokens.stateSuccess)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .onAppear {
+                            if !voiceKeysLoaded {
+                                cloudSttKeyDraft = store.voiceCloudSttApiKey()
+                                cloudTtsKeyDraft = store.voiceCloudTtsApiKey()
+                                voiceKeysLoaded = true
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    // MARK: - 3. Runtime & Sync Tab (This Mac Host + Keep Awake + Companion Sync)
+    // MARK: - 3. Runtime & Remote Control Tab (This Mac + Cloudflare Tunnel PWA + WeChat iLink + macOS Permissions + Computer Use)
 
     private var runtimeSyncTab: some View {
         VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
             // Group 1: This Mac Host
-            settingsGroup(title: s.t("本机大本营", "This Mac")) {
+            settingsGroup(title: s.t("本机运行状态", "This Mac")) {
                 HStack(spacing: PipiTokens.spacing12) {
                     Circle()
                         .fill(hostDotColor)
@@ -666,8 +1982,8 @@ public struct PipiSettingsView: View {
                             .foregroundStyle(PipiTokens.textPrimary)
                         Text(
                             s.t(
-                                "\(store.readyLLMProviders.count) 个模型就绪 · \(store.usableLocalAgents.count) 个本地 CLI Agent",
-                                "\(store.readyLLMProviders.count) model(s) ready · \(store.usableLocalAgents.count) local CLI agent(s)"
+                                "已配置模型 \(store.readyLLMProviders.count) · 本地工具 \(store.usableLocalAgents.count)",
+                                "Models \(store.readyLLMProviders.count) · Local Tools \(store.usableLocalAgents.count)"
                             )
                         )
                         .font(PipiTokens.fontCaption)
@@ -676,18 +1992,16 @@ public struct PipiSettingsView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
 
                 settingsRowDivider
 
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
                         Text(s.keepAwakeTitle)
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
                             .foregroundStyle(PipiTokens.textPrimary)
-                        Text(s.keepAwakeDesc)
-                            .font(PipiTokens.fontCaption)
-                            .foregroundStyle(PipiTokens.textSecondary)
+                        PipiInfoHelpButton(title: s.keepAwakeTitle, message: s.keepAwakeDesc)
                     }
                     Spacer(minLength: PipiTokens.spacing12)
                     Toggle("", isOn: Binding(
@@ -698,76 +2012,902 @@ public struct PipiSettingsView: View {
                     .toggleStyle(.switch)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
             }
 
-            // Group 2: Mobile Companion Sync
-            settingsGroup(title: s.syncBridgeTitle) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(s.companionSyncToggleTitle)
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textPrimary)
-                        Text(s.companionSyncToggleDesc)
-                            .font(PipiTokens.fontCaption)
-                            .foregroundStyle(PipiTokens.textSecondary)
-                    }
-                    Spacer(minLength: PipiTokens.spacing12)
-                    Toggle("", isOn: Binding(
-                        get: { store.companionSyncEnabled },
-                        set: { store.setCompanionSyncEnabled($0) }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+            // Group 2: Remote Control via Cloudflare Tunnel (PWA Mode)
+            cloudflareRemoteControlSection
 
-                if store.companionSyncEnabled {
+            // Group 3: Remote Control via WeChat iLink Protocol (QR Bind + 1v1 / Prefix Group Mode)
+            wechatILinkRemoteSection
+
+            // Group 4 (Collapsible): Native macOS System Takeover & Permissions Guidance
+            settingsDisclosureCard(
+                icon: "lock.shield",
+                title: s.t("本机系统接管与权限引导", "macOS Native Takeover & Permissions"),
+                summary: s.t(
+                    "已授权 \(store.macPermissionsSnapshot.items.filter { $0.state == .granted }.count)/\(PipiMacPermissionKind.allCases.count) · 短信 / 邮件 / 截屏录屏 / 编译打包",
+                    "Granted \(store.macPermissionsSnapshot.items.filter { $0.state == .granted }.count)/\(PipiMacPermissionKind.allCases.count) · SMS / Mail / Capture / Build"
+                ),
+                isExpanded: $showMacPermissionsDrawer
+            ) {
+                macNativePermissionsDrawerBody
+            }
+
+            // Group 5 (Collapsible): Dual-Phase Computer Use
+            settingsDisclosureCard(
+                icon: "macwindow.on.rectangle",
+                title: s.computerUseSectionTitle,
+                summary: store.computerUseConfig.enabled
+                    ? s.t("已启用 · \(store.computerUseConfig.browserSeatMode.label(lang))", "Enabled · \(store.computerUseConfig.browserSeatMode.label(lang))")
+                    : s.t("未启用 · 浏览器标签协作与桌面辅助控制", "Disabled · Browser seats & macOS Accessibility"),
+                isExpanded: $showComputerUseDrawer
+            ) {
+                computerUseSettingsSection
+            }
+
+            // Optional Legacy Local Daemon Bridge Disclosure
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                Button {
+                    showLegacyDaemonBridge.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: showLegacyDaemonBridge ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textMuted)
+                        Text(s.t("高级：本地守护进程 HTTP/SSE 桥接（可选）", "Advanced: Local Daemon Bridge (Optional)"))
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if showLegacyDaemonBridge {
+                    settingsGroup(title: s.syncBridgeTitle) {
+                        HStack {
+                            HStack(spacing: 6) {
+                                Text(s.companionSyncToggleTitle)
+                                    .font(PipiTokens.fontSubheadline.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                PipiInfoHelpButton(title: s.companionSyncToggleTitle, message: s.companionSyncToggleDesc)
+                            }
+                            Spacer(minLength: PipiTokens.spacing12)
+                            Toggle("", isOn: Binding(
+                                get: { store.companionSyncEnabled },
+                                set: { store.setCompanionSyncEnabled($0) }
+                            ))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+
+                        if store.companionSyncEnabled {
+                            settingsRowDivider
+
+                            HStack(spacing: PipiTokens.spacing12) {
+                                Text(s.endpointUrlLabel)
+                                    .font(PipiTokens.fontCaption.weight(.semibold))
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                                PipiTextField("http://127.0.0.1:4242", text: $store.daemonEndpoint, monospaced: true, height: 32)
+                                PipiActionButton(s.refresh, systemImage: "arrow.clockwise", tone: .secondary, density: .desktopCompact) {
+                                    Task {
+                                        await store.bridgeSupervisor.ensureBridgeRunning()
+                                        await store.refreshAllFromDaemon()
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                        }
+                    }
+                }
+            }
+        }
+        .task {
+            store.refreshCloudflaredAvailability()
+            store.refreshMacPermissions()
+            _ = await store.refreshComputerUseEnvironment()
+        }
+    }
+
+    // MARK: - Remote Control Section A: Cloudflare Quick Tunnel + PWA
+
+    private var cloudflareRemoteControlSection: some View {
+        let tunnelState = store.remoteTunnelManager.state
+        let statusDotColor: Color = {
+            switch tunnelState {
+            case .running: return PipiTokens.stateSuccess
+            case .starting: return PipiTokens.stateWarning
+            case .missingCloudflared, .error: return PipiTokens.stateError
+            case .stopped: return PipiTokens.textMuted
+            }
+        }()
+        let statusText: String = {
+            switch tunnelState {
+            case .running: return s.t("已发布远程访问（PWA 就绪）", "Published (PWA Ready)")
+            case .starting: return s.t("正在建立 Cloudflare Tunnel...", "Starting Cloudflare Tunnel...")
+            case .missingCloudflared: return s.t("未安装 cloudflared 组件", "cloudflared Not Installed")
+            case .error(let msg): return s.t("连接异常：\(msg)", "Error: \(msg)")
+            case .stopped: return s.t("未开启", "Stopped")
+            }
+        }()
+
+        return settingsGroup(
+            title: s.t("远程操控 · Cloudflare Tunnel（PWA 模式）", "Remote Control · Cloudflare Tunnel (PWA)"),
+            trailing: {
+                HStack(spacing: 6) {
+                    if tunnelState.isRunning {
+                        PipiActionButton(
+                            s.t("重新生成链接", "Regenerate"),
+                            systemImage: "arrow.clockwise",
+                            tone: .secondary,
+                            density: .desktopCompact
+                        ) {
+                            Task { await store.regenerateRemoteTunnel() }
+                        }
+                        PipiActionButton(
+                            s.t("停止发布", "Stop"),
+                            systemImage: "stop.fill",
+                            tone: .destructive,
+                            density: .desktopCompact
+                        ) {
+                            store.stopRemoteTunnel()
+                        }
+                    } else if tunnelState.isStarting {
+                        PipiActionButton(
+                            s.cancel,
+                            systemImage: "xmark",
+                            tone: .secondary,
+                            density: .desktopCompact
+                        ) {
+                            store.stopRemoteTunnel()
+                        }
+                    } else {
+                        PipiActionButton(
+                            s.t("开启远程操控", "Start Remote Tunnel"),
+                            systemImage: "antenna.radiowaves.left.and.right",
+                            tone: .primary,
+                            density: .desktopCompact
+                        ) {
+                            Task { await store.startRemoteTunnel() }
+                        }
+                    }
+                }
+            }
+        ) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                HStack(spacing: PipiTokens.spacing8) {
+                    Circle()
+                        .fill(statusDotColor)
+                        .frame(width: 7, height: 7)
+                    Text(statusText)
+                        .font(PipiTokens.fontSubheadline.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Spacer()
+                    PipiInfoHelpButton(
+                        title: s.t("临时隧道与 PWA 使用说明", "Temporary Tunnel & PWA Guide"),
+                        message: s.t(
+                            "无需安装独立 iOS 客户端。手机扫码或打开链接后，在 Safari / Chrome 菜单中选择「添加到主屏幕」，即可以全屏 PWA 模式远程对话、截屏、查看短信邮件与审批任务。",
+                            "No standalone iOS app required. Open the URL on your phone and choose Add to Home Screen for full-screen PWA remote access."
+                        )
+                    )
+                }
+
+                Text(
+                    s.t(
+                        "临时生成 HTTPS 地址，关闭再开启后链接将变化；手机扫码可添加主屏幕（PWA 模式）。",
+                        "Temporary HTTPS URL rotates on every restart. Scan on mobile to Add to Home Screen (PWA)."
+                    )
+                )
+                .font(PipiTokens.fontCaption)
+                .foregroundStyle(PipiTokens.textMuted)
+
+                if case .running(_, let accessURL, let localPort, _) = tunnelState {
                     settingsRowDivider
 
-                    HStack(spacing: PipiTokens.spacing12) {
-                        Text(s.endpointUrlLabel)
-                            .font(PipiTokens.fontCaption.weight(.semibold))
+                    HStack(alignment: .top, spacing: PipiTokens.spacing16) {
+                        VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(s.t("临时远程访问链接（含访问口令）", "Temporary Remote URL (Includes Token)"))
+                                    .font(PipiTokens.fontMicro.weight(.semibold))
+                                    .foregroundStyle(PipiTokens.textMuted)
+                                Text(accessURL)
+                                    .font(PipiTokens.fontMonoSmall)
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                    .textSelection(.enabled)
+                                    .lineLimit(3)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(PipiTokens.composerSurface)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                            .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            }
+
+                            HStack(spacing: PipiTokens.spacing8) {
+                                PipiActionButton(
+                                    copiedRemoteLink ? s.copied : s.t("复制链接", "Copy Link"),
+                                    systemImage: copiedRemoteLink ? "checkmark" : "doc.on.doc",
+                                    tone: .primary,
+                                    density: .desktopCompact
+                                ) {
+                                    copyToPasteboard(accessURL)
+                                    copiedRemoteLink = true
+                                    Task {
+                                        try? await Task.sleep(for: .seconds(2))
+                                        copiedRemoteLink = false
+                                    }
+                                }
+                                #if os(macOS)
+                                PipiActionButton(
+                                    s.t("浏览器打开", "Open in Browser"),
+                                    systemImage: "safari",
+                                    tone: .secondary,
+                                    density: .desktopCompact
+                                ) {
+                                    if let url = URL(string: accessURL) {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
+                                #endif
+                            }
+
+                            VStack(spacing: 4) {
+                                PipiKeyValueRow(
+                                    key: s.t("本机回环监听", "Loopback Port"),
+                                    value: "127.0.0.1:\(localPort)",
+                                    monospaced: true
+                                )
+                                PipiKeyValueRow(
+                                    key: s.t("地址有效期", "Address Lifecycle"),
+                                    value: s.t("本次开启有效 · 重启即变", "Session Only · Rotates on Restart")
+                                )
+                            }
+                        }
+
+                        VStack(spacing: 6) {
+                            PipiQRCodeView(payload: accessURL, size: 138)
+                            Text(s.t("手机扫码进入 PWA", "Scan for Mobile PWA"))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                    }
+                } else if !store.remoteTunnelManager.isCloudflaredInstalled || tunnelState == .missingCloudflared {
+                    settingsRowDivider
+
+                    VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                        Text(s.t("检测到本机尚未安装 cloudflared，请先在终端执行以下命令安装：", "cloudflared is not installed on this Mac. Install via Homebrew:"))
+                            .font(PipiTokens.fontCaption)
                             .foregroundStyle(PipiTokens.textSecondary)
-                        TextField("http://127.0.0.1:4242", text: $store.daemonEndpoint)
-                            .textFieldStyle(.plain)
-                            .font(PipiTokens.fontMono)
-                            .padding(.horizontal, PipiTokens.spacing8)
-                            .frame(height: 32)
-                            .background(PipiTokens.bgInset)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
-                                    .stroke(PipiTokens.borderSubtle, lineWidth: 1)
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-                        PipiActionButton(s.refresh, systemImage: "arrow.clockwise", tone: .secondary, density: .desktopCompact) {
-                            Task {
-                                await store.bridgeSupervisor.ensureBridgeRunning()
-                                await store.refreshAllFromDaemon()
+
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Text("brew install cloudflared")
+                                .font(PipiTokens.fontMonoSmall)
+                                .foregroundStyle(PipiTokens.textPrimary)
+                                .textSelection(.enabled)
+                                .padding(.horizontal, 10)
+                                .frame(height: 32)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(PipiTokens.composerSurface)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                        .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+
+                            PipiActionButton(
+                                copiedBrewCmd ? s.copied : s.copy,
+                                systemImage: copiedBrewCmd ? "checkmark" : "doc.on.doc",
+                                tone: .secondary,
+                                density: .desktopCompact
+                            ) {
+                                copyToPasteboard("brew install cloudflared")
+                                copiedBrewCmd = true
+                                Task {
+                                    try? await Task.sleep(for: .seconds(2))
+                                    copiedBrewCmd = false
+                                }
+                            }
+
+                            PipiActionButton(
+                                s.t("重新检测", "Re-check"),
+                                systemImage: "arrow.clockwise",
+                                tone: .secondary,
+                                density: .desktopCompact
+                            ) {
+                                store.refreshCloudflaredAvailability()
                             }
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
                 }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+    }
+
+    // MARK: - Remote Control Section B: WeChat iLink Protocol (QR Bind + 1v1 / Prefix Group Mode)
+
+    private var wechatILinkRemoteSection: some View {
+        let wxState = store.wechatILinkManager.state
+        let wxDotColor: Color = {
+            switch wxState {
+            case .connected: return PipiTokens.stateSuccess
+            case .requestingQR, .awaitingScan: return PipiTokens.stateWarning
+            case .sessionExpired, .error: return PipiTokens.stateError
+            case .disconnected: return PipiTokens.textMuted
+            }
+        }()
+        let wxStatusText: String = {
+            switch wxState {
+            case .connected(let botId, _, _):
+                return s.t("已绑定并在线（\(botId)）", "Connected (\(botId))")
+            case .requestingQR:
+                return s.t("正在申请微信绑定二维码...", "Requesting WeChat QR Code...")
+            case .awaitingScan(_, _, let scanned):
+                return scanned
+                    ? s.t("已扫码，请在手机微信确认绑定", "Scanned · Confirm on WeChat")
+                    : s.t("等待手机微信扫码绑定", "Awaiting WeChat QR Scan")
+            case .sessionExpired(let msg):
+                return msg
+            case .error(let msg):
+                return msg
+            case .disconnected:
+                return store.wechatILinkManager.hasSavedCredentials
+                    ? s.t("已保存授权 · 未连接", "Credentials Saved · Disconnected")
+                    : s.t("未绑定微信", "Not Connected")
+            }
+        }()
+
+        return settingsGroup(
+            title: s.t("远程操控 · 微信 iLink 协议", "Remote Control · WeChat iLink Protocol"),
+            trailing: {
+                HStack(spacing: 6) {
+                    if wxState.isConnected {
+                        PipiActionButton(
+                            s.t("断开连接", "Disconnect"),
+                            systemImage: "bolt.slash",
+                            tone: .secondary,
+                            density: .desktopCompact
+                        ) {
+                            store.disconnectWeChatILink(forgetBinding: false)
+                        }
+                        PipiActionButton(
+                            s.t("解除绑定", "Unbind"),
+                            systemImage: "trash",
+                            tone: .destructive,
+                            density: .desktopCompact
+                        ) {
+                            store.disconnectWeChatILink(forgetBinding: true)
+                        }
+                    } else {
+                        if store.wechatILinkManager.hasSavedCredentials {
+                            PipiActionButton(
+                                s.t("恢复连接", "Reconnect"),
+                                systemImage: "arrow.clockwise",
+                                tone: .secondary,
+                                density: .desktopCompact
+                            ) {
+                                store.reconnectWeChatILink()
+                            }
+                        }
+                        PipiActionButton(
+                            s.t("扫码绑定微信", "Bind via QR"),
+                            systemImage: "qrcode",
+                            tone: .primary,
+                            density: .desktopCompact
+                        ) {
+                            Task { await store.startWeChatILinkQRLogin() }
+                        }
+                    }
+                }
+            }
+        ) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                HStack(spacing: PipiTokens.spacing8) {
+                    Circle()
+                        .fill(wxDotColor)
+                        .frame(width: 7, height: 7)
+                    Text(wxStatusText)
+                        .font(PipiTokens.fontSubheadline.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Spacer()
+                    if store.wechatILinkManager.messagesHandledCount > 0 {
+                        Text(s.t("已处理 \(store.wechatILinkManager.messagesHandledCount) 条", "\(store.wechatILinkManager.messagesHandledCount) msgs"))
+                            .font(PipiTokens.fontMonoSmall)
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    PipiInfoHelpButton(
+                        title: s.t("微信 iLink 协议说明", "WeChat iLink Protocol"),
+                        message: s.t(
+                            "通过微信官方 iLink Bot 协议（ilinkai.weixin.qq.com）扫码授权。绑定后可直接在微信内收发消息、让 Mac 截屏/查短信/查邮件/执行打包，并接收图片、语音、视频和文件。",
+                            "Connects via official WeChat iLink Bot HTTP protocol. Chat with your Mac agents directly from WeChat and receive screenshots, voice clips, videos, and files."
+                        )
+                    )
+                }
+
+                // Live QR Code Display when awaiting scan
+                if case .awaitingScan(_, let qrContent, let scanned) = wxState {
+                    settingsRowDivider
+                    HStack(alignment: .center, spacing: PipiTokens.spacing16) {
+                        PipiQRCodeView(payload: qrContent, size: 148)
+                        VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                            Text(scanned ? s.t("扫码成功，请在手机点击「确认」", "Scanned · Tap Confirm on WeChat") : s.t("使用手机微信扫一扫绑定", "Scan with WeChat to Bind"))
+                                .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(
+                                s.t(
+                                    "授权凭证将加密存储于本机 macOS 钥匙串（Keychain）。绑定成功后无需公网 IP 即可在微信直接远程调度此 Mac。",
+                                    "Authorization token is stored encrypted in macOS Keychain. No public IP required."
+                                )
+                            )
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                            HStack(spacing: PipiTokens.spacing8) {
+                                PipiActionButton(
+                                    s.t("刷新二维码", "Refresh QR"),
+                                    systemImage: "arrow.clockwise",
+                                    tone: .secondary,
+                                    density: .desktopCompact
+                                ) {
+                                    Task { await store.startWeChatILinkQRLogin() }
+                                }
+                                PipiActionButton(
+                                    s.cancel,
+                                    tone: .ghost,
+                                    density: .desktopCompact
+                                ) {
+                                    store.disconnectWeChatILink(forgetBinding: false)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                settingsRowDivider
+
+                // Dialogue Mode Switch: Default 1v1 Main PiPiBot vs Prefix Group Mode
+                HStack(spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 6) {
+                        Text(s.t("微信对话模式", "WeChat Routing Mode"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(
+                            title: s.t("1v1 与群聊前缀模式", "1v1 vs Prefix Group Mode"),
+                            message: s.t(
+                                "默认 1v1 与主智能体对话；切换群聊模式后，系统通过【助手名称】消息前缀区分多位智能体，并支持 @助手名 或 @全体。",
+                                "Defaults to 1v1 main PiPiBot. Group Mode distinguishes multiple agents with 【AgentName】 prefixes and supports @mentions."
+                            )
+                        )
+                    }
+                    Spacer(minLength: PipiTokens.spacing12)
+                    PipiSegmentedControl(
+                        options: PipiWeChatRoutingMode.allCases,
+                        selection: Binding(
+                            get: { store.wechatILinkManager.routingMode },
+                            set: { store.setWeChatRoutingMode($0) }
+                        ),
+                        label: { $0.shortLabel(lang) }
+                    )
+                    .frame(width: 244)
+                }
+
+                if store.wechatILinkManager.routingMode == .directMainBot {
+                    wechatPrimaryBotPickerRow
+                } else {
+                    VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                        Text(s.t("群聊参与智能体（按前缀【助手名称】区分回复）", "Group Participants (Distinguished by 【AgentName】 Prefix)"))
+                            .font(PipiTokens.fontCaption.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textSecondary)
+
+                        FlowWrapChips(items: store.personas) { persona in
+                            let selected = store.wechatILinkManager.groupMemberBotIds.contains(persona.id)
+                                || (store.wechatILinkManager.groupMemberBotIds.isEmpty && store.personas.prefix(3).contains(where: { $0.id == persona.id }))
+                            Button {
+                                store.toggleWeChatGroupMember(persona.id)
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(selected ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                                    Text("【\(persona.name(lang))】")
+                                        .font(PipiTokens.fontCaption.weight(selected ? .semibold : .regular))
+                                        .foregroundStyle(selected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(selected ? PipiTokens.bgSurfaceHover : PipiTokens.bgSurface.opacity(0.6))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                        .strokeBorder(selected ? PipiTokens.composerBorderFocused : PipiTokens.borderSubtle, lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Text(s.t("微信内快捷指令：/mode 1v1 · /mode group · /bots · /screenshot · /sms · /mail · /build <命令>", "In-WeChat commands: /mode 1v1 · /mode group · /bots · /screenshot · /sms · /mail · /build <cmd>"))
+                            .font(PipiTokens.fontMonoSmall)
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+    }
+
+    private var wechatPrimaryBotPickerRow: some View {
+        let candidates: [PipiWeChatBotCandidate] = store.personas.map {
+            PipiWeChatBotCandidate(id: $0.id, name: $0.name(lang))
+        }
+        let fallback = candidates.first ?? PipiWeChatBotCandidate(id: "pipibot-main", name: s.appName)
+        let current = candidates.first(where: { $0.id == store.wechatILinkManager.primaryBotId }) ?? fallback
+        return HStack(spacing: PipiTokens.spacing12) {
+            Text(s.t("1v1 默认主智能体", "Primary 1v1 Agent"))
+                .font(PipiTokens.fontCaption.weight(.semibold))
+                .foregroundStyle(PipiTokens.textSecondary)
+            Spacer()
+            PipiSelectMenu(
+                options: candidates.isEmpty ? [fallback] : candidates,
+                selection: Binding(
+                    get: { current },
+                    set: { store.wechatILinkManager.primaryBotId = $0.id }
+                ),
+                width: 212
+            ) { candidate in
+                candidate.name
             }
         }
     }
 
-    // MARK: - 4. Memory & Data Tab
+    // MARK: - Native macOS System Takeover, Permissions & Omnipotent Media/Build Guidance
+
+    private var macNativePermissionsDrawerBody: some View {
+        let snapshot = store.macPermissionsSnapshot
+        return VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                HStack(spacing: PipiTokens.spacing8) {
+                    Text(s.t("按需授予系统权限，即可支持短信、邮件、截屏录屏及桌面操作。", "Authorize system permissions for SMS, Mail, screen capture, and desktop workflows."))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Spacer()
+                    PipiActionButton(s.t("逐步授权向导", "Guided Permissions"), systemImage: "wand.and.stars", tone: .primary, density: .desktopCompact) {
+                        onClose?()
+                        store.reopenOnboarding(atStep: 2)
+                    }
+                    PipiActionButton(s.t("重新检测", "Re-check"), systemImage: "arrow.clockwise", tone: .ghost, density: .desktopCompact) {
+                        store.refreshMacPermissions()
+                    }
+                }
+
+                HStack(spacing: PipiTokens.spacing8) {
+                    Text(s.t("当前运行包：\(PipiMacOmnipotentEngine.currentBundleLocationPath())", "Running app: \(PipiMacOmnipotentEngine.currentBundleLocationPath())"))
+                        .font(PipiTokens.fontMonoSmall)
+                        .foregroundStyle(PipiTokens.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    PipiActionButton(s.t("定位应用", "Reveal App"), systemImage: "folder", tone: .ghost, density: .desktopCompact) {
+                        store.revealCurrentAppInFinder()
+                    }
+                    PipiActionButton(s.t("重启生效", "Relaunch"), systemImage: "arrow.triangle.2.circlepath", tone: .ghost, density: .desktopCompact) {
+                        store.relaunchAppForPermissions()
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+
+            settingsRowDivider
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(PipiMacPermissionKind.allCases.enumerated()), id: \.element.id) { idx, kind in
+                    if idx > 0 {
+                        settingsRowDivider
+                    }
+                    let item = snapshot.items.first(where: { $0.kind == kind })
+                    let state = item?.state ?? .notGranted
+                    let dotColor: Color = {
+                        switch state {
+                        case .granted: return PipiTokens.stateSuccess
+                        case .manualVerify: return PipiTokens.stateWarning
+                        case .notGranted: return PipiTokens.stateError
+                        case .unavailable: return PipiTokens.textMuted
+                        }
+                    }()
+
+                    HStack(spacing: PipiTokens.spacing12) {
+                        Image(systemName: kind.iconName)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .frame(width: 20)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(kind.title(lang))
+                                    .font(PipiTokens.fontSubheadline.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                Circle()
+                                    .fill(dotColor)
+                                    .frame(width: 6, height: 6)
+                                Text(state.label(lang))
+                                    .font(PipiTokens.fontMicro)
+                                    .foregroundStyle(dotColor)
+                                PipiInfoHelpButton(title: kind.title(lang), message: kind.capabilitySummary(lang))
+                            }
+                            Text(item?.detail ?? kind.capabilitySummary(lang))
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                                .lineLimit(2)
+                        }
+
+                        Spacer(minLength: PipiTokens.spacing8)
+
+                        PipiActionButton(
+                            state == .granted ? s.t("系统设置", "Settings") : s.t("前往授权", "Authorize"),
+                            tone: state == .granted ? .ghost : .secondary,
+                            density: .desktopCompact
+                        ) {
+                            Task { await store.requestMacPermission(kind) }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+
+                settingsRowDivider
+
+                // Detected Dev/Build Toolchains + Quick Verification Bar
+                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                    HStack(spacing: 6) {
+                        Text(s.t("本地开发、编译打包与富媒体投递能力", "Local Dev/Build & Rich Media Delivery"))
+                            .font(PipiTokens.fontCaption.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        PipiInfoHelpButton(
+                            title: s.t("全能执行指令", "Omnipotent Commands"),
+                            message: s.t(
+                                "在 Mac 会话、远程 PWA 或微信中发送：/screenshot（截屏）、/record 5（录屏）、/sms（查短信）、/mail（查邮件）、/build <命令>（编译打包）、/sendfile <路径>（发文件）、/voiceclip <文本>（发语音）。",
+                                "Supported across Mac Chat, Remote PWA, and WeChat: /screenshot, /record 5, /sms, /mail, /build <cmd>, /sendfile <path>, /voiceclip <text>."
+                            )
+                        )
+                        Spacer()
+                    }
+
+                    Text(
+                        snapshot.detectedToolchains.isEmpty
+                            ? s.t("工具链：等待检测", "Toolchains: Pending scan")
+                            : s.t("已检测工具链：\(snapshot.detectedToolchains.joined(separator: " · "))", "Detected toolchains: \(snapshot.detectedToolchains.joined(separator: " · "))")
+                    )
+                    .font(PipiTokens.fontMonoSmall)
+                    .foregroundStyle(PipiTokens.textMuted)
+
+                    HStack(spacing: PipiTokens.spacing8) {
+                        PipiActionButton(s.t("测试截屏", "Test Screenshot"), systemImage: "camera.viewfinder", tone: .secondary, density: .desktopCompact) {
+                            Task {
+                                let res = await store.macOmnipotentEngine.captureScreenshot()
+                                macTestFeedback = res.summary
+                            }
+                        }
+                        PipiActionButton(s.t("测试读短信", "Test SMS"), systemImage: "message", tone: .secondary, density: .desktopCompact) {
+                            Task {
+                                let res = await store.macOmnipotentEngine.readRecentSMS(limit: 3)
+                                macTestFeedback = res.summary
+                            }
+                        }
+                        PipiActionButton(s.t("测试读邮件", "Test Mail"), systemImage: "envelope", tone: .secondary, density: .desktopCompact) {
+                            Task {
+                                let res = await store.macOmnipotentEngine.readRecentMail(limit: 3)
+                                macTestFeedback = res.summary
+                            }
+                        }
+                    }
+
+                    if let feedback = macTestFeedback {
+                        Text(feedback)
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .lineLimit(4)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(PipiTokens.bgSurface.opacity(0.6))
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+        }
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
+    }
+
+    private var computerUseSettingsSection: some View {
+        let env = store.computerUseEnvironment
+        let lockedLanes = store.computerUseLanes.filter { $0.state == .blockedUnknownOutcome }
+        return VStack(spacing: 0) {
+            // Master toggle
+            HStack(spacing: PipiTokens.spacing12) {
+                HStack(spacing: 6) {
+                    Text(s.t("启用桌面与浏览器协作", "Enable Browser & Desktop Control"))
+                        .font(PipiTokens.fontSubheadline.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    PipiInfoHelpButton(
+                        title: s.t("桌面与浏览器协作", "Browser & Desktop Control"),
+                        message: s.t("支持通过本机 Chrome 独立标签协作及 macOS 辅助功能窗口操作；所有高风险或外发动作均需经安全审批。", "Supports isolated Chrome tab collaboration and macOS Accessibility controls, gated by safety approvals.")
+                    )
+                }
+                Spacer()
+                PipiActionButton(s.refresh, systemImage: "arrow.clockwise", tone: .ghost, density: .desktopCompact) {
+                    Task { _ = await store.refreshComputerUseEnvironment() }
+                }
+                Toggle("", isOn: Binding(
+                    get: { store.computerUseConfig.enabled },
+                    set: { val in
+                        var cfg = store.computerUseConfig
+                        cfg.enabled = val
+                        store.updateComputerUseConfig(cfg)
+                    }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            settingsRowDivider
+
+            // Phase A: Chrome Seat Mode & Debug Port
+            HStack(spacing: PipiTokens.spacing12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.t("浏览器协作模式", "Browser Mode"))
+                        .font(PipiTokens.fontSubheadline.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Text(
+                        env?.chromeDebugReachable == true
+                            ? s.t("已连接 Chrome（\(env?.chromeBrowserVersion ?? "Chrome")）", "Chrome connected (\(env?.chromeBrowserVersion ?? "Chrome"))")
+                            : (env?.chromeInstalled == true
+                                ? s.t("已检测到 Chrome · 端口 \(store.computerUseConfig.chromeDebugPort)", "Chrome detected · Port \(store.computerUseConfig.chromeDebugPort)")
+                                : s.t("未检测到本地 Chrome", "Google Chrome not detected"))
+                    )
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(env?.chromeDebugReachable == true ? PipiTokens.stateSuccess : PipiTokens.textSecondary)
+                }
+                Spacer()
+                PipiSelectMenu(
+                    options: PipiBrowserSeatMode.allCases,
+                    selection: Binding(
+                        get: { store.computerUseConfig.browserSeatMode },
+                        set: { val in
+                            var cfg = store.computerUseConfig
+                            cfg.browserSeatMode = val
+                            store.updateComputerUseConfig(cfg)
+                        }
+                    ),
+                    width: 240
+                ) { mode in
+                    mode.label(lang)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            settingsRowDivider
+
+            // Phase B: macOS Accessibility Permission & Human-Focus Immediate Yield
+            VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                HStack(spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 6) {
+                        Text(s.t("系统辅助功能权限", "macOS Accessibility"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Circle()
+                            .fill(env?.accessibilityTrusted == true ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
+                            .frame(width: 6, height: 6)
+                        Text(env?.accessibilityTrusted == true ? s.t("已授权", "Trusted") : s.t("未授权", "Not Granted"))
+                            .font(PipiTokens.fontMicro)
+                            .foregroundStyle(env?.accessibilityTrusted == true ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
+                        PipiInfoHelpButton(
+                            title: s.t("系统辅助功能权限", "macOS Accessibility"),
+                            message: s.t("用于读取原生应用窗口结构树；系统权限由您在 macOS 系统设置中手动授予或撤销。", "Reads structured native app window trees; always granted or revoked manually in System Settings.")
+                        )
+                    }
+                    Spacer()
+                    #if os(macOS)
+                    PipiActionButton(s.computerUseOpenAccessibility, systemImage: "hand.raised.circle", tone: .secondary, density: .desktopCompact) {
+                        PipiComputerUseCoordinator.openAccessibilityPrivacySettings()
+                    }
+                    #endif
+                }
+
+                HStack(spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 6) {
+                        Text(s.t("切窗自动暂停", "Pause on Window Switch"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(
+                            title: s.t("切窗自动暂停", "Pause on Window Switch"),
+                            message: s.t("当您切换前景窗口或点击接管时，立即暂停助手的桌面操作。", "Immediately pauses desktop automation when you switch foreground windows or take control.")
+                        )
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.computerUseConfig.autoYieldOnHumanFocus },
+                        set: { val in
+                            var cfg = store.computerUseConfig
+                            cfg.autoYieldOnHumanFocus = val
+                            store.updateComputerUseConfig(cfg)
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            settingsRowDivider
+
+            // Operation Protection Log Summary
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Text(s.computerUseJournalTitle)
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(
+                            title: s.computerUseJournalTitle,
+                            message: s.t("执行写入或点击前会记录保护日志；若结果未知将自动锁定通道，避免重复操作。", "Records write actions beforehand and locks the lane if an outcome is uncertain to prevent duplicate actions.")
+                        )
+                    }
+                    Spacer()
+                    if let locked = lockedLanes.first {
+                        PipiActionButton(s.computerUseUnlockLane, systemImage: "lock.open", tone: .primary, density: .desktopCompact) {
+                            _ = store.acknowledgeAndUnlockComputerUseLane(locked.laneId, note: "Verified in Settings")
+                        }
+                    } else if store.computerUseYieldedToHuman {
+                        PipiActionButton(s.computerUseResume, systemImage: "play.fill", tone: .secondary, density: .desktopCompact) {
+                            store.resumeComputerUseAfterHumanYield()
+                        }
+                    }
+                }
+
+                Text(
+                    s.t(
+                        "通道 \(store.computerUseLanes.count) · 浏览器标签 \(store.computerUseSeats.count) · 日志 \(store.computerUseJournal.count)",
+                        "Lanes \(store.computerUseLanes.count) · Browser Seats \(store.computerUseSeats.count) · Logs \(store.computerUseJournal.count)"
+                    )
+                )
+                .font(PipiTokens.fontMonoSmall)
+                .foregroundStyle(PipiTokens.textSecondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+    }
+
+    // MARK: - 4. Memory & Data Tab (Clean Primary Switches + Progressive Disclosure)
 
     private var memoryPrivacyTab: some View {
         VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
-            settingsGroup(title: s.t("个人记忆", "Personal Memory")) {
+            settingsGroup(title: s.t("记忆与能力共享", "Memory & Sharing")) {
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
                         Text(s.memoryEnabledTitle)
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
                             .foregroundStyle(PipiTokens.textPrimary)
-                        Text(s.memoryEnabledDesc)
-                            .font(PipiTokens.fontCaption)
-                            .foregroundStyle(PipiTokens.textSecondary)
+                        PipiInfoHelpButton(title: s.memoryEnabledTitle, message: s.memoryEnabledDesc)
                     }
                     Spacer(minLength: PipiTokens.spacing12)
                     Toggle("", isOn: Binding(
@@ -781,38 +2921,450 @@ public struct PipiSettingsView: View {
                     .toggleStyle(.switch)
                 }
                 .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
+                HStack(spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 6) {
+                        Text(s.t("允许全局共享助手记忆", "Share Assistant Memory Globally"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(
+                            title: s.t("全局共享记忆", "Global Shared Memory"),
+                            message: s.t("开启后，允许共享记忆的助手可在执行任务时参考同伴沉淀的经验摘要。", "Allows assistants that enable memory sharing to consult peer experience summaries.")
+                        )
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.globalCapabilityPool.sharedMemoryEnabled },
+                        set: { val in
+                            var pool = store.globalCapabilityPool
+                            pool.sharedMemoryEnabled = val
+                            store.updateGlobalCapabilityPool(pool)
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
+                HStack(spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 6) {
+                        Text(s.t("允许助手按需互相学习升级", "Autonomous Peer Capability Upgrade"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(
+                            title: s.t("按需互相升级", "Autonomous Peer Upgrade"),
+                            message: s.t("当某助手遇到自身未配置的技能、工具或连接器时，自动向具备且允许共享的同伴学习并同步能力。", "When an assistant lacks a skill, tool, or connector required by a task, it automatically learns from consenting peers.")
+                        )
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.globalCapabilityPool.autoPeerUpgradeEnabled },
+                        set: { val in
+                            var pool = store.globalCapabilityPool
+                            pool.autoPeerUpgradeEnabled = val
+                            store.updateGlobalCapabilityPool(pool)
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+
+            // Collapsible: Personal Profile Note & Global Shared Tools / Connectors
+            settingsDisclosureCard(
+                icon: "person.text.rectangle",
+                title: s.t("个人背景与共享能力池", "Personal Note & Shared Capability Pool"),
+                summary: s.t(
+                    "共享工具 \(store.globalCapabilityPool.sharedTools.count) · 连接器 \(store.globalCapabilityPool.sharedConnectors.count)",
+                    "Shared tools \(store.globalCapabilityPool.sharedTools.count) · Connectors \(store.globalCapabilityPool.sharedConnectors.count)"
+                ),
+                isExpanded: $showMemorySharingDetails
+            ) {
+                VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                        HStack(spacing: 6) {
+                            Text(s.t("个人背景与偏好", "Background & Preferences"))
+                                .font(PipiTokens.fontSubheadline.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            PipiInfoHelpButton(
+                                title: s.t("个人背景与偏好", "Background & Preferences"),
+                                message: s.t("填写个人背景、常用语言或工作习惯，供助手在对话中参考。", "Describe your background, preferred language, or conventions for assistant reference.")
+                            )
+                        }
+
+                        TextEditor(text: Binding(
+                            get: { store.personalProfileNote },
+                            set: { store.setPersonalProfileNote($0) }
+                        ))
+                        .onDisappear {
+                            store.flush()
+                        }
+                        .font(PipiTokens.fontBody)
+                        .scrollContentBackground(.hidden)
+                        .pipiHideScrollbars()
+                        .padding(PipiTokens.spacing8)
+                        .frame(height: 84)
+                        .background(PipiTokens.composerSurface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+
+                    settingsRowDivider
+
+                    VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                        Text(s.t("全局共享工具", "Globally Shared Tools"))
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 6)], spacing: 6) {
+                        ForEach(PipiBotToolKind.allCases) { tool in
+                            let selected = store.globalCapabilityPool.sharedTools.contains(tool.rawValue)
+                            Button {
+                                var pool = store.globalCapabilityPool
+                                if selected {
+                                    pool.sharedTools.removeAll { $0 == tool.rawValue }
+                                } else {
+                                    pool.sharedTools.append(tool.rawValue)
+                                }
+                                store.updateGlobalCapabilityPool(pool)
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: tool.iconName)
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                    Text(tool.label(lang))
+                                        .font(PipiTokens.fontMicro.weight(selected ? .semibold : .regular))
+                                        .lineLimit(1)
+                                }
+                                .foregroundStyle(selected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 28)
+                                .background(selected ? PipiTokens.bgSurfaceHover : PipiTokens.bgSurface)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                        .strokeBorder(selected ? PipiTokens.borderStrong : PipiTokens.borderSubtle, lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            }
+                            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.97))
+                        }
+                    }
+
+                    Text(s.t("全局共享连接器", "Globally Shared Connectors"))
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        .padding(.top, 4)
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 6)], spacing: 6) {
+                        ForEach(PipiBotConnectorKind.allCases) { conn in
+                            let selected = store.globalCapabilityPool.sharedConnectors.contains(conn.rawValue)
+                            Button {
+                                var pool = store.globalCapabilityPool
+                                if selected {
+                                    pool.sharedConnectors.removeAll { $0 == conn.rawValue }
+                                } else {
+                                    pool.sharedConnectors.append(conn.rawValue)
+                                }
+                                store.updateGlobalCapabilityPool(pool)
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: conn.iconName)
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                    Text(conn.label(lang))
+                                        .font(PipiTokens.fontMicro.weight(selected ? .semibold : .regular))
+                                        .lineLimit(1)
+                                }
+                                .foregroundStyle(selected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 28)
+                                .background(selected ? PipiTokens.bgSurfaceHover : PipiTokens.bgSurface)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                        .strokeBorder(selected ? PipiTokens.borderStrong : PipiTokens.borderSubtle, lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            }
+                            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.97))
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                }
+            }
+
+            // Collapsible: Guardrail Whitelists & Proactive Anti-Fatigue Rules
+            settingsDisclosureCard(
+                icon: "shield.lefthalf.filled",
+                title: s.t("安全审批白名单与主动提醒规则", "Guardrail Whitelists & Proactive Rules"),
+                summary: s.t(
+                    "白名单 \(store.approvalWhitelistRules.count) 项 · 提醒规则 \(store.proactiveRules.count) 项",
+                    "Whitelists \(store.approvalWhitelistRules.count) · Proactive rules \(store.proactiveRules.count)"
+                ),
+                isExpanded: $showSafetyProactiveDrawer
+            ) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+                    settingsGroup(
+                        title: s.guardrailSectionTitle,
+                        trailing: {
+                            if !store.approvalWhitelistRules.isEmpty {
+                                PipiActionButton(s.clearWhitelistRules, tone: .ghost, density: .desktopCompact) {
+                                    store.clearApprovalWhitelistRules()
+                                }
+                            }
+                        }
+                    ) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Text(s.guardrailJudgeToggleTitle)
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        PipiInfoHelpButton(title: s.guardrailJudgeToggleTitle, message: s.guardrailJudgeToggleDesc)
+                    }
+                    Spacer(minLength: PipiTokens.spacing12)
+                    Toggle("", isOn: Binding(
+                        get: { store.llmGuardrailJudgeEnabled },
+                        set: { store.setLLMGuardrailJudgeEnabled($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
+                if store.approvalWhitelistRules.isEmpty {
+                    Text(s.guardrailWhitelistEmpty)
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textMuted)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                } else {
+                    ForEach(Array(store.approvalWhitelistRules.enumerated()), id: \.element.id) { idx, rule in
+                        if idx > 0 {
+                            settingsRowDivider
+                        }
+                        HStack(spacing: PipiTokens.spacing12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(rule.toolName)
+                                        .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                    Text(rule.granularity.label(lang))
+                                        .font(PipiTokens.fontMicro)
+                                        .foregroundStyle(PipiTokens.textSecondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 1.5)
+                                        .background(PipiTokens.bgInset)
+                                        .clipShape(Capsule())
+                                }
+                                Text(rule.targetPattern ?? rule.actionKind.rawValue)
+                                    .font(PipiTokens.fontMonoSmall)
+                                    .foregroundStyle(PipiTokens.textMuted)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer(minLength: PipiTokens.spacing8)
+                            PipiGhostIconButton(
+                                systemImage: "trash",
+                                size: 28,
+                                iconSize: 12,
+                                cornerRadius: PipiTokens.radiusSM,
+                                accessibilityLabel: s.delete
+                            ) {
+                                store.revokeApprovalWhitelistRule(id: rule.id)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                }
+            }
+
+            settingsGroup(
+                title: s.proactiveSectionTitle,
+                trailing: {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        if let prevVersion = store.proactiveHistoryVersions.dropLast().last {
+                            PipiActionButton("\(s.proactiveRollback) (v\(prevVersion))", tone: .ghost, density: .desktopCompact) {
+                                _ = store.rollbackProactiveGuideline(toVersion: prevVersion)
+                            }
+                        }
+                        PipiActionButton(s.proactiveRunDreaming, systemImage: "moon.stars", tone: .secondary, density: .desktopCompact) {
+                            _ = store.runProactiveNightlyDreaming()
+                        }
+                    }
+                }
+            ) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.proactiveQuietHoursTitle)
+                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text("\(s.proactiveQuietHoursDesc) (\(store.proactivePolicy.quietHoursStart):00–\(store.proactivePolicy.quietHoursEnd):00)")
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                    }
+                    Spacer(minLength: PipiTokens.spacing12)
+                    Toggle("", isOn: Binding(
+                        get: { store.proactivePolicy.quietHoursEnabled },
+                        set: { enabled in
+                            var next = store.proactivePolicy
+                            next.quietHoursEnabled = enabled
+                            store.updateProactivePolicy(next)
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                .padding(.horizontal, 16)
                 .padding(.vertical, 14)
 
                 settingsRowDivider
 
-                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                    Text(s.t("个人背景与偏好", "Background & Preferences"))
-                        .font(PipiTokens.fontSubheadline.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textPrimary)
-                    Text(s.t("填写你的个人背景、常用语言、代码偏好或工作习惯，PiPiBot 会在对话中自动参考。", "Describe your preferences, style, or background so PiPiBot adapts naturally across conversations."))
-                        .font(PipiTokens.fontCaption)
-                        .foregroundStyle(PipiTokens.textSecondary)
-
-                    TextEditor(text: Binding(
-                        get: { store.personalProfileNote },
-                        set: { store.setPersonalProfileNote($0) }
-                    ))
-                    .onDisappear {
-                        store.flush()
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.proactiveDailyCapTitle)
+                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.t("每日最多主动提醒 \(store.proactivePolicy.maxDailyNotifications) 条 · 对话静默退让 \(store.proactivePolicy.chatSilenceSeconds / 60) 分钟",
+                                 "Max \(store.proactivePolicy.maxDailyNotifications)/day · \(store.proactivePolicy.chatSilenceSeconds / 60)m chat silence"))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
                     }
-                    .font(PipiTokens.fontBody)
-                    .scrollContentBackground(.hidden)
-                    .padding(PipiTokens.spacing8)
-                    .frame(height: 96)
-                    .background(PipiTokens.bgInset)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
-                            .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+                    Spacer(minLength: PipiTokens.spacing12)
+                    Stepper(
+                        "\(store.proactivePolicy.maxDailyNotifications)",
+                        value: Binding(
+                            get: { store.proactivePolicy.maxDailyNotifications },
+                            set: { val in
+                                var next = store.proactivePolicy
+                                next.maxDailyNotifications = val
+                                store.updateProactivePolicy(next)
+                            }
+                        ),
+                        in: 1...15
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                    .frame(width: 110)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
+                HStack(spacing: PipiTokens.spacing8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.t("macOS 原生事件源权限 (EventKit)", "macOS Native Sources (EventKit)"))
+                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.t("日历：\(store.eventKitCalendarAuth.label(lang)) · 提醒事项：\(store.eventKitRemindersAuth.label(lang))",
+                                 "Calendar: \(store.eventKitCalendarAuth.label(lang)) · Reminders: \(store.eventKitRemindersAuth.label(lang))"))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                    }
+                    Spacer()
+                    if store.eventKitCalendarAuth != .authorized {
+                        PipiActionButton(s.t("授权日历", "Calendar"), tone: .secondary, density: .desktopCompact) {
+                            Task { await store.requestEventKitCalendarAccess() }
+                        }
+                    }
+                    if store.eventKitRemindersAuth != .authorized {
+                        PipiActionButton(s.t("授权提醒", "Reminders"), tone: .secondary, density: .desktopCompact) {
+                            Task { await store.requestEventKitRemindersAccess() }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
+                if store.proactiveRules.isEmpty && store.proactiveClues.isEmpty {
+                    HStack(spacing: 6) {
+                        Text(s.t("暂无已学习的提醒规则。", "No learned notification rules."))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textMuted)
+                        PipiInfoHelpButton(
+                            title: s.t("自动学习规则", "Learned Rules"),
+                            message: s.t("对简报重复标记「有帮助」或「不再提醒」达到 2 次后，系统将自动整理为可回退的提醒规则。", "Repeated feedback on briefs (2+ times within 14 days) automatically promotes into rollbackable rules.")
+                        )
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                } else {
+                    ForEach(Array(store.proactiveRules.enumerated()), id: \.element.id) { idx, rule in
+                        if idx > 0 { settingsRowDivider }
+                        HStack(spacing: PipiTokens.spacing12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(rule.matter)
+                                        .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                    Text(rule.leaning.label(lang))
+                                        .font(PipiTokens.fontMicro)
+                                        .foregroundStyle(PipiTokens.textSecondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 1.5)
+                                        .background(PipiTokens.bgInset, in: Capsule())
+                                }
+                                Text(rule.text)
+                                    .font(PipiTokens.fontCaption)
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer(minLength: PipiTokens.spacing8)
+                            Toggle("", isOn: Binding(
+                                get: { rule.enabled },
+                                set: { store.toggleProactiveRule(id: rule.id, enabled: $0) }
+                            ))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            PipiGhostIconButton(
+                                systemImage: "trash",
+                                size: 28,
+                                iconSize: 12,
+                                cornerRadius: PipiTokens.radiusSM,
+                                accessibilityLabel: s.delete
+                            ) {
+                                store.deleteProactiveRule(id: rule.id)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+
+                    if !store.proactiveClues.isEmpty {
+                        settingsRowDivider
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(s.t("观察中的线索（14 天内达到 2 次自动升格规则）", "Active Clues (auto-promotes at seen >= 2 within 14 days)"))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                            ForEach(store.proactiveClues.prefix(5)) { clue in
+                                Text("• \(clue.matter) (\(clue.kind)) → \(clue.leaning.label(lang)) · seen \(clue.seen)/2")
+                                    .font(PipiTokens.fontCaption)
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                }
+                }
+                }
+                .padding(PipiTokens.spacing12)
             }
 
             settingsGroup(title: s.t("数据管理", "Data Management")) {
@@ -873,12 +3425,12 @@ public struct PipiSettingsView: View {
                 Text(s.providerPreset)
                     .font(PipiTokens.fontCaption.weight(.semibold))
                     .foregroundStyle(PipiTokens.textSecondary)
-                Picker("", selection: $formPreset) {
-                    ForEach(PipiLLMProviderKind.allCases) { kind in
-                        Text(kind.localizedName(lang)).tag(kind)
-                    }
+                PipiSelectMenu(
+                    options: PipiLLMProviderKind.allCases,
+                    selection: $formPreset
+                ) { kind in
+                    kind.localizedName(lang)
                 }
-                .labelsHidden()
                 .onChange(of: formPreset) { _, newKind in
                     if editingModelId == nil {
                         formName = newKind.displayName
@@ -1081,4 +3633,21 @@ public struct PipiSettingsView: View {
         }
     }
     #endif
+}
+
+private struct FlowWrapChips<Item: Identifiable, Content: View>: View {
+    let items: [Item]
+    @ViewBuilder let content: (Item) -> Content
+
+    var body: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 116), spacing: 8, alignment: .leading)],
+            alignment: .leading,
+            spacing: 8
+        ) {
+            ForEach(items) { item in
+                content(item)
+            }
+        }
+    }
 }

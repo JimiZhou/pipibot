@@ -1027,7 +1027,7 @@ public struct PipiGroupCreatorSheet: View {
                 Spacer()
             }
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
                     // Title
                     VStack(alignment: .leading, spacing: PipiTokens.spacing8) {

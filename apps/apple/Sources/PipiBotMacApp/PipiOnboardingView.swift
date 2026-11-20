@@ -13,6 +13,8 @@ public struct PipiOnboardingView: View {
     @State private var step: Int = 0
     @State private var stepForward: Bool = true
     @State private var connectTab: ConnectTab = .llm
+    @State private var permIndex: Int = 0
+    @State private var isRequestingPermission: Bool = false
 
     // LLM Form State
     @State private var selectedPreset: PipiLLMProviderKind = .openai
@@ -34,8 +36,9 @@ public struct PipiOnboardingView: View {
         var id: String { rawValue }
     }
 
-    public init(store: PipiAppStore) {
+    public init(store: PipiAppStore, initialStep: Int = 0) {
         self.store = store
+        self._step = State(initialValue: min(max(initialStep, 0), 3))
     }
 
     private var s: PipiStrings { store.strings }
@@ -66,12 +69,15 @@ public struct PipiOnboardingView: View {
                     } else if step == 1 {
                         connectEngineStep
                             .transition(stepTransition)
+                    } else if step == 2 {
+                        permissionsStep
+                            .transition(stepTransition)
                     } else {
                         personaStep
                             .transition(stepTransition)
                     }
                 }
-                .frame(maxWidth: 700, minHeight: 430, maxHeight: 460, alignment: .center)
+                .frame(maxWidth: 740, minHeight: 440, maxHeight: 490, alignment: .center)
                 .padding(.horizontal, PipiTokens.spacing24)
 
                 Spacer(minLength: PipiTokens.spacing12)
@@ -96,6 +102,7 @@ public struct PipiOnboardingView: View {
         .onAppear {
             store.avatarEngine.setState(.ambientWarmWelcome)
             selectedPersonaId = store.activePersonaId
+            store.refreshMacPermissions()
             if let existing = store.llmProviders.first {
                 selectedPreset = existing.kind
                 providerName = existing.name
@@ -105,6 +112,13 @@ public struct PipiOnboardingView: View {
             }
             Task { await store.refreshLocalAgents() }
         }
+        #if os(macOS)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if step == 2 {
+                store.refreshMacPermissions()
+            }
+        }
+        #endif
     }
 
     // MARK: - Top Bar (Step Indicator + Quick Language & Theme Controls)
@@ -121,13 +135,24 @@ public struct PipiOnboardingView: View {
 
             Spacer()
 
-            // Step dots
+            // Step dots (4-step guided wizard, clickable to jump directly)
             HStack(spacing: PipiTokens.spacing8) {
-                ForEach(0..<3, id: \.self) { idx in
-                    Capsule()
-                        .fill(idx == step ? PipiTokens.soulPrimary : PipiTokens.borderStrong)
-                        .frame(width: idx == step ? 24 : 8, height: 6)
-                        .animation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion), value: step)
+                ForEach(0..<4, id: \.self) { idx in
+                    Button {
+                        stepForward = idx >= step
+                        withAnimation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion)) {
+                            step = idx
+                        }
+                        if idx == 2 {
+                            store.refreshMacPermissions()
+                        }
+                    } label: {
+                        Capsule()
+                            .fill(idx == step ? PipiTokens.soulPrimary : (idx < step ? PipiTokens.soulPrimary.opacity(0.45) : PipiTokens.borderStrong))
+                            .frame(width: idx == step ? 26 : 9, height: 6)
+                            .animation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion), value: step)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -262,20 +287,21 @@ public struct PipiOnboardingView: View {
                     .foregroundStyle(PipiTokens.textSecondary)
             }
 
-            Picker("", selection: $connectTab) {
-                Text(s.onboardingTabLLM).tag(ConnectTab.llm)
-                Text(s.onboardingTabLocalAgent).tag(ConnectTab.localAgent)
+            PipiSegmentedControl(
+                options: ConnectTab.allCases,
+                selection: $connectTab
+            ) { tab in
+                tab == .llm ? s.onboardingTabLLM : s.onboardingTabLocalAgent
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 if connectTab == .llm {
                     llmSetupCard
                 } else {
                     localAgentsSetupCard
                 }
             }
+            .pipiHideScrollbars()
             .frame(maxHeight: 380)
         }
     }
@@ -431,7 +457,7 @@ public struct PipiOnboardingView: View {
                     trailing: {
                         Toggle("", isOn: Binding(
                             get: { store.enabledLocalAgents.contains(agent.kind) },
-                            set: { store.toggleLocalAgent(agent.kind, enabled: $0, setAsDefaultIfFirst: true) }
+                            set: { store.toggleLocalAgent(agent.kind, enabled: $0, setAsDefaultIfFirst: false) }
                         ))
                         .labelsHidden()
                         .toggleStyle(.switch)
@@ -475,7 +501,237 @@ public struct PipiOnboardingView: View {
         }
     }
 
-    // MARK: - Step 2: Choose Starting Bot Persona
+    // MARK: - Step 2: Step-by-Step System Permissions Guide
+
+    private var permissionsStep: some View {
+        let allKinds = PipiMacPermissionKind.allCases
+        let safeIdx = min(max(permIndex, 0), max(0, allKinds.count - 1))
+        let currentKind = allKinds[safeIdx]
+        let snapshot = store.macPermissionsSnapshot
+        let currentItem = snapshot.items.first(where: { $0.kind == currentKind })
+        let currentState = currentItem?.state ?? .notGranted
+        let stateColor: Color = {
+            switch currentState {
+            case .granted: return PipiTokens.stateSuccess
+            case .manualVerify: return PipiTokens.stateWarning
+            case .notGranted: return PipiTokens.stateError
+            case .unavailable: return PipiTokens.textMuted
+            }
+        }()
+
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
+                    Text(s.t("逐步授予系统权限（可选）", "System Permissions Guide (Optional)"))
+                        .font(PipiTokens.fontHero)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Text(s.t("逐项说明用途并按需授权，暂不需要的功能可随时跳过，后续仍可从侧边栏「引导式配置」补授。", "Grant only what you need with clear explanations. Any permission can be skipped and enabled later via Guided Setup."))
+                        .font(PipiTokens.fontBody)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                }
+                Spacer(minLength: PipiTokens.spacing8)
+                PipiActionButton(
+                    s.t("刷新状态", "Refresh"),
+                    systemImage: "arrow.clockwise",
+                    tone: .secondary,
+                    density: .desktopCompact
+                ) {
+                    store.refreshMacPermissions()
+                }
+            }
+
+            // Clickable 6-item Permission Progress Strip
+            HStack(spacing: PipiTokens.spacing8) {
+                ForEach(Array(allKinds.enumerated()), id: \.element.id) { idx, kind in
+                    let isSelected = idx == safeIdx
+                    let itemState = snapshot.state(for: kind)
+                    let isGranted = itemState == .granted
+
+                    Button {
+                        withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                            permIndex = idx
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: isGranted ? "checkmark.circle.fill" : kind.iconName)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(isGranted ? PipiTokens.stateSuccess : (isSelected ? PipiTokens.soulPrimary : PipiTokens.textMuted))
+                            Text("\(idx + 1)")
+                                .font(PipiTokens.fontMonoSmall.weight(.semibold))
+                                .foregroundStyle(isSelected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 30)
+                        .background(isSelected ? PipiTokens.soulPrimary.opacity(0.12) : PipiTokens.bgSurface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .stroke(isSelected ? PipiTokens.soulPrimary : PipiTokens.borderSubtle, lineWidth: isSelected ? 1.25 : 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                    }
+                    .buttonStyle(PipiPressButtonStyle(pressedScale: 0.96))
+                    .help(kind.title(lang))
+                }
+            }
+
+            // Focused Single-Permission Card
+            VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+                HStack(spacing: PipiTokens.spacing12) {
+                    Image(systemName: currentKind.iconName)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(currentState == .granted ? PipiTokens.stateSuccess : PipiTokens.soulPrimary)
+                        .frame(width: 44, height: 44)
+                        .background((currentState == .granted ? PipiTokens.stateSuccess : PipiTokens.soulPrimary).opacity(0.13))
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Text(currentKind.title(lang))
+                                .font(PipiTokens.fontHeadline)
+                                .foregroundStyle(PipiTokens.textPrimary)
+
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(stateColor)
+                                    .frame(width: 6.5, height: 6.5)
+                                Text(currentState.label(lang))
+                                    .font(PipiTokens.fontMicro.weight(.semibold))
+                                    .foregroundStyle(stateColor)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(stateColor.opacity(0.12), in: Capsule())
+                        }
+
+                        Text(s.t("第 \(safeIdx + 1) / \(allKinds.count) 项权限", "Permission \(safeIdx + 1) of \(allKinds.count)"))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+
+                    Spacer()
+                }
+
+                // Clear "Why Needed" & "How It Works" Boxes
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(s.t("为什么需要此权限", "Why this is needed"))
+                            .font(PipiTokens.fontCaption.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Text(currentKind.capabilitySummary(lang))
+                            .font(PipiTokens.fontBody)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(s.t("授权方式说明", "How authorization works"))
+                            .font(PipiTokens.fontCaption.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Text(currentKind.onboardingActionHint(lang))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if currentKind.requiresManualAddInSettings {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Image(systemName: "app.badge.checkmark")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(PipiTokens.soulPrimary)
+                            Text(PipiMacOmnipotentEngine.currentBundleLocationPath())
+                                .font(PipiTokens.fontMonoSmall)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            PipiActionButton(
+                                s.t("定位应用", "Reveal App"),
+                                systemImage: "folder",
+                                tone: .ghost,
+                                density: .desktopCompact
+                            ) {
+                                store.revealCurrentAppInFinder()
+                            }
+                        }
+                        .padding(.horizontal, PipiTokens.spacing12)
+                        .padding(.vertical, PipiTokens.spacing8)
+                        .background(PipiTokens.bgInset, in: RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                    }
+                }
+
+                // Per-Permission Action Row
+                HStack(spacing: PipiTokens.spacing12) {
+                    PipiActionButton(
+                        currentState == .granted
+                            ? s.t("已授权 · 查看设置", "Granted · Settings")
+                            : (currentKind.requiresManualAddInSettings
+                                ? s.t("打开系统设置并定位应用", "Open Settings & Reveal App")
+                                : s.t("立即授权", "Authorize Now")),
+                        systemImage: currentState == .granted ? "checkmark.shield.fill" : "lock.open.fill",
+                        tone: currentState == .granted ? .secondary : .primary,
+                        density: .desktopCompact
+                    ) {
+                        isRequestingPermission = true
+                        Task {
+                            await store.requestMacPermission(currentKind)
+                            isRequestingPermission = false
+                        }
+                    }
+                    .disabled(isRequestingPermission)
+
+                    if currentKind.requiresRelaunchAfterGrant {
+                        PipiActionButton(
+                            s.t("重启以生效", "Relaunch"),
+                            systemImage: "arrow.triangle.2.circlepath",
+                            tone: .secondary,
+                            density: .desktopCompact
+                        ) {
+                            store.relaunchAppForPermissions()
+                        }
+                    }
+
+                    Spacer()
+
+                    if safeIdx > 0 {
+                        PipiActionButton(s.t("上一项", "Prev"), tone: .ghost, density: .desktopCompact) {
+                            withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                                permIndex = safeIdx - 1
+                            }
+                        }
+                    }
+
+                    PipiActionButton(
+                        safeIdx + 1 < allKinds.count
+                            ? (currentState == .granted ? s.t("下一项", "Next") : s.t("跳过此项", "Skip"))
+                            : s.t("完成权限检查", "Done"),
+                        systemImage: "chevron.right",
+                        tone: .ghost,
+                        density: .desktopCompact
+                    ) {
+                        if safeIdx + 1 < allKinds.count {
+                            withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                                permIndex = safeIdx + 1
+                            }
+                        } else {
+                            stepForward = true
+                            withAnimation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion)) {
+                                step = 3
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(PipiTokens.spacing20)
+            .background(PipiTokens.bgSurface)
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous)
+                    .stroke(currentState == .granted ? PipiTokens.stateSuccess.opacity(0.45) : PipiTokens.borderSubtle, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous))
+        }
+    }
+
+    // MARK: - Step 3: Choose Starting Bot Persona
 
     private var personaStep: some View {
         VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
@@ -571,6 +827,24 @@ public struct PipiOnboardingView: View {
                         .font(PipiTokens.fontCaption)
                         .foregroundStyle(PipiTokens.textSecondary)
                 }
+            } else if step == 2 {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(store.grantedMacPermissionsCount > 0 ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                        .frame(width: 7, height: 7)
+                    Text(s.t("已授权 \(store.grantedMacPermissionsCount) / \(PipiMacPermissionKind.allCases.count)", "Granted \(store.grantedMacPermissionsCount) / \(PipiMacPermissionKind.allCases.count)"))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                }
+            }
+
+            if step > 0 && step < 3 {
+                Button(s.skipForNow) {
+                    store.completeOnboarding(selectedPersonaId: selectedPersonaId)
+                }
+                .buttonStyle(PipiPressButtonStyle())
+                .font(PipiTokens.fontCaption)
+                .foregroundStyle(PipiTokens.textMuted)
             }
 
             if step == 0 {
@@ -583,8 +857,19 @@ public struct PipiOnboardingView: View {
                     if !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (selectedPreset == .ollama && !store.hasConfiguredEngine) {
                         saveCurrentLLMConfig()
                     }
+                    store.refreshMacPermissions()
                     stepForward = true
                     withAnimation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion)) { step = 2 }
+                }
+            } else if step == 2 {
+                PipiActionButton(
+                    store.grantedMacPermissionsCount == 0 ? s.t("跳过权限，下一步", "Skip Permissions") : s.next,
+                    systemImage: "arrow.right",
+                    tone: .primary,
+                    density: .mobile
+                ) {
+                    stepForward = true
+                    withAnimation(PipiMotion.adaptive(PipiMotion.smooth, reduceMotion: reduceMotion)) { step = 3 }
                 }
             } else {
                 PipiActionButton(s.onboardingStartChatting, systemImage: "bubble.left.and.bubble.right.fill", tone: .primary, density: .mobile) {

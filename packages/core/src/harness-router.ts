@@ -18,14 +18,18 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 
 import type {
+  ActionKind,
+  ActionSourceTrust,
   AvatarState53,
   ByokProviderConfig,
+  GuardrailVerdict,
   HarnessActivityPulse,
   HarnessExecutionPhase,
   HarnessProbeResult,
   HarnessProvider,
   RoutedMcpToolDefinition,
 } from '@pipibot/protocol';
+import { PipiPermissionGuardrail } from './permission-guardrail.ts';
 
 // ---------------------------------------------------------------------------
 // Constants & Shared Types
@@ -68,6 +72,11 @@ export interface RoutedMcpToolContext {
   subSessionId?: string;
   provider: HarnessProvider;
   workspacePath: string;
+  projectId?: string;
+  operationId?: string;
+  sourceTrust?: ActionSourceTrust;
+  trustedUserMessages?: string[];
+  untrustedContextSnippets?: string[];
   signal?: AbortSignal;
 }
 
@@ -420,7 +429,9 @@ export class ActivityPulseEmitter {
 export interface RoutedMcpBridgeOptions {
   bindHost?: string;
   port?: number;
+  guardrail?: PipiPermissionGuardrail;
   onToolActivity?: (info: { toolName: string; phase: 'start' | 'end'; isError?: boolean }) => void;
+  onGuardrailBlocked?: (verdict: GuardrailVerdict, toolName: string) => void;
 }
 
 export class RoutedMcpBridge {
@@ -428,14 +439,18 @@ export class RoutedMcpBridge {
   private readonly authToken = randomBytes(24).toString('hex');
   private readonly bindHost: string;
   private readonly requestedPort: number;
+  readonly guardrail: PipiPermissionGuardrail;
   private readonly onToolActivity?: RoutedMcpBridgeOptions['onToolActivity'];
+  private readonly onGuardrailBlocked?: RoutedMcpBridgeOptions['onGuardrailBlocked'];
   private server?: Server;
   private activePort?: number;
 
   constructor(options: RoutedMcpBridgeOptions = {}) {
     this.bindHost = options.bindHost ?? '127.0.0.1';
     this.requestedPort = options.port ?? 0;
+    this.guardrail = options.guardrail ?? new PipiPermissionGuardrail();
     this.onToolActivity = options.onToolActivity;
+    this.onGuardrailBlocked = options.onGuardrailBlocked;
     this.registerDefaultPipiTools();
   }
 
@@ -610,12 +625,84 @@ export class RoutedMcpBridge {
       };
     }
 
+    // Two-tier static guardrail + idempotency ledger check before running non-card tools
+    const isProductCardTool = toolName === 'pipibot_needs_you_escalate' || toolName === 'pipibot_avatar_signal';
+    const operationId = ctx.operationId ?? (typeof args.operationId === 'string' ? args.operationId : `op_${randomUUID().slice(0, 8)}`);
+    if (!isProductCardTool) {
+      const actionKind: ActionKind = entry.definition.readOnlyHint
+        ? 'read_only'
+        : entry.definition.requiresApproval
+          ? 'external_effect'
+          : 'local_write';
+      const target = String(args.nodeId ?? args.path ?? args.target ?? ctx.workspacePath ?? '');
+      const verdict = await this.guardrail.evaluate({
+        operationId,
+        toolName,
+        actionKind,
+        target,
+        payloadSummary: JSON.stringify(args),
+        isPreparatoryOnly: Boolean(entry.definition.readOnlyHint),
+        sessionId: ctx.sessionId,
+        projectId: ctx.projectId,
+        sourceTrust: ctx.sourceTrust ?? 'trusted_user',
+        trustedUserMessages: ctx.trustedUserMessages ?? [],
+        untrustedContextSnippets: ctx.untrustedContextSnippets,
+      });
+
+      if (verdict.ruleId === 'idempotency.already_completed') {
+        const prior = this.guardrail.ledger.get(operationId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: prior?.cachedResultSummary ?? JSON.stringify({ status: 'idempotent_replay', operationId }),
+            },
+          ],
+          structuredContent: { idempotentReplay: true, operationId, verdict },
+        };
+      }
+
+      if (verdict.decision !== 'allow') {
+        this.onGuardrailBlocked?.(verdict, toolName);
+        if (verdict.decision === 'deny') {
+          this.guardrail.ledger.markDenied(operationId);
+        }
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                blockedByGuardrail: true,
+                decision: verdict.decision,
+                riskLevel: verdict.riskLevel,
+                rationale: verdict.rationale,
+                operationId: verdict.operationId,
+              }),
+            },
+          ],
+          structuredContent: { blockedByGuardrail: true, verdict },
+        };
+      }
+
+      if (!entry.definition.readOnlyHint) {
+        this.guardrail.ledger.markInFlight(operationId);
+      }
+    }
+
     this.onToolActivity?.({ toolName, phase: 'start' });
     try {
       const result = await entry.handler(args, ctx);
+      if (!isProductCardTool && !entry.definition.readOnlyHint && !result.isError) {
+        const firstText = result.content[0]?.text;
+        this.guardrail.ledger.markCompleted(operationId, firstText);
+      }
       this.onToolActivity?.({ toolName, phase: 'end', isError: Boolean(result.isError) });
       return result;
     } catch (error) {
+      if (!isProductCardTool && !entry.definition.readOnlyHint) {
+        this.guardrail.ledger.markUnknownOutcome(operationId, error instanceof Error ? error.message : String(error));
+      }
       this.onToolActivity?.({ toolName, phase: 'end', isError: true });
       const message = error instanceof Error ? error.message : String(error);
       return {

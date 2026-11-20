@@ -263,6 +263,175 @@ public enum PipiExecutionTarget: Codable, Equatable, Hashable, Sendable {
     case localAgent(PipiLocalAgentKind)
 }
 
+// MARK: - 3.5 Per-Agent Capabilities (Tools, Connectors, Sharing & Autonomous Peer Upgrades)
+
+public enum PipiBotToolKind: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+    case webSearch = "web_search"
+    case fileWorkspace = "file_workspace"
+    case terminalCli = "terminal_cli"
+    case browserSeat = "browser_seat"
+    case desktopControl = "desktop_control"
+    case personalWiki = "personal_wiki"
+    case voiceCall = "voice_call"
+
+    public var id: String { rawValue }
+
+    public var iconName: String {
+        switch self {
+        case .webSearch: return "globe"
+        case .fileWorkspace: return "folder"
+        case .terminalCli: return "terminal"
+        case .browserSeat: return "safari"
+        case .desktopControl: return "macwindow"
+        case .personalWiki: return "books.vertical"
+        case .voiceCall: return "phone.fill"
+        }
+    }
+
+    public func label(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .webSearch: return lang == .zhHans ? "联网检索" : "Web Search"
+        case .fileWorkspace: return lang == .zhHans ? "工作区文件" : "Workspace Files"
+        case .terminalCli: return lang == .zhHans ? "命令行终端" : "Terminal CLI"
+        case .browserSeat: return lang == .zhHans ? "浏览器协作" : "Browser Control"
+        case .desktopControl: return lang == .zhHans ? "桌面窗口操作" : "Desktop Control"
+        case .personalWiki: return lang == .zhHans ? "个人知识库" : "Personal Knowledge"
+        case .voiceCall: return lang == .zhHans ? "语音通话" : "Voice Call"
+        }
+    }
+}
+
+public enum PipiBotConnectorKind: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+    case appleCalendar = "apple_calendar"
+    case appleReminders = "apple_reminders"
+    case localGit = "local_git"
+    case chromeSession = "chrome_session"
+    case localMcp = "local_mcp"
+    case iosCompanion = "ios_companion"
+
+    public var id: String { rawValue }
+
+    public var iconName: String {
+        switch self {
+        case .appleCalendar: return "calendar"
+        case .appleReminders: return "checklist"
+        case .localGit: return "arrow.triangle.branch"
+        case .chromeSession: return "network"
+        case .localMcp: return "puzzlepiece.extension"
+        case .iosCompanion: return "iphone"
+        }
+    }
+
+    public func label(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .appleCalendar: return lang == .zhHans ? "Apple 日历" : "Apple Calendar"
+        case .appleReminders: return lang == .zhHans ? "提醒事项" : "Reminders"
+        case .localGit: return lang == .zhHans ? "本地 Git 仓库" : "Local Git"
+        case .chromeSession: return lang == .zhHans ? "Chrome 会话" : "Chrome Session"
+        case .localMcp: return lang == .zhHans ? "本地 MCP 服务" : "Local MCP"
+        case .iosCompanion: return lang == .zhHans ? "iPhone 伴侣端" : "iOS Companion"
+        }
+    }
+}
+
+public struct PipiBotSharingPolicy: Codable, Equatable, Hashable, Sendable {
+    public var shareSkills: Bool
+    public var shareTools: Bool
+    public var shareConnectors: Bool
+    public var shareMemory: Bool
+    public var allowPeerUpgrade: Bool
+    public var inheritGlobalPool: Bool
+
+    public init(
+        shareSkills: Bool = true,
+        shareTools: Bool = true,
+        shareConnectors: Bool = true,
+        shareMemory: Bool = true,
+        allowPeerUpgrade: Bool = true,
+        inheritGlobalPool: Bool = true
+    ) {
+        self.shareSkills = shareSkills
+        self.shareTools = shareTools
+        self.shareConnectors = shareConnectors
+        self.shareMemory = shareMemory
+        self.allowPeerUpgrade = allowPeerUpgrade
+        self.inheritGlobalPool = inheritGlobalPool
+    }
+
+    public static let `default` = PipiBotSharingPolicy()
+}
+
+public enum PipiBotPeerUpgradeKind: String, Codable, CaseIterable, Sendable, Equatable, Hashable {
+    case skill
+    case tool
+    case connector
+    case memory
+
+    public func label(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .skill: return lang == .zhHans ? "技能" : "Skill"
+        case .tool: return lang == .zhHans ? "工具" : "Tool"
+        case .connector: return lang == .zhHans ? "连接器" : "Connector"
+        case .memory: return lang == .zhHans ? "记忆经验" : "Memory"
+        }
+    }
+}
+
+public struct PipiBotPeerUpgradeRecord: Codable, Identifiable, Equatable, Hashable, Sendable {
+    public let id: String
+    public let fromBotId: String
+    public let fromBotName: String
+    public let toBotId: String
+    public let kind: PipiBotPeerUpgradeKind
+    public let capabilityId: String
+    public let summary: String
+    public let createdAt: String
+
+    public init(
+        id: String = "upg_\(UUID().uuidString.prefix(8).lowercased())",
+        fromBotId: String,
+        fromBotName: String,
+        toBotId: String,
+        kind: PipiBotPeerUpgradeKind,
+        capabilityId: String,
+        summary: String,
+        createdAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.id = id
+        self.fromBotId = fromBotId
+        self.fromBotName = fromBotName
+        self.toBotId = toBotId
+        self.kind = kind
+        self.capabilityId = capabilityId
+        self.summary = summary
+        self.createdAt = createdAt
+    }
+}
+
+public struct PipiGlobalCapabilityPool: Codable, Equatable, Sendable {
+    public var sharedSkillSlugs: [String]
+    public var sharedTools: [String]
+    public var sharedConnectors: [String]
+    public var sharedMemoryEnabled: Bool
+    public var autoPeerUpgradeEnabled: Bool
+
+    public init(
+        sharedSkillSlugs: [String] = ["personal-profile", "proactive-response"],
+        sharedTools: [String] = [PipiBotToolKind.personalWiki.rawValue, PipiBotToolKind.voiceCall.rawValue],
+        sharedConnectors: [String] = [PipiBotConnectorKind.appleCalendar.rawValue, PipiBotConnectorKind.appleReminders.rawValue],
+        sharedMemoryEnabled: Bool = true,
+        autoPeerUpgradeEnabled: Bool = true
+    ) {
+        self.sharedSkillSlugs = sharedSkillSlugs
+        self.sharedTools = sharedTools
+        self.sharedConnectors = sharedConnectors
+        self.sharedMemoryEnabled = sharedMemoryEnabled
+        self.autoPeerUpgradeEnabled = autoPeerUpgradeEnabled
+    }
+
+    public static let `default` = PipiGlobalCapabilityPool()
+}
+
 // MARK: - 4. Multi-Bot Personas (Personal Assistant, Coder, Writer, Operator, Custom)
 
 public enum PipiPersonaAccent: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -303,6 +472,12 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
     public var starterPromptsZh: [String]
     public var starterPromptsEn: [String]
     public var isBuiltIn: Bool
+    public var voiceProfileId: String?
+    public var assignedSkillSlugs: [String]
+    public var enabledTools: [String]
+    public var enabledConnectors: [String]
+    public var sharingPolicy: PipiBotSharingPolicy
+    public var learnedUpgrades: [PipiBotPeerUpgradeRecord]
 
     public init(
         id: String = "bot_\(UUID().uuidString.prefix(8).lowercased())",
@@ -321,7 +496,13 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         permissionTier: PipiPermissionTier = .ask,
         starterPromptsZh: [String] = [],
         starterPromptsEn: [String] = [],
-        isBuiltIn: Bool = false
+        isBuiltIn: Bool = false,
+        voiceProfileId: String? = nil,
+        assignedSkillSlugs: [String] = [],
+        enabledTools: [String] = [PipiBotToolKind.personalWiki.rawValue, PipiBotToolKind.voiceCall.rawValue],
+        enabledConnectors: [String] = [],
+        sharingPolicy: PipiBotSharingPolicy = .default,
+        learnedUpgrades: [PipiBotPeerUpgradeRecord] = []
     ) {
         self.id = id
         self.hostId = hostId
@@ -340,12 +521,20 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         self.starterPromptsZh = starterPromptsZh
         self.starterPromptsEn = starterPromptsEn
         self.isBuiltIn = isBuiltIn
+        self.voiceProfileId = voiceProfileId
+        self.assignedSkillSlugs = assignedSkillSlugs
+        self.enabledTools = enabledTools
+        self.enabledConnectors = enabledConnectors
+        self.sharingPolicy = sharingPolicy
+        self.learnedUpgrades = learnedUpgrades
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, hostId, nameZh, nameEn, roleZh, roleEn, greetingZh, greetingEn, systemPrompt
         case accent, avatarShape, idleAvatarState, preferredTarget, permissionTier
         case starterPromptsZh, starterPromptsEn, isBuiltIn
+        case voiceProfileId, assignedSkillSlugs, enabledTools, enabledConnectors
+        case sharingPolicy, learnedUpgrades
     }
 
     public init(from decoder: Decoder) throws {
@@ -367,6 +556,12 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         self.starterPromptsZh = try c.decodeIfPresent([String].self, forKey: .starterPromptsZh) ?? []
         self.starterPromptsEn = try c.decodeIfPresent([String].self, forKey: .starterPromptsEn) ?? []
         self.isBuiltIn = try c.decodeIfPresent(Bool.self, forKey: .isBuiltIn) ?? false
+        self.voiceProfileId = try c.decodeIfPresent(String.self, forKey: .voiceProfileId)
+        self.assignedSkillSlugs = try c.decodeIfPresent([String].self, forKey: .assignedSkillSlugs) ?? []
+        self.enabledTools = try c.decodeIfPresent([String].self, forKey: .enabledTools) ?? [PipiBotToolKind.personalWiki.rawValue, PipiBotToolKind.voiceCall.rawValue]
+        self.enabledConnectors = try c.decodeIfPresent([String].self, forKey: .enabledConnectors) ?? []
+        self.sharingPolicy = try c.decodeIfPresent(PipiBotSharingPolicy.self, forKey: .sharingPolicy) ?? .default
+        self.learnedUpgrades = try c.decodeIfPresent([PipiBotPeerUpgradeRecord].self, forKey: .learnedUpgrades) ?? []
     }
 
     public func name(_ lang: PipiResolvedLanguage) -> String {
@@ -413,7 +608,11 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
                 "Draft a concise, polite follow-up email",
                 "Brainstorm 3 practical approaches to my current project"
             ],
-            isBuiltIn: true
+            isBuiltIn: true,
+            voiceProfileId: "timbre_clear_zh",
+            assignedSkillSlugs: ["personal-profile", "proactive-response"],
+            enabledTools: [PipiBotToolKind.webSearch.rawValue, PipiBotToolKind.personalWiki.rawValue, PipiBotToolKind.voiceCall.rawValue],
+            enabledConnectors: [PipiBotConnectorKind.appleCalendar.rawValue, PipiBotConnectorKind.appleReminders.rawValue]
         ),
         PipiBotPersona(
             id: "bot_pipi_coder",
@@ -421,7 +620,7 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
             nameEn: "Coder · Engineering",
             roleZh: "代码审查、调试重构、调用本地 Agent 处理工程任务",
             roleEn: "Code review, debugging, refactoring, and local coding agents",
-            greetingZh: "准备就绪。把报错、代码片段或仓库任务丢给我，我也可以直接调用你的本地编码 Agent。",
+            greetingZh: "准备就绪。请提供报错信息、代码片段或仓库任务，我将协助定位与修复。",
             greetingEn: "Ready to build. Share a bug, snippet, or repo task — I can also dispatch directly to your connected local coding agent.",
             systemPrompt: "You are Coder, a senior software engineering partner inside PiPiBot. Provide accurate, production-grade code, concise root-cause analysis, and clean diffs. Reply in the user's language.",
             accent: .emerald,
@@ -438,7 +637,11 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
                 "Diagnose an error stack trace and propose a minimal fix",
                 "Refactor a function for readability and unit tests"
             ],
-            isBuiltIn: true
+            isBuiltIn: true,
+            voiceProfileId: "timbre_warm_zh",
+            assignedSkillSlugs: ["docx", "pdf"],
+            enabledTools: [PipiBotToolKind.fileWorkspace.rawValue, PipiBotToolKind.terminalCli.rawValue, PipiBotToolKind.personalWiki.rawValue],
+            enabledConnectors: [PipiBotConnectorKind.localGit.rawValue, PipiBotConnectorKind.localMcp.rawValue]
         ),
         PipiBotPersona(
             id: "bot_pipi_writer",
@@ -446,7 +649,7 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
             nameEn: "Writer · Research",
             roleZh: "深度调研、方案撰写、中英润色与结构化思考",
             roleEn: "Deep research, drafting, bilingual polish, and structured analysis",
-            greetingZh: "给我一个主题、草稿或资料，我帮你梳理结构、提炼观点并润色成稿。",
+            greetingZh: "请提供主题、草稿或参考资料，我将协助梳理结构并润色成稿。",
             greetingEn: "Give me a topic, rough draft, or notes — I'll structure, sharpen, and polish it with you.",
             systemPrompt: "You are Writer, an insightful research and writing partner inside PiPiBot. Write clearly with strong structure, zero fluff, and natural tone in the user's language.",
             accent: .amber,
@@ -463,7 +666,11 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
                 "Outline a structured research memo on a topic",
                 "Translate and localize copy naturally between English and Chinese"
             ],
-            isBuiltIn: true
+            isBuiltIn: true,
+            voiceProfileId: "timbre_calm_zh",
+            assignedSkillSlugs: ["docx", "pptx", "slide-deck", "pdf"],
+            enabledTools: [PipiBotToolKind.webSearch.rawValue, PipiBotToolKind.personalWiki.rawValue, PipiBotToolKind.browserSeat.rawValue],
+            enabledConnectors: [PipiBotConnectorKind.chromeSession.rawValue]
         ),
         PipiBotPersona(
             id: "bot_pipi_operator",
@@ -471,7 +678,7 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
             nameEn: "Operator · Tasks",
             roleZh: "持续跟进个人目标、定期巡检、沉淀待确认事项",
             roleEn: "Ongoing personal tasks, check-ins, and high-signal approvals",
-            greetingZh: "告诉我你希望长期盯着的事项，我会拆解步骤并在关键节点向你汇报确认。",
+            greetingZh: "请告知需要持续跟进的事项，我将拆解步骤并在关键节点向您确认。",
             greetingEn: "Tell me an ongoing goal you want tracked — I'll break it down and check in only when your approval is needed.",
             systemPrompt: "You are Operator, a calm personal operations and automation manager inside PiPiBot. Break ongoing goals into actionable checklists, clear constraints, and measurable outcomes. Reply in the user's language.",
             accent: .sky,
@@ -488,7 +695,11 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
                 "Create a health-check checklist for my personal projects",
                 "Break a multi-week goal into verifiable milestones"
             ],
-            isBuiltIn: true
+            isBuiltIn: true,
+            voiceProfileId: "timbre_lively_zh",
+            assignedSkillSlugs: ["xlsx", "humanlike-browse", "proactive-response"],
+            enabledTools: [PipiBotToolKind.browserSeat.rawValue, PipiBotToolKind.desktopControl.rawValue, PipiBotToolKind.personalWiki.rawValue],
+            enabledConnectors: [PipiBotConnectorKind.appleCalendar.rawValue, PipiBotConnectorKind.appleReminders.rawValue, PipiBotConnectorKind.chromeSession.rawValue, PipiBotConnectorKind.iosCompanion.rawValue]
         )
     ]
 }
@@ -1077,12 +1288,14 @@ public struct PipiConversation: Codable, Identifiable, Equatable, Sendable {
     public var events: [PipiSessionEvent]
     public var isPinned: Bool
     public var isArchived: Bool
+    /// Wave 2 (#02): Incremented on conversation compaction to trigger Prompt-Cache-safe memory re-injection.
+    public var compactionGeneration: Int
     public let createdAt: String
     public var updatedAt: String
 
     private enum CodingKeys: String, CodingKey {
         case id, hostId, personaId, projectId, title, state, cliSessionId, lastEngineLabel
-        case messages, planItems, fileChanges, approvals, events, isPinned, isArchived, createdAt, updatedAt
+        case messages, planItems, fileChanges, approvals, events, isPinned, isArchived, compactionGeneration, createdAt, updatedAt
     }
 
     public init(
@@ -1101,6 +1314,7 @@ public struct PipiConversation: Codable, Identifiable, Equatable, Sendable {
         events: [PipiSessionEvent] = [],
         isPinned: Bool = false,
         isArchived: Bool = false,
+        compactionGeneration: Int = 0,
         createdAt: String = ISO8601DateFormatter().string(from: Date()),
         updatedAt: String = ISO8601DateFormatter().string(from: Date())
     ) {
@@ -1119,6 +1333,7 @@ public struct PipiConversation: Codable, Identifiable, Equatable, Sendable {
         self.events = events
         self.isPinned = isPinned
         self.isArchived = isArchived
+        self.compactionGeneration = compactionGeneration
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -1140,6 +1355,7 @@ public struct PipiConversation: Codable, Identifiable, Equatable, Sendable {
         self.events = try c.decodeIfPresent([PipiSessionEvent].self, forKey: .events) ?? []
         self.isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.isArchived = try c.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        self.compactionGeneration = try c.decodeIfPresent(Int.self, forKey: .compactionGeneration) ?? 0
         self.createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
         self.updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
     }
@@ -1303,5 +1519,97 @@ public struct PipiRunRecord: Codable, Identifiable, Equatable, Sendable {
         self.status = try c.decodeIfPresent(Status.self, forKey: .status) ?? .running
         self.durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs) ?? 0
         self.startedAt = try c.decodeIfPresent(String.self, forKey: .startedAt) ?? ""
+    }
+}
+
+// MARK: - 3D Home Space Presets & Multi-Room Assignment
+
+public enum PipiHomeScenePreset: String, CaseIterable, Identifiable, Codable, Sendable {
+    case warmStudio = "warm_studio"
+    case nordicLoft = "nordic_loft"
+    case zenPavilion = "zen_pavilion"
+    case cyberCommand = "cyber_command"
+
+    public var id: String { rawValue }
+
+    public var iconName: String {
+        switch self {
+        case .warmStudio: return "house.fill"
+        case .nordicLoft: return "sun.max.fill"
+        case .zenPavilion: return "leaf.fill"
+        case .cyberCommand: return "sparkles.rectangle.stack.fill"
+        }
+    }
+
+    public func title(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .warmStudio: return lang == .zhHans ? "暖木工作室" : "Warm Studio"
+        case .nordicLoft: return lang == .zhHans ? "北欧日光阁楼" : "Nordic Loft"
+        case .zenPavilion: return lang == .zhHans ? "日式禅意书斋" : "Zen Study"
+        case .cyberCommand: return lang == .zhHans ? "深空指挥舰桥" : "Orbital Deck"
+        }
+    }
+
+    public func subtitle(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .warmStudio: return lang == .zhHans ? "橡木地板与柔和暖光工作室" : "Warm oak studio with natural daylight"
+        case .nordicLoft: return lang == .zhHans ? "浅桦木地板与清爽北欧日光" : "Pale birch loft with crisp daylight"
+        case .zenPavilion: return lang == .zhHans ? "榻榻米肌理与障子光影书斋" : "Tatami textures with warm shoji glow"
+        case .cyberCommand: return lang == .zhHans ? "拉丝钛金甲板与深空星幕" : "Brushed titanium deck with deep starfield"
+        }
+    }
+}
+
+public enum PipiHomeRoomKind: String, CaseIterable, Identifiable, Codable, Sendable {
+    case studio = "studio"
+    case lounge = "lounge"
+    case collab = "collab"
+    case lab = "lab"
+
+    public var id: String { rawValue }
+
+    public var iconName: String {
+        switch self {
+        case .studio: return "desktopcomputer"
+        case .lounge: return "sofa.fill"
+        case .collab: return "person.3.fill"
+        case .lab: return "flask.fill"
+        }
+    }
+
+    public func title(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .studio: return lang == .zhHans ? "研发工坊" : "Dev Studio"
+        case .lounge: return lang == .zhHans ? "客厅休息区" : "Living Lounge"
+        case .collab: return lang == .zhHans ? "协作会议室" : "Collab Hub"
+        case .lab: return lang == .zhHans ? "创意实验室" : "Creative Lab"
+        }
+    }
+
+    public func shortTitle(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .studio: return lang == .zhHans ? "工坊" : "Studio"
+        case .lounge: return lang == .zhHans ? "客厅" : "Lounge"
+        case .collab: return lang == .zhHans ? "会议室" : "Collab"
+        case .lab: return lang == .zhHans ? "实验室" : "Lab"
+        }
+    }
+
+    public static func defaultRoom(forPersonaId id: String, index: Int = 0) -> PipiHomeRoomKind {
+        let lower = id.lowercased()
+        if lower.contains("coder") || lower.contains("dev") || lower.contains("eng") {
+            return .studio
+        }
+        if lower.contains("general") || lower.contains("pipi") {
+            return .lounge
+        }
+        if lower.contains("ops") || lower.contains("analyst") || lower.contains("pm") {
+            return .collab
+        }
+        if lower.contains("writer") || lower.contains("design") || lower.contains("research") {
+            return .lab
+        }
+        let all = Self.allCases
+        return all[abs(index) % all.count]
     }
 }

@@ -74,3 +74,4 @@ __pycache__/
 .venv/
 tmp/
 .cache/
+.playwright-mcp/

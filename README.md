@@ -198,7 +198,9 @@ pipibot/
 │   │   └── 01-UIUX-DESIGN-SYSTEM.md           # Ambient Soul & Outcome Studio design specification
 │   └── roadmap/
 │       ├── 01-DEVELOPMENT-PLAN.md             # Phase 0-5 WBS, test suites, SLAs & risk matrix
-│       └── 02-PROGRESS-TRACKER.md             # Live progress dashboard, ADR-001~009 & changelog
+│       ├── 02-PROGRESS-TRACKER.md             # Live progress dashboard, ADR-001~012 & changelog
+│       └── 03-LINGER-UPGRADE-PLAN.md          # 12-item Wave 1-5 upgrade roadmap inspired by Linger
+├── NOTICE                                     # Third-party notices & clean-room upstream attributions
 └── packages/
     ├── protocol/
     │   ├── package.json                       # @pipibot/protocol package manifest
@@ -236,7 +238,9 @@ pipibot/
 | [01-UIUX-DESIGN-SYSTEM.md](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) | "Ambient Soul & Outcome Studio" tokens, `PipiAvatar` 192-ray / Rodrigues 3D / 53-state spec, OpenPencil 5-Rule & Stageshow specs | 中文 + EN Terms |
 | [design-system.md](design-system/design-system.md) | Persistent AI design memory recording 3-tier token, geometry, 6 Canonical Named Blocks & Stageshow rules (Rule + Reason + Date) | English |
 | [01-DEVELOPMENT-PLAN.md](docs/roadmap/01-DEVELOPMENT-PLAN.md) | Phase 0–5 engineering WBS, verification test suites, non-functional targets (`<15MB` node RAM, `120fps <1% CPU`, `$0/mo`), risk mitigation matrix | 中文 + EN Terms |
-| [02-PROGRESS-TRACKER.md](docs/roadmap/02-PROGRESS-TRACKER.md) | Live milestone completion tracker, **ADR-001 through ADR-009**, and `v0.1.0-alpha` / `v0.2.0-beta` changelog | 中文 + EN Terms |
+| [02-PROGRESS-TRACKER.md](docs/roadmap/02-PROGRESS-TRACKER.md) | Live milestone completion tracker, **ADR-001 through ADR-012**, and release changelog | 中文 + EN Terms |
+| [03-LINGER-UPGRADE-PLAN.md](docs/roadmap/03-LINGER-UPGRADE-PLAN.md) | 12-item Wave 1–5 capability upgrade plan inspired by `simplexai-labs/linger` (scheduling, guardrails, personal wiki, delegation, PolyStrata, voice, Computer Use) | 中文 + EN Terms |
+| [NOTICE](NOTICE) | Clean-room licensing boundary & upstream architectural attribution (`linger`, `PolyStrata`, Devin, Pi, GrokBot, Manus, OpenPencil) | English |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Monorepo workflows, harness/avatar/fleet contribution rules & PR checklist | English |
 
 ---
@@ -259,9 +263,11 @@ See the full breakdown in [01-DEVELOPMENT-PLAN.md](docs/roadmap/01-DEVELOPMENT-P
 Contributions are warmly welcomed — please review [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
 
 PipiBot stands on the shoulders of groundbreaking ideas and open-source craft:
+- **[Linger (`simplexai-labs/linger`)](https://github.com/simplexai-labs/linger)** (*Linger Open Source License*) — architectural & UX inspiration (clean-room MIT implementation, zero source code or assets copied; see [NOTICE](NOTICE)) for preemptive priority model scheduling, two-tier Risk×Authorization permission guardrails, personal entity Wiki & cache-safe per-agent memory, proactive Clue→Rule dreaming, Meta/AlterEgo delegation, `team.md` topologies, isolated CLI Gateway overlays, and Computer Use lanes.
+- **[PolyStrata (`simplexai-labs/PolyStrata`)](https://github.com/simplexai-labs/PolyStrata)** & **[Strata](https://github.com/Niko1221/Strata)** (*MIT License*) — integrated optional external local MoE inference engine adapter & 12+ model catalog (Wave 4: Apple Silicon Metal+SSD prefetch beta + `PipiFleet` Linux/Windows CUDA+RAM/SSD expert offload).
 - **Devin Bots** (*"From Tasks to Outcomes"*) for pioneering the AI Manager & Responsibility model.
 - **Pi Coding Agent (`@mariozechner/pi-coding-agent` / `pi-ai`)** for proving how powerful a minimalist 4-tool extensible harness can be.
 - **GrokBot Animation Anatomy** & **Grok Bot 0.18 Reconstructed** for procedural SVG character physics and Routed MCP multi-CLI bridging.
-- **Manus Cue**, **Dots**, and **Muse** for inspiring ambient context whispers, fleet vitality micro-dots, and spatial voice-first human collaboration.
+- **Manus Cue**, **Dots**, **Muse**, and **OpenPencil** for inspiring ambient context whispers, fleet vitality micro-dots, spatial voice-first human collaboration, and 5-rule design governance.
 
-Released under the [MIT License](LICENSE) — Copyright © 2026 JimiZhou & PipiBot Contributors.
+Released under the [MIT License](LICENSE) — Copyright © 2026 JimiZhou & PipiBot Contributors. See [NOTICE](NOTICE) for full upstream attributions and licensing boundaries.

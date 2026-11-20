@@ -721,3 +721,379 @@ export interface ApnsPushPayload {
   badgeCount?: number;
   threadId?: string;
 }
+
+// ---------------------------------------------------------------------------
+// 7. Host Protocol v2: Priority Model Scheduling, Two-Tier Guardrail & Team Topologies
+//
+// Clean-room MIT implementation matching `packages/protocol/schema/host-v2.schema.json`.
+// Architectural inspiration: simplexai-labs/linger (https://github.com/simplexai-labs/linger —
+// Linger Open Source License; zero source code, prompts, or assets copied). See root NOTICE.
+// ---------------------------------------------------------------------------
+
+export const SESSION_STATES_V2 = [
+  'idle',
+  'queued',
+  'running',
+  'needsYou',
+  'done',
+  'failed',
+  'cancelled',
+] as const;
+
+export type SessionStateV2 = (typeof SESSION_STATES_V2)[number];
+
+export const PERMISSION_TIERS_V2 = ['readOnly', 'ask', 'autoEdit'] as const;
+
+export type PermissionTierV2 = (typeof PERMISSION_TIERS_V2)[number];
+
+export const SCHEDULER_PRIORITIES = [
+  'approval_review',
+  'voice_interactive',
+  'chat_interactive',
+  'delegated_task',
+  'proactive_routine',
+  'compaction',
+  'background_memory',
+] as const;
+
+export type SchedulerPriority = (typeof SCHEDULER_PRIORITIES)[number];
+
+export const RISK_LEVELS = ['low', 'medium', 'high', 'critical'] as const;
+
+export type RiskLevel = (typeof RISK_LEVELS)[number];
+
+export const USER_AUTHORIZATION_LEVELS = ['high', 'medium', 'low', 'unknown'] as const;
+
+export type UserAuthorizationLevel = (typeof USER_AUTHORIZATION_LEVELS)[number];
+
+export const GUARDRAIL_DECISIONS = ['allow', 'needs_approval', 'deny'] as const;
+
+export type GuardrailDecision = (typeof GUARDRAIL_DECISIONS)[number];
+
+export const APPROVAL_GRANULARITIES = [
+  'allow_once',
+  'allow_session',
+  'allow_project',
+  'allow_always',
+  'deny',
+] as const;
+
+export type ApprovalGranularity = (typeof APPROVAL_GRANULARITIES)[number];
+
+export const ACTION_KINDS = [
+  'read_only',
+  'prepare_draft',
+  'local_write',
+  'shell_command',
+  'external_effect',
+  'credential_access',
+  'security_change',
+  'destructive',
+] as const;
+
+export type ActionKind = (typeof ACTION_KINDS)[number];
+
+export const ACTION_SOURCE_TRUSTS = [
+  'trusted_user',
+  'trusted_user_routine',
+  'agent_generated_routine',
+  'untrusted_external',
+] as const;
+
+export type ActionSourceTrust = (typeof ACTION_SOURCE_TRUSTS)[number];
+
+export const OPERATION_LEDGER_STATUSES = [
+  'in_flight',
+  'completed',
+  'denied',
+  'unknown_outcome',
+] as const;
+
+export type OperationLedgerStatus = (typeof OPERATION_LEDGER_STATUSES)[number];
+
+export const TEAM_COLLABORATION_PATTERNS = [
+  'classify-and-act',
+  'fan-out-and-synthesize',
+  'adversarial-verification',
+  'tournament',
+  'loop-until-done',
+] as const;
+
+export type TeamCollaborationPattern = (typeof TEAM_COLLABORATION_PATTERNS)[number];
+
+export interface GuardrailActionInput {
+  operationId: string;
+  toolName: string;
+  actionKind: ActionKind;
+  target: string;
+  payloadSummary: string;
+  isPreparatoryOnly?: boolean;
+  sessionId?: string;
+  projectId?: string;
+  sourceTrust: ActionSourceTrust;
+  trustedUserMessages: string[];
+  untrustedContextSnippets?: string[];
+  hasRecentRevocation?: boolean;
+}
+
+export interface GuardrailVerdict {
+  riskLevel: RiskLevel;
+  userAuthorization: UserAuthorizationLevel;
+  decision: GuardrailDecision;
+  rationale: string;
+  operationId: string;
+  ruleId?: string;
+  usedLLMJudge?: boolean;
+  matchedWhitelistRuleId?: string;
+}
+
+export interface ApprovalWhitelistRule {
+  id: string;
+  granularity: 'allow_session' | 'allow_project' | 'allow_always';
+  toolName: string;
+  actionKind: ActionKind;
+  targetPattern?: string;
+  sessionId?: string;
+  projectId?: string;
+  note?: string;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// 8. Wave 2 Canonical Host v2 Contracts (#01 Personal Wiki, #02 Bot Memory, #03 Proactive)
+// ---------------------------------------------------------------------------
+
+export const WIKI_ENTITY_CATEGORIES = [
+  'people',
+  'projects',
+  'topics',
+  'life',
+  'repos',
+] as const;
+
+export type WikiEntityCategory = (typeof WIKI_ENTITY_CATEGORIES)[number];
+
+export const WIKI_SEARCH_SCOPES = ['all', 'originals', 'summaries'] as const;
+
+export type WikiSearchScope = (typeof WIKI_SEARCH_SCOPES)[number];
+
+export const BOT_MEMORY_LIFECYCLE_STAGES = [
+  'candidate',
+  'consolidated',
+  'archived',
+] as const;
+
+export type BotMemoryLifecycleStage = (typeof BOT_MEMORY_LIFECYCLE_STAGES)[number];
+
+export const PROACTIVE_SOURCE_KINDS = [
+  'calendar_eventkit',
+  'reminders_eventkit',
+  'git_workspace',
+  'device_telemetry',
+  'chat_pocket_note',
+] as const;
+
+export type ProactiveSourceKind = (typeof PROACTIVE_SOURCE_KINDS)[number];
+
+export const PROACTIVE_ACTION_DECISIONS = [
+  'remind_directly',
+  'prepare_briefing',
+  'track_for_follow_up',
+  'stay_silent',
+] as const;
+
+export type ProactiveActionDecision = (typeof PROACTIVE_ACTION_DECISIONS)[number];
+
+export const PROACTIVE_FEEDBACK_SIGNALS = [
+  'acted',
+  'thanked',
+  'dismissed',
+  'snoozed',
+  'muted_topic',
+  'ignored',
+] as const;
+
+export type ProactiveFeedbackSignal = (typeof PROACTIVE_FEEDBACK_SIGNALS)[number];
+
+// ---------------------------------------------------------------------------
+// 9. Wave 3 Canonical Host v2 Contracts (#05 AlterEgo, #06 team.md, #11 CLI/Skills/Notes)
+// ---------------------------------------------------------------------------
+
+export const DELEGATION_TASK_STATUSES = [
+  'queued',
+  'running',
+  'paused',
+  'completed',
+  'failed',
+  'cancelled',
+] as const;
+
+export type DelegationTaskStatus = (typeof DELEGATION_TASK_STATUSES)[number];
+
+export const DYNAMIC_BOT_PROPOSAL_ACTIONS = [
+  'invite_existing',
+  'create_and_invite',
+] as const;
+
+export type DynamicBotProposalAction = (typeof DYNAMIC_BOT_PROPOSAL_ACTIONS)[number];
+
+export const DYNAMIC_BOT_PROPOSAL_STATUSES = [
+  'pending',
+  'approved',
+  'rejected',
+] as const;
+
+export type DynamicBotProposalStatus = (typeof DYNAMIC_BOT_PROPOSAL_STATUSES)[number];
+
+export const TRACKING_ITEM_STATUSES = [
+  'open',
+  'done',
+  'archived',
+] as const;
+
+export type TrackingItemStatus = (typeof TRACKING_ITEM_STATUSES)[number];
+
+export const ARTIFACT_DOCUMENT_KINDS = [
+  'note',
+  'report',
+  'spec',
+  'plan',
+  'draft',
+] as const;
+
+export type ArtifactDocumentKind = (typeof ARTIFACT_DOCUMENT_KINDS)[number];
+
+// ---------------------------------------------------------------------------
+// 10. Wave 4 Canonical Host v2 Contracts (#07 Local Model Stack & #10 Daily Voice)
+// ---------------------------------------------------------------------------
+
+export const MODEL_SOURCE_MODES = [
+  'local_model',
+  'subscription',
+  'byok',
+] as const;
+
+export type ModelSourceMode = (typeof MODEL_SOURCE_MODES)[number];
+
+export const LOCAL_INFERENCE_ENGINE_KINDS = [
+  'polystrata',
+  'llama_cpp',
+  'ollama',
+  'mlx',
+] as const;
+
+export type LocalInferenceEngineKind = (typeof LOCAL_INFERENCE_ENGINE_KINDS)[number];
+
+export const MODEL_SELF_TEST_STATUSES = [
+  'untested',
+  'running',
+  'verified',
+  'failed',
+] as const;
+
+export type ModelSelfTestStatus = (typeof MODEL_SELF_TEST_STATUSES)[number];
+
+export const VOICE_INTERACTION_MODES = [
+  'dictation',
+  'muse_hands_free',
+  'voice_to_task',
+] as const;
+
+export type VoiceInteractionMode = (typeof VOICE_INTERACTION_MODES)[number];
+
+export const VOICE_SESSION_STATES = [
+  'idle',
+  'listening',
+  'transcribing',
+  'thinking',
+  'speaking',
+  'interrupted',
+  'error',
+] as const;
+
+export type VoiceSessionState = (typeof VOICE_SESSION_STATES)[number];
+
+export const VOICE_ENGINE_PROVIDERS = [
+  'apple_on_device',
+  'whisper_kit',
+  'mlx_audio',
+  'openai_byok',
+  'deepgram_byok',
+  'elevenlabs_byok',
+  'custom_byok',
+] as const;
+
+export type VoiceEngineProvider = (typeof VOICE_ENGINE_PROVIDERS)[number];
+
+export const VOICE_PRIVACY_POLICIES = [
+  'on_device_only',
+  'on_device_first',
+  'cloud_preferred',
+] as const;
+
+export type VoicePrivacyPolicy = (typeof VOICE_PRIVACY_POLICIES)[number];
+
+// ---------------------------------------------------------------------------
+// 11. Wave 5 Canonical Host v2 Contracts (#09 Computer Use: Phase A Chrome & Phase B macOS Cua)
+// ---------------------------------------------------------------------------
+
+export const COMPUTER_USE_PHASES = [
+  'chrome_browser',
+  'macos_desktop',
+] as const;
+
+export type ComputerUsePhase = (typeof COMPUTER_USE_PHASES)[number];
+
+export const BROWSER_SEAT_MODES = [
+  'signed_in_chrome_seat',
+  'isolated_profile',
+] as const;
+
+export type BrowserSeatMode = (typeof BROWSER_SEAT_MODES)[number];
+
+export const COMPUTER_USE_ACTION_TYPES = [
+  'snapshot',
+  'navigate',
+  'click',
+  'double_click',
+  'type_text',
+  'press_key',
+  'scroll',
+  'drag',
+  'submit_form',
+  'focus_window',
+] as const;
+
+export type ComputerUseActionType = (typeof COMPUTER_USE_ACTION_TYPES)[number];
+
+export const COMPUTER_USE_LANE_KINDS = [
+  'desktop_screen',
+  'agent_browser',
+] as const;
+
+export type ComputerUseLaneKind = (typeof COMPUTER_USE_LANE_KINDS)[number];
+
+export const COMPUTER_USE_LANE_STATES = [
+  'idle',
+  'active',
+  'yielded_to_human',
+  'blocked_unknown_outcome',
+] as const;
+
+export type ComputerUseLaneState = (typeof COMPUTER_USE_LANE_STATES)[number];
+
+export const WRITE_AHEAD_JOURNAL_STATUSES = [
+  'prepared',
+  'dispatched',
+  'committed',
+  'yielded_to_human',
+  'blocked_guardrail',
+  'unknown_outcome',
+] as const;
+
+export type WriteAheadJournalStatus = (typeof WRITE_AHEAD_JOURNAL_STATUSES)[number];
+
+
+
+
+

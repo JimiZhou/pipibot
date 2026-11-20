@@ -1,6 +1,12 @@
 import SwiftUI
 #if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
+#if canImport(CoreImage)
+import CoreImage
+import CoreImage.CIFilterBuiltins
 #endif
 
 // MARK: - Canonical Action Button (Enforces 44pt Mobile / 32pt Desktop Geometry)
@@ -209,15 +215,33 @@ public struct PipiActionButton: View {
             .background(backgroundView)
             .overlay(
                 RoundedRectangle(cornerRadius: density.cornerRadius, style: .continuous)
-                    .stroke(borderColor, lineWidth: 1)
+                    .strokeBorder(borderColor, lineWidth: 1)
+            )
+            .overlay(
+                Group {
+                    if tone == .secondary || tone == .primary {
+                        RoundedRectangle(cornerRadius: density.cornerRadius, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        PipiTokens.borderStrong.opacity(tone == .primary ? 0.30 : 0.55),
+                                        Color.clear
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                ),
+                                lineWidth: 0.75
+                            )
+                    }
+                }
             )
             .clipShape(RoundedRectangle(cornerRadius: density.cornerRadius, style: .continuous))
             .shadow(
-                color: tone == .ghost ? Color.clear : PipiTokens.subtleShadow.opacity(isHovered ? 0.65 : 0.45),
-                radius: isHovered ? 3 : 1,
+                color: tone == .ghost ? Color.clear : PipiTokens.subtleShadow.opacity(isHovered ? 0.85 : 0.5),
+                radius: isHovered ? 3.5 : 1.5,
                 y: 1
             )
-            .opacity(isHovered && tone == .primary ? 0.88 : 1.0)
+            .opacity(isHovered && tone == .primary ? 0.90 : 1.0)
             .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
         }
         .buttonStyle(PipiPressButtonStyle())
@@ -466,10 +490,11 @@ public struct PipiSheet<Content: View>: View {
                 Divider()
                     .overlay(PipiTokens.borderSubtle)
 
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     content
                         .padding(PipiTokens.spacing20)
                 }
+                .pipiHideScrollbars()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(PipiTokens.bgElevated)
@@ -857,7 +882,15 @@ private final class PipiScrollbarHiderNSView: NSView {
         if !scrollView.autohidesScrollers {
             scrollView.autohidesScrollers = true
         }
+        if scrollView.hasVerticalScroller {
+            scrollView.hasVerticalScroller = false
+        }
+        if scrollView.hasHorizontalScroller {
+            scrollView.hasHorizontalScroller = false
+        }
+        scrollView.verticalScroller?.isHidden = true
         scrollView.verticalScroller?.alphaValue = 0
+        scrollView.horizontalScroller?.isHidden = true
         scrollView.horizontalScroller?.alphaValue = 0
     }
 
@@ -933,4 +966,519 @@ private final class PipiScrollbarHiderNSView: NSView {
         observers.removeAll()
     }
 }
+
+/// App-wide macOS scrollbar suppressor so no grey legacy or overlay scrollbar tracks ever appear
+/// across windows, sheets, popovers, lists, or TextEditors, while keeping trackpad/wheel scrolling smooth.
+@MainActor
+public final class PipiGlobalScrollbarSuppressor {
+    public static let shared = PipiGlobalScrollbarSuppressor()
+
+    private var installed = false
+    private var tokens: [NSObjectProtocol] = []
+
+    private init() {}
+
+    public func install() {
+        guard !installed else {
+            suppressAllWindows()
+            return
+        }
+        installed = true
+        let nc = NotificationCenter.default
+
+        let windowEvents: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didBecomeMainNotification,
+            NSWindow.willBeginSheetNotification,
+            NSWindow.didResizeNotification
+        ]
+        for name in windowEvents {
+            let token = nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let window = note.object as? NSWindow
+                MainActor.assumeIsolated {
+                    if let window {
+                        self?.suppress(in: window)
+                    } else {
+                        self?.suppressAllWindows()
+                    }
+                }
+            }
+            tokens.append(token)
+        }
+
+        let scrollEvents: [Notification.Name] = [
+            NSScrollView.willStartLiveScrollNotification,
+            NSScrollView.didLiveScrollNotification,
+            NSScrollView.didEndLiveScrollNotification
+        ]
+        for name in scrollEvents {
+            let token = nc.addObserver(forName: name, object: nil, queue: .main) { note in
+                let sv = note.object as? NSScrollView
+                MainActor.assumeIsolated {
+                    if let sv {
+                        Self.apply(to: sv)
+                    }
+                }
+            }
+            tokens.append(token)
+        }
+
+        let styleToken = nc.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.suppressAllWindows()
+            }
+        }
+        tokens.append(styleToken)
+
+        suppressAllWindows()
+    }
+
+    public func suppressAllWindows() {
+        for window in NSApp.windows {
+            suppress(in: window)
+        }
+    }
+
+    public func suppress(in window: NSWindow) {
+        if let root = window.contentView {
+            suppressTree(root)
+        }
+        if let superRoot = window.contentView?.superview {
+            suppressTree(superRoot)
+        }
+    }
+
+    private func suppressTree(_ view: NSView) {
+        if let sv = view as? NSScrollView {
+            Self.apply(to: sv)
+        }
+        for child in view.subviews {
+            suppressTree(child)
+        }
+    }
+
+    private static func apply(to scrollView: NSScrollView) {
+        if scrollView.scrollerStyle != .overlay {
+            scrollView.scrollerStyle = .overlay
+        }
+        if !scrollView.autohidesScrollers {
+            scrollView.autohidesScrollers = true
+        }
+        if scrollView.hasVerticalScroller {
+            scrollView.hasVerticalScroller = false
+        }
+        if scrollView.hasHorizontalScroller {
+            scrollView.hasHorizontalScroller = false
+        }
+        scrollView.verticalScroller?.isHidden = true
+        scrollView.verticalScroller?.alphaValue = 0
+        scrollView.horizontalScroller?.isHidden = true
+        scrollView.horizontalScroller?.alphaValue = 0
+    }
+}
 #endif
+
+// MARK: - Machined Tactile Input, Select, Segmented, Help Popover & Key-Value Primitives
+
+/// Unified machined text input with smooth hover & focus borders and crisp geometry.
+public struct PipiTextField: View {
+    public let placeholder: String
+    @Binding public var text: String
+    public var systemImage: String?
+    public var monospaced: Bool
+    public var height: CGFloat
+    public var onSubmit: (() -> Void)?
+
+    @FocusState private var isFocused: Bool
+    @State private var isHovered: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(
+        _ placeholder: String,
+        text: Binding<String>,
+        systemImage: String? = nil,
+        monospaced: Bool = false,
+        height: CGFloat = 34,
+        onSubmit: (() -> Void)? = nil
+    ) {
+        self.placeholder = placeholder
+        self._text = text
+        self.systemImage = systemImage
+        self.monospaced = monospaced
+        self.height = height
+        self.onSubmit = onSubmit
+    }
+
+    public var body: some View {
+        let borderColor: Color = isFocused
+            ? PipiTokens.composerBorderFocused
+            : (isHovered ? PipiTokens.buttonHoverBorder : PipiTokens.composerBorder)
+
+        HStack(spacing: PipiTokens.spacing8) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isFocused ? PipiTokens.textPrimary : PipiTokens.textMuted)
+            }
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(monospaced ? PipiTokens.fontMonoSmall : PipiTokens.fontSubheadline)
+                .foregroundStyle(PipiTokens.textPrimary)
+                .focused($isFocused)
+                .onSubmit { onSubmit?() }
+
+            if !text.isEmpty && isFocused {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(PipiTokens.textMuted)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: height)
+        .background(PipiTokens.composerSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                .strokeBorder(borderColor, lineWidth: isFocused ? 1.25 : 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+        .shadow(
+            color: isFocused ? PipiTokens.subtleShadow.opacity(0.65) : PipiTokens.subtleShadow.opacity(0.25),
+            radius: isFocused ? 3 : 1,
+            y: 1
+        )
+        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isFocused)
+        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// Unified machined secure input (API keys / tokens) with visibility toggle.
+public struct PipiSecureField: View {
+    public let placeholder: String
+    @Binding public var text: String
+    public var height: CGFloat
+
+    @FocusState private var isFocused: Bool
+    @State private var isHovered: Bool = false
+    @State private var isRevealed: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(
+        _ placeholder: String,
+        text: Binding<String>,
+        height: CGFloat = 34
+    ) {
+        self.placeholder = placeholder
+        self._text = text
+        self.height = height
+    }
+
+    public var body: some View {
+        let borderColor: Color = isFocused
+            ? PipiTokens.composerBorderFocused
+            : (isHovered ? PipiTokens.buttonHoverBorder : PipiTokens.composerBorder)
+
+        HStack(spacing: PipiTokens.spacing8) {
+            Group {
+                if isRevealed {
+                    TextField(placeholder, text: $text)
+                } else {
+                    SecureField(placeholder, text: $text)
+                }
+            }
+            .textFieldStyle(.plain)
+            .font(PipiTokens.fontMonoSmall)
+            .foregroundStyle(PipiTokens.textPrimary)
+            .focused($isFocused)
+
+            Button {
+                isRevealed.toggle()
+            } label: {
+                Image(systemName: isRevealed ? "eye.slash" : "eye")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(PipiTokens.textMuted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: height)
+        .background(PipiTokens.composerSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                .strokeBorder(borderColor, lineWidth: isFocused ? 1.25 : 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+        .shadow(
+            color: isFocused ? PipiTokens.subtleShadow.opacity(0.65) : PipiTokens.subtleShadow.opacity(0.25),
+            radius: isFocused ? 3 : 1,
+            y: 1
+        )
+        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isFocused)
+        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// Machined Apple-grade dropdown menu replacing default unstyled macOS pop-up Pickers.
+public struct PipiSelectMenu<Option: Identifiable & Hashable>: View {
+    public let options: [Option]
+    @Binding public var selection: Option
+    public let labelForOption: (Option) -> String
+    public var width: CGFloat?
+
+    @State private var isHovered: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(
+        options: [Option],
+        selection: Binding<Option>,
+        width: CGFloat? = nil,
+        label: @escaping (Option) -> String
+    ) {
+        self.options = options
+        self._selection = selection
+        self.width = width
+        self.labelForOption = label
+    }
+
+    public var body: some View {
+        Menu {
+            ForEach(options) { option in
+                Button {
+                    selection = option
+                } label: {
+                    if selection == option {
+                        Label(labelForOption(option), systemImage: "checkmark")
+                    } else {
+                        Text(labelForOption(option))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: PipiTokens.spacing8) {
+                Text(labelForOption(selection))
+                    .font(PipiTokens.fontCaption.weight(.medium))
+                    .foregroundStyle(PipiTokens.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(PipiTokens.textMuted)
+            }
+            .padding(.horizontal, 10)
+            .frame(width: width, height: 32)
+            .background(isHovered ? PipiTokens.buttonSecondaryHoverBg : PipiTokens.buttonSecondaryBg)
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .strokeBorder(isHovered ? PipiTokens.buttonHoverBorder : PipiTokens.composerBorder, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+            .shadow(color: PipiTokens.subtleShadow.opacity(isHovered ? 0.55 : 0.3), radius: isHovered ? 2.5 : 1, y: 1)
+            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+        }
+        .pipiPlainMenu()
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// Refined segmented capsule selector with machined active pill contrast.
+public struct PipiSegmentedControl<Option: Identifiable & Hashable>: View {
+    public let options: [Option]
+    @Binding public var selection: Option
+    public let labelForOption: (Option) -> String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(
+        options: [Option],
+        selection: Binding<Option>,
+        label: @escaping (Option) -> String
+    ) {
+        self.options = options
+        self._selection = selection
+        self.labelForOption = label
+    }
+
+    public var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options) { option in
+                let isSelected = selection == option
+                Button {
+                    withAnimation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion)) {
+                        selection = option
+                    }
+                } label: {
+                    Text(labelForOption(option))
+                        .font(PipiTokens.fontCaption.weight(isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusXS + 2, style: .continuous)
+                                .fill(isSelected ? PipiTokens.bgElevated : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusXS + 2, style: .continuous)
+                                .strokeBorder(isSelected ? PipiTokens.borderSubtle : Color.clear, lineWidth: 1)
+                        )
+                        .shadow(color: isSelected ? PipiTokens.subtleShadow.opacity(0.45) : Color.clear, radius: 1.5, y: 1)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(PipiTokens.bgInset, in: RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+        )
+    }
+}
+
+/// Quiet `?` info button that folds low-frequency explanations into a tooltip + click popover.
+public struct PipiInfoHelpButton: View {
+    public let title: String
+    public let message: String
+
+    @State private var isPresented: Bool = false
+    @State private var isHovered: Bool = false
+
+    public init(title: String, message: String) {
+        self.title = title
+        self.message = message
+    }
+
+    public var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isHovered || isPresented ? PipiTokens.textPrimary : PipiTokens.textMuted)
+                .frame(width: 18, height: 18)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(message)
+        .onHover { isHovered = $0 }
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                Text(title)
+                    .font(PipiTokens.fontSubheadline.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textPrimary)
+                Text(message)
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(PipiTokens.spacing16)
+            .frame(width: 280, alignment: .leading)
+        }
+    }
+}
+
+/// Clean formal key-value row for inspector panels and summary cards.
+public struct PipiKeyValueRow: View {
+    public let key: String
+    public let value: String
+    public var valueColor: Color
+    public var monospaced: Bool
+    public var helpMessage: String?
+
+    public init(
+        key: String,
+        value: String,
+        valueColor: Color = PipiTokens.textPrimary,
+        monospaced: Bool = false,
+        helpMessage: String? = nil
+    ) {
+        self.key = key
+        self.value = value
+        self.valueColor = valueColor
+        self.monospaced = monospaced
+        self.helpMessage = helpMessage
+    }
+
+    public var body: some View {
+        HStack(spacing: PipiTokens.spacing8) {
+            HStack(spacing: 4) {
+                Text(key)
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+                if let helpMessage, !helpMessage.isEmpty {
+                    PipiInfoHelpButton(title: key, message: helpMessage)
+                }
+            }
+            Spacer(minLength: PipiTokens.spacing8)
+            Text(value)
+                .font(monospaced ? PipiTokens.fontMonoSmall : PipiTokens.fontCaption.weight(.medium))
+                .foregroundStyle(valueColor)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+}
+
+// MARK: - Native CoreImage QR Code Renderer (Zero External Dependencies)
+
+/// Renders a crisp, high-contrast scannable QR code with a guaranteed white quiet zone
+/// suitable for mobile camera scanning in both Light and Dark themes.
+public struct PipiQRCodeView: View {
+    public let payload: String
+    public var size: CGFloat
+
+    public init(payload: String, size: CGFloat = 152) {
+        self.payload = payload
+        self.size = size
+    }
+
+    public var body: some View {
+        Group {
+            if let cgImage = Self.makeCGImage(from: payload) {
+                Image(decorative: cgImage, scale: 1.0)
+                    .interpolation(.none)
+                    .resizable()
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(width: size, height: size)
+            } else {
+                Image(systemName: "qrcode")
+                    .font(.system(size: size * 0.42, weight: .light))
+                    .foregroundStyle(PipiTokens.textMuted)
+                    .frame(width: size, height: size)
+            }
+        }
+        .padding(10)
+        .background(Color.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+    }
+
+    public nonisolated static func makeCGImage(from text: String) -> CGImage? {
+        #if canImport(CoreImage)
+        guard !text.isEmpty, let data = text.data(using: .utf8) else { return nil }
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = data
+        filter.correctionLevel = "M"
+        guard let outputImage = filter.outputImage else { return nil }
+        let context = CIContext()
+        return context.createCGImage(outputImage, from: outputImage.extent)
+        #else
+        return nil
+        #endif
+    }
+}

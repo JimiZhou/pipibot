@@ -73,8 +73,8 @@ public struct PipiStrings: Sendable {
     // MARK: Brand & Navigation
     public var appName: String { "PiPiBot" }
     public var appTagline: String {
-        t("你的私人 AI 伙伴，随时响应、越用越懂你",
-          "Your personal AI companion — always ready, tailored to you")
+        t("个人智能体工作台",
+          "Personal AI Agent Workspace")
     }
     public var newChat: String { t("新对话", "New Chat") }
     public var myBots: String { t("智能体", "Agents") }
@@ -106,36 +106,36 @@ public struct PipiStrings: Sendable {
     // MARK: Onboarding
     public var onboardingWelcomeTitle: String { t("欢迎使用 PiPiBot", "Welcome to PiPiBot") }
     public var onboardingWelcomeSubtitle: String {
-        t("专为个人打造的智能体伙伴。连接你自己的大模型或本机已安装的 AI Agent，在简洁的对话中与多位专属智能体协作。",
-          "A personal AI companion designed around you. Connect your favorite LLM or local AI agents, and collaborate naturally with specialized agents.")
+        t("连接云端或本地模型及命令行工具，在统一工作台中管理个人助手与任务。",
+          "Connect cloud or local models and CLI tools to manage assistants and workflows.")
     }
-    public var onboardingFeature1Title: String { t("自由接入大模型", "Bring Your Own LLM") }
+    public var onboardingFeature1Title: String { t("接入多类模型", "Bring Your Own Model") }
     public var onboardingFeature1Desc: String {
-        t("支持 OpenAI、Anthropic、Gemini、DeepSeek、Ollama 及自定义兼容接口，数据仅保存在本机。",
-          "Works with OpenAI, Anthropic, Gemini, DeepSeek, Ollama, or any OpenAI-compatible API — stored privately on your Mac.")
+        t("支持 OpenAI、Anthropic、Gemini、DeepSeek、Ollama 及兼容接口，配置仅保存于本机。",
+          "Supports OpenAI, Anthropic, Gemini, DeepSeek, Ollama, and compatible APIs stored locally.")
     }
-    public var onboardingFeature2Title: String { t("直连本地 Agent", "Connect Local Agents") }
+    public var onboardingFeature2Title: String { t("调用本地工具", "Connect Local Tools") }
     public var onboardingFeature2Desc: String {
-        t("自动发现本机已登录的 Claude Code、Codex、OpenCode，直接复用现有订阅与工作区能力。",
-          "Auto-detects installed Claude Code, Codex, and OpenCode CLIs so PiPiBot can invoke them directly.")
+        t("自动检测本机已安装的 Claude Code、Codex 与 OpenCode，复用已有工作区配置。",
+          "Detects installed Claude Code, Codex, and OpenCode CLIs directly in your workspace.")
     }
-    public var onboardingFeature3Title: String { t("多智能体协同", "Multi-Agent Personas") }
+    public var onboardingFeature3Title: String { t("多助手协同", "Multi-Agent Collaboration") }
     public var onboardingFeature3Desc: String {
-        t("随时在 PiPi 全能助手、编程搭档、写作顾问、任务管家之间切换，也可拉群协同。",
-          "Switch seamlessly between PiPi, Coding, Writing, and Ops agents — or collaborate in group chats.")
+        t("按场景配置不同助手，支持单聊与多助手协作群。",
+          "Configure specialized assistants for 1:1 conversations or multi-agent groups.")
     }
     public var onboardingGetStarted: String { t("开始配置", "Get Started") }
-    public var onboardingStepConnectTitle: String { t("连接你的 AI 引擎", "Connect Your AI Engine") }
+    public var onboardingStepConnectTitle: String { t("连接 AI 引擎", "Connect AI Engine") }
     public var onboardingStepConnectSubtitle: String {
-        t("选择配置云端 / 本地大模型 API，或直接接入本机已安装的本地 Agent（两者也可同时开启）。",
-          "Configure a cloud or local LLM API, or connect local CLI agents already installed on your machine. You can enable both.")
+        t("配置云端或本地模型接口，或启用本机已安装的命令行工具。",
+          "Configure a model API or enable installed local CLI tools.")
     }
-    public var onboardingTabLLM: String { t("配置大模型 API", "Configure LLM API") }
-    public var onboardingTabLocalAgent: String { t("接入本地 Agent", "Connect Local Agent") }
-    public var onboardingStepPersonaTitle: String { t("选择你的首位智能体伙伴", "Choose Your Starting Agent") }
+    public var onboardingTabLLM: String { t("配置模型接口", "Model API") }
+    public var onboardingTabLocalAgent: String { t("本地工具", "Local Tools") }
+    public var onboardingStepPersonaTitle: String { t("选择默认助手", "Choose Default Assistant") }
     public var onboardingStepPersonaSubtitle: String {
-        t("你可以随时在左侧切换不同智能体，或在对话中临时切换底层模型与本地 Agent。",
-          "You can switch agents anytime in the sidebar or swap models and local agents mid-chat.")
+        t("后续可随时切换助手或调整底层模型。",
+          "You can switch assistants or change engines anytime.")
     }
     public var onboardingStartChatting: String { t("进入对话", "Start Chatting") }
     public var onboardingReopenGuide: String { t("重新打开新手引导", "Re-run Setup Guide") }
@@ -159,10 +159,10 @@ public struct PipiStrings: Sendable {
           "Connect an LLM API key or enable an installed local agent in Settings to start chatting.")
     }
     public var configureNow: String { t("立即配置", "Configure Now") }
-    public var engineStatusUnconfigured: String { t("未配置引擎", "Not Configured") }
-    public var autoRouteEngine: String { t("自动选择默认引擎", "Auto (Default Engine)") }
-    public var cloudAndLocalLLMs: String { t("大模型 (LLM)", "LLM Models") }
-    public var localAgents: String { t("本地 Agent", "Local Agents") }
+    public var engineStatusUnconfigured: String { t("未配置驱动模型", "No Model Configured") }
+    public var autoRouteEngine: String { t("PiPi（自动选择模型）", "PiPi (Auto Model)") }
+    public var cloudAndLocalLLMs: String { t("云端与自定义模型", "Cloud & Custom Models") }
+    public var localAgents: String { t("外部协作 Agent（PiPi 按需调用）", "External Sub-Agents (On-Demand)") }
     public var rescanAgents: String { t("重新检测", "Re-scan") }
     public var agentStatusReady: String { t("已就绪", "Ready") }
     public var agentStatusNeedsLogin: String { t("需在终端登录", "Sign in via CLI") }
@@ -170,13 +170,13 @@ public struct PipiStrings: Sendable {
     public var workspaceDirectory: String { t("默认工作目录", "Default Working Directory") }
     public var chooseFolder: String { t("选择目录", "Choose Folder") }
     public var localAgentHint: String {
-        t("启用后，PiPiBot 可直接调用本机终端中的 Agent 处理代码、文件与复杂任务。",
-          "When enabled, PiPiBot can invoke these local CLI agents directly in your workspace.")
+        t("启用后，PiPi 内置引擎在处理代码、文件或终端任务时将按需调用这些外部 Agent，不替代 PiPi 作为主引擎。",
+          "When enabled, PiPi invokes these external CLI agents on demand for coding/terminal tasks without replacing PiPi.")
     }
 
     // MARK: Chat Experience
-    public var chatPlaceholder: String { t("输入任务或消息，Enter 发送，/ 调出命令…", "Message PiPiBot... (Enter to send, / for commands)") }
-    public var chatPlaceholderCompact: String { t("向 PiPiBot 提问或下达指令...", "Ask PiPiBot anything...") }
+    public var chatPlaceholder: String { t("输入消息（Enter 发送，/ 查看指令）", "Type a message (Enter to send, / for commands)") }
+    public var chatPlaceholderCompact: String { t("输入问题或指令", "Type a prompt...") }
     public var youLabel: String { t("我", "You") }
     public var thinkingStatus: String { t("正在思考...", "Thinking...") }
     public func runningAgentStatus(_ name: String) -> String {
@@ -195,7 +195,7 @@ public struct PipiStrings: Sendable {
     public var personaSystemPrompt: String { t("系统提示词 (人设指令)", "System Prompt (Instructions)") }
     public var personaAccent: String { t("主题色", "Accent Color") }
     public var personaShape: String { t("形象形态", "Avatar Form") }
-    public var personaDefaultEngine: String { t("默认引擎", "Preferred Engine") }
+    public var personaDefaultEngine: String { t("驱动大模型", "Backing Model") }
     public var createBotTitle: String { t("创建新智能体", "Create Agent") }
     public var createBotSubtitle: String { t("为不同场景定制专属的性格、指令与默认模型", "Customize personality, instructions, and preferred engine for any workflow") }
     public var editBotTitle: String { t("编辑智能体", "Edit Agent") }
@@ -207,12 +207,12 @@ public struct PipiStrings: Sendable {
     public var tasksSubtitle: String { t("让 PiPiBot 在后台持续跟进目标，仅在关键节点向你确认", "Let PiPiBot track ongoing goals and notify you only when approval is needed") }
     public var newTask: String { t("新建任务", "New Task") }
     public var approvalsTitle: String { t("待你确认", "Pending Approvals") }
-    public var approvalsEmptyTitle: String { t("暂无待确认事项", "All Caught Up") }
+    public var approvalsEmptyTitle: String { t("暂无待确认事项", "No Pending Items") }
     public var approvalsEmptyMessage: String {
-        t("当前没有需要你审批的操作，所有自动任务均在安全边界内运行。",
-          "Nothing requires your sign-off right now. All tasks are operating within your boundaries.")
+        t("当前无待处理的权限审批或确认请求。",
+          "No pending permission approvals or decisions.")
     }
-    public var runCheck: String { t("立即巡检", "Run Check") }
+    public var runCheck: String { t("立即检查", "Run Check") }
     public var taskTitleField: String { t("任务名称", "Task Title") }
     public var taskGoalField: String { t("目标与验收标准", "Goal & Success Criteria") }
     public var taskDomainField: String { t("分类", "Category") }
@@ -221,13 +221,15 @@ public struct PipiStrings: Sendable {
 
     // MARK: Quick Bar
     public var quickBarTitle: String { t("PiPiBot 快捷浮窗", "PiPiBot Quick Bar") }
-    public var quickBarInputPlaceholder: String { t("随时输入问题或指令，回车直接发送给 PiPiBot...", "Ask PiPiBot anything or trigger a quick action...") }
+    public var quickBarInputPlaceholder: String { t("输入问题或指令，按 Enter 发送", "Type a prompt and press Enter") }
     public var detectedContext: String { t("当前上下文", "Active Context") }
 
-    // MARK: Settings Sections (4 Streamlined Groups)
+    // MARK: Settings Sections
     public var settingsGeneral: String { t("通用", "General") }
     public var settingsAIEngine: String { t("模型与引擎", "Models & Engines") }
-    public var settingsRuntimeSync: String { t("运行环境与同步", "Runtime & Sync") }
+    public var settingsRuntimeSync: String { t("运行与远程操控", "Runtime & Remote") }
+    public var settingsHelp: String { t("帮助说明", "Help") }
+    public var aboutTitle: String { t("关于 PiPiBot", "About PiPiBot") }
     public var settingsModels: String { t("大模型配置", "LLM Models") }
     public var settingsLocalAgents: String { t("本地 Agent", "Local Agents") }
     public var settingsPersonas: String { t("Bot 人设", "Bot Personas") }
@@ -349,7 +351,23 @@ public struct PipiStrings: Sendable {
     public var openAIEngineSettings: String { t("打开 AI 引擎设置", "Open AI Engine Settings") }
     public var engineSettingsShort: String { t("引擎设置", "Engine Settings") }
     public var allowChangesAction: String { t("允许执行修改", "Allow changes") }
+    public var allowOnceAction: String { t("仅允许本次", "Allow once") }
+    public var allowSessionAction: String { t("本会话同类允许", "Allow in session") }
+    public var allowProjectAction: String { t("本项目允许", "Allow in project") }
+    public var allowAlwaysAction: String { t("始终允许", "Always allow") }
     public var keepReadOnlyAction: String { t("保持只读", "Keep read-only") }
+    public var yieldedStatus: String { t("已暂停以优先响应当前对话，完成后自动恢复", "Paused for active chat; will resume automatically") }
+    public var guardrailSectionTitle: String { t("安全审批与授权规则", "Safety & Approval Rules") }
+    public var guardrailJudgeToggleTitle: String { t("高风险操作独立评估", "High-Risk Action Review") }
+    public var guardrailJudgeToggleDesc: String {
+        t("对外部写入或高危命令执行额外风险检查，敏感信息外发默认拦截。",
+          "Evaluates risk before high-risk or external actions; credential exfiltration is always blocked.")
+    }
+    public var guardrailWhitelistEmpty: String {
+        t("暂无已保存的授权规则。",
+          "No saved approval rules.")
+    }
+    public var clearWhitelistRules: String { t("清空全部规则", "Clear All Rules") }
     public var approvalApprovedBadge: String { t("已批准执行", "Approved") }
     public var approvalDeniedBadge: String { t("已保持只读", "Read-only kept") }
     public var approvalExpiredBadge: String { t("已过期", "Expired") }
@@ -385,7 +403,7 @@ public struct PipiStrings: Sendable {
     public var filterByBotLabel: String { t("筛选", "Filter") }
     public var clearFilter: String { t("清除筛选", "Clear filter") }
     public var needsYouInboxTitle: String { t("待我确认", "Needs You") }
-    public var needsYouInboxSubtitle: String { t("集中处理所有待确认的权限请求与个人决策", "Review and resolve all pending permission requests and decisions") }
+    public var needsYouInboxSubtitle: String { t("待处理的权限审批与确认事项", "Pending permission approvals and decisions") }
     public var openSession: String { t("打开对话", "Open Chat") }
     public var continueInMainWindow: String { t("在主窗口继续", "Continue in main window") }
     public var newQuickChat: String { t("新提问", "New Prompt") }
@@ -409,6 +427,80 @@ public struct PipiStrings: Sendable {
     public var editGroupChat: String { t("编辑群成员与模式", "Edit Group & Mode") }
     public var commandPaletteSectionGroups: String { t("协作群", "Groups") }
     public var createCustomBot: String { t("创建自定义智能体", "Create Custom Agent") }
+
+    // MARK: Wave 2 (#01 Personal Wiki, #02 Per-Bot Memory, #03 Native Proactive & Prepare)
+    public var knowledgeHubTitle: String { t("知识与简报", "Knowledge & Briefs") }
+    public var knowledgeHubSubtitle: String {
+        t("个人词条、日程简报、笔记文档与助手记忆",
+          "Personal entries, schedule briefs, notes, and assistant memory")
+    }
+    public var wikiTabTitle: String { t("词条", "Entries") }
+    public var proactiveTabTitle: String { t("日程简报", "Briefs") }
+    public var botMemoryTabTitle: String { t("助手记忆", "Memory") }
+    public var wikiSearchPlaceholder: String { t("搜索词条标题、正文或别名", "Search entries, content, or aliases") }
+    public var wikiNewPage: String { t("新建词条", "New Entry") }
+    public var wikiEmptyTitle: String { t("暂无词条", "No Entries") }
+    public var wikiEmptyMessage: String {
+        t("可新建词条记录人物、项目、主题或笔记，所有内容均保存于本地。",
+          "Create entries for people, projects, topics, or notes stored locally on this Mac.")
+    }
+    public var proactiveScanNow: String { t("扫描更新", "Scan") }
+    public var proactiveEmptyTitle: String { t("暂无日程简报", "No Briefs") }
+    public var proactiveEmptyMessage: String {
+        t("点击扫描更新以读取已授权的日程与本地项目状态。",
+          "Click Scan to read authorized calendar events and local project status.")
+    }
+    public var proactiveSectionTitle: String { t("主动提醒与防打扰", "Proactive Notifications") }
+    public var proactiveQuietHoursTitle: String { t("夜间免打扰", "Quiet Hours") }
+    public var proactiveQuietHoursDesc: String { t("免打扰时段内暂缓推送非紧急提醒", "Pause non-urgent notifications during quiet hours") }
+    public var proactiveDailyCapTitle: String { t("每日提醒上限", "Daily Cap") }
+    public var proactiveChatSilenceTitle: String { t("对话期间静默", "Active-Chat Silence") }
+    public var proactiveRunDreaming: String { t("整理规则", "Consolidate") }
+    public var proactiveRollback: String { t("回退版本", "Rollback") }
+    public var botMemoryConsolidateNow: String { t("合并整理", "Consolidate") }
+    public var botMemoryCacheSafeBadge: String { t("缓存保护", "Cache Safe") }
+    public var compactContextAction: String { t("压缩上下文", "Compact Context") }
+
+    // MARK: Wave 3 (#05 AlterEgo, #06 team.md, #11 Pocket Notes, Editable Docs & Builtin Skills)
+    public var alterEgoSectionTitle: String { t("后台任务", "Background Tasks") }
+    public var alterEgoSteerPlaceholder: String { t("补充执行说明", "Add instruction") }
+    public var alterEgoResumeAction: String { t("继续执行", "Resume") }
+    public var teamProtocolTitle: String { t("协作协议", "Team Protocol") }
+    public var teamProtocolGenerate: String { t("生成模板", "Generate Template") }
+    public var teamProtocolRun: String { t("按协议执行", "Run Protocol") }
+    public var dynamicBotProposalsTitle: String { t("成员变更建议", "Team Proposals") }
+    public var approveAndJoinAction: String { t("批准加入", "Approve & Join") }
+    public var pocketNotesTabTitle: String { t("笔记与文档", "Notes & Docs") }
+    public var builtinSkillsTabTitle: String { t("内置技能", "Skills") }
+    public var extractTodosNow: String { t("提炼待办", "Extract To-Dos") }
+    public var syncToWikiAction: String { t("同步至词条", "Sync to Entries") }
+    public var newDocumentAction: String { t("新建文档", "New Document") }
+    public var projectSkillsAction: String { t("校验技能", "Verify Skills") }
+
+    // MARK: Wave 4 (#07 Local Model Autopilot, PolyStrata, Unified Gateway & #10 Personal Daily Voice)
+    public var settingsVoice: String { t("语音交互", "Voice") }
+    public var modelAutopilotTitle: String { t("本地模型规划", "Local Model Plan") }
+    public var localGatewayTitle: String { t("本地模型服务", "Local Model Service") }
+    public var reverseInjectCLITitle: String { t("向本地工具注入配置", "Inject into Local Tools") }
+    public var reverseInjectCLIDesc: String {
+        t("通过隔离环境变量向本地命令行工具传递模型配置，不修改原有配置文件。",
+          "Passes model configuration to local CLI tools via isolated environment directories.")
+    }
+    public var runQASelfTestAction: String { t("连通自测", "Run Self-Test") }
+    public var startGatewayAction: String { t("启动服务", "Start Service") }
+    public var stopGatewayAction: String { t("停止服务", "Stop Service") }
+    public var dailyVoiceTitle: String { t("日常语音", "Daily Voice") }
+    public var voiceDictationAction: String { t("语音输入", "Dictation") }
+    public var museHandsFreeAction: String { t("语音对话", "Voice Chat") }
+    public var voiceBargeInHint: String { t("播报期间开口可随时打断", "Speak anytime to interrupt playback") }
+
+    // MARK: Wave 5 (#09 Dual-Phase Computer Use: Chrome Seats & macOS Accessibility Cua)
+    public var computerUseSectionTitle: String { t("桌面与浏览器协作", "Browser & Desktop Control") }
+    public var computerUseTakeOver: String { t("手动接管", "Take Over") }
+    public var computerUseResume: String { t("恢复协作", "Resume") }
+    public var computerUseUnlockLane: String { t("核查并解锁", "Verify & Unlock") }
+    public var computerUseOpenAccessibility: String { t("打开系统设置", "Open System Settings") }
+    public var computerUseJournalTitle: String { t("操作保护日志", "Action Protection Log") }
 
     // MARK: iOS Tabs
     public var tabChat: String { t("对话", "Chat") }

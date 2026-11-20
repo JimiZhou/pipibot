@@ -63,13 +63,34 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.8.0</string>
+  <string>0.9.0</string>
   <key>CFBundleVersion</key>
-  <string>8</string>
+  <string>9</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSDesktopFolderUsageDescription</key>
   <string>PiPiBot optionally reads workspace git status when pointed to a Desktop project.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>PiPiBot reads upcoming Apple Calendar events on-device to Prepare read-only context briefings before your day starts.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>PiPiBot reads upcoming Apple Calendar events on-device to Prepare read-only context briefings.</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>PiPiBot reads Apple Reminders on-device so your proactive assistant can surface due items without fatigue.</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>PiPiBot reads Apple Reminders on-device to surface upcoming due items.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>PiPiBot uses your microphone for on-device-first daily voice dictation, hands-free voice calls, and echo-gated barge-in.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>PiPiBot uses Apple on-device Speech Recognition to transcribe your daily voice dictation privately without leaving your Mac.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>PiPiBot optionally collaborates with local macOS apps (Mail, Messages, Finder) during user-approved assistant tasks.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>PiPiBot captures screenshots and short screen recordings when requested by the user across Mac, Remote PWA, or WeChat.</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>LSUIElement</key>
@@ -77,6 +98,13 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+if [[ -f "$REPO_ROOT/LICENSE" ]]; then
+  cp "$REPO_ROOT/LICENSE" "$APP_BUNDLE/Contents/Resources/LICENSE"
+fi
+if [[ -f "$REPO_ROOT/NOTICE" ]]; then
+  cp "$REPO_ROOT/NOTICE" "$APP_BUNDLE/Contents/Resources/NOTICE"
+fi
 
 if [[ -d "$REPO_ROOT/design-system" ]]; then
   cp -R "$REPO_ROOT/design-system" "$APP_BUNDLE/Contents/Resources/design-system"
@@ -100,8 +128,31 @@ if [[ -d "$REPO_ROOT/apps/ios-web" ]]; then
   cp -R "$REPO_ROOT/apps/ios-web" "$RUNTIME_DIR/apps/ios-web"
 fi
 
-echo "==> Ad-hoc code signing $APP_BUNDLE..."
-codesign --force --deep --sign - "$APP_BUNDLE"
+ENTITLEMENTS_FILE="$SCRIPT_DIR/PipiBotMacApp.entitlements"
+CODESIGN_ID="${PIPIBOT_CODESIGN_IDENTITY:--}"
+BUNDLE_ID="ai.pipibot.mac"
+
+if [[ "$CODESIGN_ID" == "-" ]]; then
+  echo "==> Ad-hoc code signing $APP_BUNDLE with stable designated requirement ($BUNDLE_ID)..."
+  codesign --force --deep \
+    --sign - \
+    --identifier "$BUNDLE_ID" \
+    --entitlements "$ENTITLEMENTS_FILE" \
+    -r="designated => identifier \"$BUNDLE_ID\"" \
+    "$APP_BUNDLE"
+else
+  echo "==> Code signing $APP_BUNDLE with identity: $CODESIGN_ID..."
+  codesign --force --deep \
+    --options runtime \
+    --timestamp \
+    --sign "$CODESIGN_ID" \
+    --identifier "$BUNDLE_ID" \
+    --entitlements "$ENTITLEMENTS_FILE" \
+    "$APP_BUNDLE"
+fi
+
+echo "==> Verifying code signature..."
+codesign --verify --deep --strict "$APP_BUNDLE"
 
 echo "==> Successfully packaged $APP_BUNDLE"
 ls -la "$APP_BUNDLE/Contents/MacOS/PipiBotMacApp"

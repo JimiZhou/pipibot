@@ -200,7 +200,9 @@ pipibot/
 │   │   └── 01-UIUX-DESIGN-SYSTEM.md           # Ambient Soul & Outcome Studio 完整设计规范
 │   └── roadmap/
 │       ├── 01-DEVELOPMENT-PLAN.md             # Phase 0-5 工程 WBS、验证测试套、SLA 与风险矩阵
-│       └── 02-PROGRESS-TRACKER.md             # 实时进度看板、ADR-001~009 与变更日志
+│       ├── 02-PROGRESS-TRACKER.md             # 实时进度看板、ADR-001~012 与变更日志
+│       └── 03-LINGER-UPGRADE-PLAN.md          # 对标 Linger 的 12 项 Wave 1-5 能力提升路线图
+├── NOTICE                                     # 第三方声明、开源协议边界与上游灵感署名
 └── packages/
     ├── protocol/
     │   ├── package.json                       # @pipibot/protocol 包清单
@@ -238,7 +240,9 @@ pipibot/
 | [01-UIUX-DESIGN-SYSTEM.md](docs/design-system/01-UIUX-DESIGN-SYSTEM.md) | "Ambient Soul & Outcome Studio" 语义 Token、`PipiAvatar` 192 射线 / Rodrigues 3D / 53 状态机规范、OpenPencil 五规则与 Stageshow 规范 | 中文 + EN Terms |
 | [design-system.md](design-system/design-system.md) | 持久化 AI 设计记忆：三层 Token、几何对比度、六大规范积木与 Stageshow 约束（规则 + 原因 + 日期） | English |
 | [01-DEVELOPMENT-PLAN.md](docs/roadmap/01-DEVELOPMENT-PLAN.md) | Phase 0–5 全量 WBS、分阶段验证测试套件、非功能性硬指标（节点 `<15MB`、头像 `120fps <1% CPU`、`$0/月` 云成本）与风险缓解矩阵 | 中文 + EN Terms |
-| [02-PROGRESS-TRACKER.md](docs/roadmap/02-PROGRESS-TRACKER.md) | 实时里程碑追踪看板、**ADR-001 至 ADR-009** 关键架构决策记录及 `v0.1.0-alpha` / `v0.2.0-beta` 变更日志 | 中文 + EN Terms |
+| [02-PROGRESS-TRACKER.md](docs/roadmap/02-PROGRESS-TRACKER.md) | 实时里程碑追踪看板、**ADR-001 至 ADR-012** 关键架构决策记录及版本变更日志 | 中文 + EN Terms |
+| [03-LINGER-UPGRADE-PLAN.md](docs/roadmap/03-LINGER-UPGRADE-PLAN.md) | 对标 `simplexai-labs/linger` 的 12 项 Wave 1–5 能力提升计划（调度、双层风控、个人 Wiki、分身委派、PolyStrata、日常语音、Computer Use） | 中文 + EN Terms |
+| [NOTICE](NOTICE) | 洁净室开源协议边界与上游项目架构灵感署名说明（`linger`、`PolyStrata`、Devin、Pi、GrokBot、Manus、OpenPencil） | English |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Monorepo 本地开发环境、新增 Harness/Avatar 状态/Fleet 节点指南与 PR 自检清单 | English |
 
 ---
@@ -261,9 +265,11 @@ pipibot/
 欢迎通过 Issue 与 Pull Request 共建 PipiBot！提交前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 PipiBot 的设计深受以下卓越理念与开源项目的启发：
+- **[Linger (`simplexai-labs/linger`)](https://github.com/simplexai-labs/linger)**（*Linger Open Source License*）：提供重要架构与交互灵感（PiPiBot 坚持**严格洁净室 MIT 独立实现**，零复制上游源码与前端素材，详见 [NOTICE](NOTICE)），涵盖优先级可抢占模型调度、双层 Risk×Authorization 风控审批、个人实体 Wiki 与 Cache 友好型 Agent 记忆、Clue→Rule 主动自学习、Meta/AlterEgo 分身委派、`team.md` 协作拓扑、本地隔离 CLI Gateway 与 Computer Use 防冲突车道。
+- **[PolyStrata (`simplexai-labs/PolyStrata`)](https://github.com/simplexai-labs/PolyStrata)** & **[Strata](https://github.com/Niko1221/Strata)**（*MIT License*）：Wave 4 已集成的外部可选本地 MoE 分层推理引擎与 12+ 模型目录（Apple Silicon Metal+SSD 预取 beta + `PipiFleet` Linux/Windows 专家卸载）。
 - **Devin Bots**（*"From Tasks to Outcomes"*）：开创了 AI Manager 与结果负责制的核心范式。
 - **Pi Coding Agent (`@mariozechner/pi-coding-agent` / `pi-ai`)**：验证了极简 4 工具可扩展内核的优雅与强大。
 - **GrokBot Animation Anatomy** 与 **Grok Bot 0.18 Reconstructed**：为程序化 SVG 物理角色与 Routed MCP 多端桥接提供了宝贵灵感。
-- **Manus Cue**、**Dots** 与 **Muse**：启发了无感上下文微建议、点阵节点活力指示以及空间化语音协同交互。
+- **Manus Cue**、**Dots**、**Muse** 与 **OpenPencil**：启发了无感上下文微建议、点阵节点活力指示、空间化语音协同交互以及五规则设计治理体系。
 
-本项目基于 [MIT License](LICENSE) 开源 — Copyright © 2026 JimiZhou & PipiBot Contributors.
+本项目基于 [MIT License](LICENSE) 开源 — Copyright © 2026 JimiZhou & PipiBot Contributors。完整上游署名与协议边界说明请参阅 [NOTICE](NOTICE)。

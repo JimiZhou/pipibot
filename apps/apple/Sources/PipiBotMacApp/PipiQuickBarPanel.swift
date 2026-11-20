@@ -199,6 +199,7 @@ public final class PipiQuickBarController: NSObject, NSWindowDelegate {
             store.avatarEngine.setState(.manusCue)
             panel.makeKeyAndOrderFront(nil)
             panel.orderFrontRegardless()
+            PipiGlobalScrollbarSuppressor.shared.suppress(in: panel)
 
             if !reduceMotion {
                 NSAnimationContext.runAnimationGroup { ctx in
@@ -369,6 +370,33 @@ public struct PipiQuickBarContentView: View {
                     .onSubmit {
                         sendQuickPrompt()
                     }
+                    .onChange(of: store.voiceLiveTranscript) { _, transcript in
+                        if store.voiceSessionState == .listening || store.voiceSessionState == .transcribing, !transcript.isEmpty {
+                            quickInput = transcript
+                        }
+                    }
+
+                // Wave 4 (#10): 1-click daily voice dictation inside QuickBar (⌥Space)
+                Button {
+                    Task {
+                        if store.voiceSessionState == .listening || store.voiceSessionState == .transcribing {
+                            await store.stopVoiceCapture(commitTranscript: false)
+                        } else {
+                            await store.startVoiceCapture(mode: .dictation)
+                        }
+                    }
+                } label: {
+                    let listening = store.voiceSessionState == .listening || store.voiceSessionState == .transcribing
+                    Image(systemName: listening ? "mic.fill" : "mic")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(listening ? PipiTokens.textInverse : PipiTokens.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(listening ? PipiTokens.stateSuccess : PipiTokens.bgSurfaceHover)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+                .help(s.voiceDictationAction)
+                .accessibilityLabel(s.voiceDictationAction)
 
                 if isRunning, let session {
                     Button {
@@ -418,7 +446,7 @@ public struct PipiQuickBarContentView: View {
                     .fill(PipiTokens.borderSubtle)
                     .frame(height: 1)
 
-                ScrollView(showsIndicators: true) {
+                ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
                         ForEach(session.messages) { msg in
                             if msg.role == .user {
@@ -473,6 +501,7 @@ public struct PipiQuickBarContentView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .pipiHideScrollbars()
                 .frame(maxHeight: 280)
             }
 

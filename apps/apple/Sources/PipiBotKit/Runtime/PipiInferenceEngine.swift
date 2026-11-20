@@ -416,6 +416,7 @@ public struct PipiInferenceEngine: Sendable {
         workingDirectory: String,
         permissionTier: PipiPermissionTier = .ask,
         cliSessionId: String? = nil,
+        extraEnvironment: [String: String] = [:],
         onDelta: (@Sendable (String) -> Void)? = nil,
         onEvent: (@Sendable (PipiParsedCLIEvent) -> Void)? = nil
     ) async throws -> PipiInferenceResult {
@@ -446,6 +447,7 @@ public struct PipiInferenceEngine: Sendable {
             executablePath: binaryPath,
             arguments: args,
             workingDirectory: cwd,
+            extraEnvironment: extraEnvironment,
             onDelta: { chunk in
                 accumulator.ingest(chunk: chunk, onDelta: onDelta, onEvent: onEvent)
             }
@@ -1292,6 +1294,7 @@ public struct PipiInferenceEngine: Sendable {
         executablePath: String,
         arguments: [String],
         workingDirectory: String,
+        extraEnvironment: [String: String] = [:],
         onDelta: (@Sendable (String) -> Void)?
     ) async throws -> String {
         let process = Process()
@@ -1304,6 +1307,10 @@ public struct PipiInferenceEngine: Sendable {
         let existingPath = env["PATH"] ?? ""
         env["PATH"] = existingPath.isEmpty ? extraPaths : "\(extraPaths):\(existingPath)"
         env["NO_COLOR"] = "1"
+        // Wave 4 (#07): Apply isolated CLI Gateway reverse-injection overlay if active
+        for (key, value) in extraEnvironment {
+            env[key] = value
+        }
         process.environment = env
 
         let stdoutPipe = Pipe()

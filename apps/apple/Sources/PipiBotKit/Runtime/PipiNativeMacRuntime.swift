@@ -45,6 +45,24 @@ public struct PipiResidentPersistedState: Codable, Sendable {
     public var projects: [PipiProject]?
     public var groupChats: [PipiGroupChat]?
     public var activeGroupChatId: String?
+    // Wave 1 (#08) Guardrail & Multi-Granularity Whitelist Persistence
+    public var approvalWhitelistRules: [PipiApprovalWhitelistRule]?
+    public var llmGuardrailJudgeEnabled: Bool?
+    // Wave 2 (#03) Proactive Guardrails, Prepare Briefings & Clue->Rule Guideline Persistence
+    public var proactiveState: PipiProactivePersistedState?
+    // Wave 3 (#05 AlterEgo Tasks & #11 Pocket Notes / Editable Documents)
+    public var alterEgoTasks: [PipiAlterEgoTask]?
+    public var pocketNotesState: PipiPocketNotesPersistedState?
+    // Wave 4 (#07 Local Model Stack & Gateway, #10 Personal Daily Voice)
+    public var localGatewayConfig: PipiLocalGatewayConfig?
+    public var voiceConfig: PipiVoiceConfig?
+    // Wave 5 (#09 Dual-Phase Computer Use)
+    public var computerUseConfig: PipiComputerUseConfig?
+    // Global Shared Capability Pool & Autonomous Peer Upgrades
+    public var globalCapabilityPool: PipiGlobalCapabilityPool?
+    // 3D Home Space Preset & Multi-Room Agent Assignments
+    public var homeScenePresetRaw: String?
+    public var botRoomAssignments: [String: String]?
 
     private enum CodingKeys: String, CodingKey {
         case outcomes, decisions, museCards, activeHarness, themeModeRaw, keepAwakeEnabled, updatedAt
@@ -54,6 +72,13 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         case memoryEnabled, personalProfileNote, routines, runRecords
         case companionSyncEnabled, schemaMigrationVersion, uiZoomScale, projects
         case groupChats, activeGroupChatId
+        case approvalWhitelistRules, llmGuardrailJudgeEnabled
+        case proactiveState
+        case alterEgoTasks, pocketNotesState
+        case localGatewayConfig, voiceConfig
+        case computerUseConfig
+        case globalCapabilityPool
+        case homeScenePresetRaw, botRoomAssignments
     }
 
     public init(
@@ -84,7 +109,18 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         uiZoomScale: Double? = nil,
         projects: [PipiProject]? = nil,
         groupChats: [PipiGroupChat]? = nil,
-        activeGroupChatId: String? = nil
+        activeGroupChatId: String? = nil,
+        approvalWhitelistRules: [PipiApprovalWhitelistRule]? = nil,
+        llmGuardrailJudgeEnabled: Bool? = nil,
+        proactiveState: PipiProactivePersistedState? = nil,
+        alterEgoTasks: [PipiAlterEgoTask]? = nil,
+        pocketNotesState: PipiPocketNotesPersistedState? = nil,
+        localGatewayConfig: PipiLocalGatewayConfig? = nil,
+        voiceConfig: PipiVoiceConfig? = nil,
+        computerUseConfig: PipiComputerUseConfig? = nil,
+        globalCapabilityPool: PipiGlobalCapabilityPool? = nil,
+        homeScenePresetRaw: String? = nil,
+        botRoomAssignments: [String: String]? = nil
     ) {
         self.outcomes = outcomes
         self.decisions = decisions
@@ -114,6 +150,17 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         self.projects = projects
         self.groupChats = groupChats
         self.activeGroupChatId = activeGroupChatId
+        self.approvalWhitelistRules = approvalWhitelistRules
+        self.llmGuardrailJudgeEnabled = llmGuardrailJudgeEnabled
+        self.proactiveState = proactiveState
+        self.alterEgoTasks = alterEgoTasks
+        self.pocketNotesState = pocketNotesState
+        self.localGatewayConfig = localGatewayConfig
+        self.voiceConfig = voiceConfig
+        self.computerUseConfig = computerUseConfig
+        self.globalCapabilityPool = globalCapabilityPool
+        self.homeScenePresetRaw = homeScenePresetRaw
+        self.botRoomAssignments = botRoomAssignments
     }
 
     public init(from decoder: Decoder) throws {
@@ -147,6 +194,17 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         self.projects = try c.decodeIfPresent([PipiProject].self, forKey: .projects)
         self.groupChats = try c.decodeIfPresent([PipiGroupChat].self, forKey: .groupChats)
         self.activeGroupChatId = try c.decodeIfPresent(String.self, forKey: .activeGroupChatId)
+        self.approvalWhitelistRules = try c.decodeIfPresent([PipiApprovalWhitelistRule].self, forKey: .approvalWhitelistRules)
+        self.llmGuardrailJudgeEnabled = try c.decodeIfPresent(Bool.self, forKey: .llmGuardrailJudgeEnabled)
+        self.proactiveState = try c.decodeIfPresent(PipiProactivePersistedState.self, forKey: .proactiveState)
+        self.alterEgoTasks = try c.decodeIfPresent([PipiAlterEgoTask].self, forKey: .alterEgoTasks)
+        self.pocketNotesState = try c.decodeIfPresent(PipiPocketNotesPersistedState.self, forKey: .pocketNotesState)
+        self.localGatewayConfig = try c.decodeIfPresent(PipiLocalGatewayConfig.self, forKey: .localGatewayConfig)
+        self.voiceConfig = try c.decodeIfPresent(PipiVoiceConfig.self, forKey: .voiceConfig)
+        self.computerUseConfig = try c.decodeIfPresent(PipiComputerUseConfig.self, forKey: .computerUseConfig)
+        self.globalCapabilityPool = try c.decodeIfPresent(PipiGlobalCapabilityPool.self, forKey: .globalCapabilityPool)
+        self.homeScenePresetRaw = try c.decodeIfPresent(String.self, forKey: .homeScenePresetRaw)
+        self.botRoomAssignments = try c.decodeIfPresent([String: String].self, forKey: .botRoomAssignments)
     }
 }
 

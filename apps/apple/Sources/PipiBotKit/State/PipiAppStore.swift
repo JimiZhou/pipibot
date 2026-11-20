@@ -122,6 +122,37 @@ public typealias PipiSessionInferenceExecutor = @Sendable (
     _ onEvent: (@Sendable (PipiParsedCLIEvent) -> Void)?
 ) async throws -> PipiInferenceResult
 
+public enum PipiConversationRowStatus: Sendable, Equatable {
+    case processing
+    case queued
+    case needsApproval
+    case failed
+    case unread(Int)
+    case idle
+}
+
+public enum PipiExternalSubAgentRouter {
+    /// Parses explicit on-demand external CLI sub-agent invocations (`/claude ...`, `/codex ...`, `/opencode ...`)
+    /// so PiPi remains the default built-in engine while delegating specialized coding/CLI tasks on demand.
+    public static func parseOnDemandInvocation(_ rawPrompt: String) -> (kind: PipiLocalAgentKind, taskPrompt: String)? {
+        let trimmed = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        let mappings: [(String, PipiLocalAgentKind)] = [
+            ("/claude ", .claudeCode),
+            ("/claude-code ", .claudeCode),
+            ("/codex ", .codex),
+            ("/opencode ", .opencode)
+        ]
+        for (prefix, kind) in mappings where lower.hasPrefix(prefix) {
+            let body = String(trimmed.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !body.isEmpty {
+                return (kind, body)
+            }
+        }
+        return nil
+    }
+}
+
 @MainActor
 @Observable
 public final class PipiAppStore {
@@ -131,20 +162,60 @@ public final class PipiAppStore {
     public let avatarEngine: PipiProceduralAvatarEngine
     public let client: PipiDaemonClient
     public let bridgeSupervisor: PipiEmbeddedBridgeSupervisor
+    public let remoteTunnelManager: PipiCloudflareTunnelManager
+    public let wechatILinkManager: PipiWeChatILinkManager
+    public let macOmnipotentEngine: PipiMacOmnipotentEngine
+    public let localModelPlatformManager: PipiLocalModelPlatformManager
+    public let telemetryMonitor: PipiSystemTelemetryMonitor
+    public var macPermissionsSnapshot: PipiMacPermissionSnapshot = .empty
+    public var unreadConversationCounts: [String: Int] = [:]
+    public var unreadGroupCounts: [String: Int] = [:]
+    public var currentlyVisibleSessionId: String? = nil
+    public var currentlyVisibleGroupId: String? = nil
+    public var isDeployingLocalModel: Bool = false
+    public var localModelDeployStatus: String? = nil
     public let enableNativeRuntime: Bool
     public let enableEmbeddedBridge: Bool
     public let secretStore: any PipiSecretStore
     public let localHostConnection: PipiLocalHostConnection
     public var activeHostConnection: any PipiHostConnection
+    /// Wave 1 (#04) 7-level priority scheduler with interactive reserved slot, AIMD & preemption.
+    public let modelScheduler: PipiModelScheduler
+    /// Wave 1 (#08) Two-tier static + LLM Risk x Authorization guardrail & idempotency ledger.
+    public let permissionGuardrail: PipiPermissionGuardrail
+    /// Wave 2 (#01) Personal Entity Wiki backed by native SQLite3 WAL + FTS5.
+    public let personalWiki: PipiPersonalWikiStore?
+    /// Wave 2 (#02) Per-Bot isolated experiential memory & Prompt-Cache-safe recall engine.
+    public let botMemoryEngine: PipiBotMemoryEngine
+    /// Wave 2 (#03) Proactive anti-fatigue guardrails, Prepare pre-briefing & Clue->Rule dreaming.
+    public let proactiveEngine: PipiProactiveEngine
+    /// Wave 2 (#03) First-batch macOS native signal collector (EventKit, Git/FS, Telemetry, Notes).
+    public let nativeSignalProvider: any PipiNativeSignalProvider
+    /// Wave 3 (#05) Meta / AlterEgo in-chat autonomous background delegation coordinator.
+    public let alterEgoCoordinator: PipiAlterEgoCoordinator
+    /// Wave 3 (#11) Daily Pocket Notes (5m silence) & Editable Artifact Documents engine.
+    public let pocketNotesEngine: PipiPocketNotesEngine
+    /// Wave 4 (#10) Personal Daily Voice engine (on-device first + BYOK cloud + echo-gated VAD barge-in).
+    public let voiceEngine: PipiDailyVoiceEngine
+    /// Wave 4 (#07) Unified loopback LLM Gateway (`127.0.0.1`) serving OpenAI & Anthropic protocols.
+    public private(set) var localGateway: PipiLocalLLMGateway?
+    /// Wave 5 (#09) Dual-Phase Computer Use coordinator (Phase A Chrome Seats + Phase B macOS AX/Cua + WAL + Human Yield).
+    public let computerUseCoordinator: PipiComputerUseCoordinator
+    /// Local storage root used for SQLite Wiki, Per-Bot memory, AlterEgo playgrounds, CLI overlays, WAL, and read-only builtin skills.
+    public let localDataRootURL: URL
     private let persistenceUrl: URL?
     private let persistenceQueue = DispatchQueue(label: "ai.pipibot.persistence.serial", qos: .utility)
     private let saveDebounceMilliseconds: Int
     private let inferenceExecutor: PipiInferenceExecutor?
     private let sessionInferenceExecutor: PipiSessionInferenceExecutor?
+    private let llmGuardrailJudge: PipiLLMGuardrailJudge?
 
     public var themeMode: PipiThemeMode = .system
     public var language: PipiAppLanguage = .system
     public var hasCompletedOnboarding: Bool = false
+    public var onboardingInitialStep: Int = 0
+    public var homeScenePreset: PipiHomeScenePreset = .warmStudio
+    public var botRoomAssignments: [String: PipiHomeRoomKind] = [:]
     public var uiZoomScale: Double = 1.0
     public var showZoomHUD: Bool = false
     public var replyMode: PipiReplyMode = .auto
@@ -178,6 +249,65 @@ public final class PipiAppStore {
     public var routines: [PipiBotRoutine] = []
     public var runRecords: [PipiRunRecord] = []
     public var companionSyncEnabled: Bool = false
+    // Wave 1 (#08) Multi-Granularity Approval Whitelist & LLM Guardrail Judge Toggle
+    public var approvalWhitelistRules: [PipiApprovalWhitelistRule] = []
+    public var llmGuardrailJudgeEnabled: Bool = true
+
+    // Wave 2 (#01 Wiki, #02 Per-Bot Memory, #03 Proactive & Prepare) Observable State
+    public var wikiPages: [PipiPersonalWikiPage] = []
+    public var proactiveBriefings: [PipiPreparedBriefing] = []
+    public var proactiveRules: [PipiLearnedProactiveRule] = []
+    public var proactiveClues: [PipiProactiveClue] = []
+    public var proactiveGuidelineVersion: Int = 1
+    public var proactiveHistoryVersions: [Int] = [1]
+    public var proactivePolicy: PipiProactiveGuardrailPolicy = PipiProactiveGuardrailPolicy()
+    public var eventKitCalendarAuth: PipiEventKitAuthState = .notDetermined
+    public var eventKitRemindersAuth: PipiEventKitAuthState = .notDetermined
+    public var botMemoryVersionCounter: Int = 0
+    public private(set) var lastPromptCacheRecallResult: PipiPromptCacheSafeRecallResult? = nil
+
+    // Wave 3 (#05 AlterEgo, #06 team.md Dynamic Bot Proposals, #11 Pocket Notes / Docs / Builtin Skills)
+    public var alterEgoTasks: [PipiAlterEgoTask] = []
+    public var pocketTrackingItems: [PipiTrackingItem] = []
+    public var artifactDocuments: [PipiArtifactDocument] = []
+    public var builtinSkillReceipts: [PipiProjectedSkillReceipt] = []
+    public var pocketNotesVersionCounter: Int = 0
+
+    // Wave 4 (#07 Hardware Model Autopilot, PolyStrata, Local LLM Gateway & #10 Personal Daily Voice)
+    public var hardwareProfile: PipiHardwareProfile = PipiHardwareProfile.detectCurrentHost()
+    public var modelAutopilotPlan: PipiModelAutopilotPlan = PipiModelAutopilot.plan(hardware: PipiHardwareProfile.detectCurrentHost())
+    public var localEngineStatuses: [PipiLocalEngineProbeStatus] = []
+    public var localGatewayConfig: PipiLocalGatewayConfig = PipiLocalGatewayConfig()
+    public var localGatewayStatus: PipiGatewayRuntimeStatus = .stopped
+    public var lastModelSelfTestResult: PipiModelSelfTestResult? = nil
+    public var isRunningModelSelfTest: Bool = false
+    public var lastIsolatedCLIOverlays: [PipiReverseInjectedCLITarget: PipiIsolatedCLIOverlay] = [:]
+    public var voiceConfig: PipiVoiceConfig = PipiVoiceConfig()
+    public var voiceSessionState: PipiVoiceSessionState = .idle
+    public var voiceActiveMode: PipiVoiceInteractionMode = .dictation
+    public var voiceLiveTranscript: String = ""
+    public var voiceInputLevel: Double = 0
+    public var voiceLastError: String? = nil
+    public var voiceIsOverlayPresented: Bool = false
+    public var voicePendingDictationText: String? = nil
+    public var isVoiceCallActive: Bool = false
+    public var voiceCallStartedAt: Date? = nil
+    public var isVoiceCallMuted: Bool = false
+    public var voiceCallPersonaId: String? = nil
+
+    // Global Capability Sharing Pool & Autonomous Peer Upgrade State
+    public var globalCapabilityPool: PipiGlobalCapabilityPool = .default
+    public var lastPeerUpgradeNotice: String? = nil
+
+    // Wave 5 (#09 Dual-Phase Computer Use: Chrome Seats, macOS AX Lanes, Human Yield & WAL)
+    public var computerUseConfig: PipiComputerUseConfig = PipiComputerUseConfig()
+    public var computerUseEnvironment: PipiComputerUseEnvironmentProbe? = nil
+    public var computerUseLanes: [PipiComputerUseLaneSnapshot] = []
+    public var computerUseSeats: [PipiChromeBrowserSeat] = []
+    public var computerUseJournal: [PipiWriteAheadJournalEntry] = []
+    public var computerUseYieldedToHuman: Bool = false
+    public var computerUseYieldReason: String? = nil
+    public var computerUseBarPresented: Bool = false
 
     // Inspector, Shell & Host Seam State
     public var isInspectorPresented: Bool = false
@@ -222,8 +352,15 @@ public final class PipiAppStore {
             .sorted { $0.createdAt > $1.createdAt }
     }
 
+    public var pendingDynamicBotProposals: [PipiDynamicBotProposal] {
+        groupChats
+            .flatMap(\.dynamicBotProposals)
+            .filter { $0.status == .pending }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
     public var totalNeedsYouCount: Int {
-        pendingApprovals.count + pendingDecisions.count
+        pendingApprovals.count + pendingDecisions.count + pendingDynamicBotProposals.count
     }
 
     public func approval(id: String, in conversationId: String? = nil) -> PipiSessionApproval? {
@@ -282,7 +419,15 @@ public final class PipiAppStore {
     public var connectionMode: PipiConnectionMode = .nativeResident
     public var daemonEndpoint: String = "http://127.0.0.1:4242"
 
-    public var daemonVersion: String = "0.8.0"
+    public var daemonVersion: String = "0.9.0"
+
+    public var appDisplayVersion: String {
+        if let bundleVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+           !bundleVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return bundleVersion
+        }
+        return daemonVersion
+    }
     public var activeHarness: HarnessProvider = .pi
     public var harnessProbes: [HarnessProbeResult] = []
     public var outcomes: [OutcomeResponsibility] = []
@@ -302,27 +447,12 @@ public final class PipiAppStore {
     public var noticeBanner: String?
     public var isCuePanelVisible: Bool = false
 
-    private enum RunBucket {
-        case llm
-        case localAgent
-    }
-
-    private struct QueuedRunWaiter {
-        let id: UUID
-        let conversationId: String
-        let continuation: CheckedContinuation<Void, Error>
-    }
-
     private var sseTask: Task<Void, Never>?
     private var routineSchedulerTask: Task<Void, Never>?
     private var zoomHudTask: Task<Void, Never>?
     private var saveDebounceTask: Task<Void, Never>?
     private var hasPendingSave: Bool = false
     private var undoToastDismissTask: Task<Void, Never>?
-    private var inFlightLLMCount: Int = 0
-    private var inFlightLocalAgentCount: Int = 0
-    private var llmWaiters: [QueuedRunWaiter] = []
-    private var localAgentWaiters: [QueuedRunWaiter] = []
 
     public var uiZoomPercentLabel: String {
         "\(Int((uiZoomScale * 100.0).rounded()))%"
@@ -445,18 +575,85 @@ public final class PipiAppStore {
         secretStore: (any PipiSecretStore)? = nil,
         saveDebounceMilliseconds: Int = 400,
         inferenceExecutor: PipiInferenceExecutor? = nil,
-        sessionInferenceExecutor: PipiSessionInferenceExecutor? = nil
+        sessionInferenceExecutor: PipiSessionInferenceExecutor? = nil,
+        modelScheduler: PipiModelScheduler? = nil,
+        permissionGuardrail: PipiPermissionGuardrail? = nil,
+        llmGuardrailJudge: PipiLLMGuardrailJudge? = nil,
+        personalWiki: PipiPersonalWikiStore? = nil,
+        botMemoryEngine: PipiBotMemoryEngine? = nil,
+        proactiveEngine: PipiProactiveEngine? = nil,
+        nativeSignalProvider: (any PipiNativeSignalProvider)? = nil,
+        alterEgoCoordinator: PipiAlterEgoCoordinator? = nil,
+        pocketNotesEngine: PipiPocketNotesEngine? = nil,
+        voiceEngine: PipiDailyVoiceEngine? = nil,
+        computerUseCoordinator: PipiComputerUseCoordinator? = nil
     ) {
         self.daemonEndpoint = baseUrl
         self.client = PipiDaemonClient(baseUrlString: baseUrl)
         self.bridgeSupervisor = PipiEmbeddedBridgeSupervisor()
+        self.remoteTunnelManager = PipiCloudflareTunnelManager()
+        self.localModelPlatformManager = PipiLocalModelPlatformManager()
+        self.telemetryMonitor = PipiSystemTelemetryMonitor()
+        let resolvedSecretStore = secretStore ?? PipiKeychainSecretStore()
+        self.wechatILinkManager = PipiWeChatILinkManager(secretStore: resolvedSecretStore)
         self.enableNativeRuntime = enableNativeRuntime
         self.enableEmbeddedBridge = enableEmbeddedBridge
         self.persistenceUrl = stateFileUrl
-        self.secretStore = secretStore ?? PipiKeychainSecretStore()
+        self.secretStore = resolvedSecretStore
         self.saveDebounceMilliseconds = max(0, saveDebounceMilliseconds)
         self.inferenceExecutor = inferenceExecutor
         self.sessionInferenceExecutor = sessionInferenceExecutor
+        let resolvedScheduler = modelScheduler ?? PipiModelScheduler(
+            defaultConfig: PipiEndpointPoolConfig(
+                initialLimit: Self.maxConcurrentLLMRuns,
+                maxLimit: Self.maxConcurrentLLMRuns
+            )
+        )
+        self.modelScheduler = resolvedScheduler
+        self.permissionGuardrail = permissionGuardrail ?? PipiPermissionGuardrail()
+        self.llmGuardrailJudge = llmGuardrailJudge
+
+        // Wave 2 & 3 isolated storage root: use stateFileUrl parent in tests, App Support in native runtime,
+        // and isolated ephemeral storage for stateless previews.
+        let wave2RootURL: URL = {
+            if let stateFileUrl {
+                return stateFileUrl.deletingLastPathComponent()
+            }
+            if enableNativeRuntime {
+                return PipiPersonalWikiStore.defaultStorageDirectory()
+            }
+            return URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("pipibot-preview-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        }()
+        self.localDataRootURL = wave2RootURL
+        self.macOmnipotentEngine = PipiMacOmnipotentEngine(dataRootURL: wave2RootURL)
+        let resolvedWiki: PipiPersonalWikiStore? = {
+            if let personalWiki { return personalWiki }
+            let useFileDb = (stateFileUrl != nil || enableNativeRuntime)
+            let dbPath = useFileDb
+                ? wave2RootURL.appendingPathComponent("wiki.sqlite").path
+                : ":memory:"
+            let mdRoot: URL? = useFileDb ? wave2RootURL : nil
+            return try? PipiPersonalWikiStore(dbPath: dbPath, markdownRootURL: mdRoot)
+        }()
+        self.personalWiki = resolvedWiki
+        self.botMemoryEngine = botMemoryEngine ?? PipiBotMemoryEngine(rootURL: wave2RootURL)
+        let resolvedProactive = proactiveEngine ?? PipiProactiveEngine(wikiStore: resolvedWiki)
+        resolvedProactive.attachWikiStore(resolvedWiki)
+        self.proactiveEngine = resolvedProactive
+        self.nativeSignalProvider = nativeSignalProvider ?? PipiMacNativeSignalCollector()
+        let resolvedAlterEgo = alterEgoCoordinator ?? PipiAlterEgoCoordinator(rootURL: wave2RootURL, scheduler: resolvedScheduler)
+        resolvedAlterEgo.attachScheduler(resolvedScheduler)
+        self.alterEgoCoordinator = resolvedAlterEgo
+        self.pocketNotesEngine = pocketNotesEngine ?? PipiPocketNotesEngine(rootURL: wave2RootURL)
+        self.voiceEngine = voiceEngine ?? PipiDailyVoiceEngine(config: PipiVoiceConfig(), secretStore: self.secretStore)
+        self.computerUseCoordinator = computerUseCoordinator ?? PipiComputerUseCoordinator(
+            rootURL: wave2RootURL,
+            config: PipiComputerUseConfig(),
+            guardrail: self.permissionGuardrail,
+            llmGuardrailJudge: llmGuardrailJudge,
+            installWorkspaceFocusObserver: enableNativeRuntime
+        )
         let hostConn = PipiLocalHostConnection(host: .local())
         self.localHostConnection = hostConn
         self.activeHostConnection = hostConn
@@ -503,7 +700,18 @@ public final class PipiAppStore {
         }
         PipiTokens.textScale = CGFloat(self.uiZoomScale)
         self.localAgentStatuses = PipiNativeMacRuntime.probeLocalAgents(enabled: self.enabledLocalAgents)
+        self.wireVoiceEngineCallbacks()
+        self.wireComputerUseCallbacks()
+        self.refreshHardwareAndModelPlan()
         self.refreshLocalHostCapabilities()
+        self.refreshWikiPages()
+        self.syncProactiveObservableState()
+        self.refreshEventKitAuthStates()
+        self.syncPocketNotesObservableState()
+        self.alterEgoCoordinator.onChange = { [weak self] in
+            self?.syncAlterEgoObservableState()
+        }
+        self.syncAlterEgoObservableState()
         if enableNativeRuntime {
             if self.persistenceWarning == nil {
                 self.noticeBanner = strings.readyStatus
@@ -733,7 +941,18 @@ public final class PipiAppStore {
             uiZoomScale: uiZoomScale,
             projects: projects,
             groupChats: groupChats,
-            activeGroupChatId: activeGroupChatId
+            activeGroupChatId: activeGroupChatId,
+            approvalWhitelistRules: approvalWhitelistRules,
+            llmGuardrailJudgeEnabled: llmGuardrailJudgeEnabled,
+            proactiveState: proactiveEngine.exportPersistedState(),
+            alterEgoTasks: Array(alterEgoCoordinator.tasks.prefix(40)),
+            pocketNotesState: pocketNotesEngine.exportPersistedState(),
+            localGatewayConfig: localGatewayConfig,
+            voiceConfig: voiceConfig,
+            computerUseConfig: computerUseConfig,
+            globalCapabilityPool: globalCapabilityPool,
+            homeScenePresetRaw: homeScenePreset.rawValue,
+            botRoomAssignments: botRoomAssignments.mapValues { $0.rawValue }
         )
     }
 
@@ -963,6 +1182,51 @@ public final class PipiAppStore {
         if let savedGroupId = saved.activeGroupChatId,
            self.groupChats.contains(where: { $0.id == savedGroupId }) {
             self.activeGroupChatId = savedGroupId
+        }
+        if let savedWhitelist = saved.approvalWhitelistRules {
+            self.approvalWhitelistRules = savedWhitelist
+            self.permissionGuardrail.replaceWhitelistRules(savedWhitelist)
+        }
+        if let savedJudge = saved.llmGuardrailJudgeEnabled {
+            self.llmGuardrailJudgeEnabled = savedJudge
+        }
+        if let savedProactive = saved.proactiveState {
+            self.proactiveEngine.restorePersistedState(savedProactive)
+            self.syncProactiveObservableState()
+        }
+        if let savedAlterEgo = saved.alterEgoTasks {
+            self.alterEgoCoordinator.restorePersistedTasks(savedAlterEgo)
+            self.syncAlterEgoObservableState()
+        }
+        if let savedPocket = saved.pocketNotesState {
+            self.pocketNotesEngine.restorePersistedState(savedPocket)
+            self.syncPocketNotesObservableState()
+        }
+        if let savedGateway = saved.localGatewayConfig {
+            self.localGatewayConfig = savedGateway
+        }
+        if let savedVoice = saved.voiceConfig {
+            self.voiceConfig = savedVoice
+            self.voiceEngine.config = savedVoice
+        }
+        if let savedCU = saved.computerUseConfig {
+            self.computerUseConfig = savedCU
+            self.computerUseCoordinator.config = savedCU
+        }
+        if let savedPool = saved.globalCapabilityPool {
+            self.globalCapabilityPool = savedPool
+        }
+        if let presetRaw = saved.homeScenePresetRaw, let preset = PipiHomeScenePreset(rawValue: presetRaw) {
+            self.homeScenePreset = preset
+        }
+        if let savedRooms = saved.botRoomAssignments {
+            var decodedRooms: [String: PipiHomeRoomKind] = [:]
+            for (botId, roomRaw) in savedRooms {
+                if let kind = PipiHomeRoomKind(rawValue: roomRaw) {
+                    decodedRooms[botId] = kind
+                }
+            }
+            self.botRoomAssignments = decodedRooms
         }
 
         if needsDirtySeedPurge || didMigratePlaintextKeys || didMigratePipiPersona {
@@ -1227,7 +1491,8 @@ public final class PipiAppStore {
             routine.prompt,
             conversationId: bgConv.id,
             personaId: routine.personaId,
-            activateTargetConversation: false
+            activateTargetConversation: false,
+            priority: .proactiveRoutine
         )
     }
 
@@ -1243,9 +1508,35 @@ public final class PipiAppStore {
     }
 
     public func checkDueRoutines(now: Date = Date()) async {
-        guard hasConfiguredEngine else { return }
         let cal = Calendar.current
         let comps = cal.dateComponents([.hour, .minute, .weekday], from: now)
+
+        // Wave 2 (#02 & #03): Background 6h-idle Per-Bot memory consolidation & nightly Clue->Rule dreaming
+        if memoryEnabled {
+            var didConsolidateAny = false
+            for persona in personas {
+                let res = await botMemoryEngine.consolidateIfDue(botId: persona.id, now: now, trigger: .idleCheck)
+                if res.consolidated { didConsolidateAny = true }
+            }
+            if didConsolidateAny {
+                botMemoryVersionCounter += 1
+            }
+        }
+        let todayYmd = PipiProactiveEngine.formatLocalYmd(now)
+        if (comps.hour ?? 0) >= proactiveEngine.policy.quietHoursStart,
+           proactiveEngine.lastDreamDateYmd != todayYmd,
+           !proactiveEngine.pendingFeedback.isEmpty {
+            _ = runProactiveNightlyDreaming(todayYmd: todayYmd)
+        }
+
+        // Wave 3 (#11): Auto-reconcile today's Pocket Note after 5 minutes of editing silence
+        let pocketReconcile = pocketNotesEngine.reconcileDailyNoteIfQuiet(dateYmd: todayYmd, now: now, force: false)
+        if pocketReconcile.extracted {
+            syncPocketNotesObservableState()
+            saveResidentState()
+        }
+
+        guard hasConfiguredEngine else { return }
         let iso = ISO8601DateFormatter()
 
         let dueRoutines: [PipiBotRoutine] = routines.filter { routine in
@@ -1307,9 +1598,29 @@ public final class PipiAppStore {
         saveResidentState()
     }
 
-    public func reopenOnboarding() {
+    public func reopenOnboarding(atStep step: Int = 0) {
+        self.onboardingInitialStep = min(max(step, 0), 3)
         self.hasCompletedOnboarding = false
         self.avatarEngine.setState(.ambientWarmWelcome)
+        saveResidentState()
+    }
+
+    public func setHomeScenePreset(_ preset: PipiHomeScenePreset) {
+        guard homeScenePreset != preset else { return }
+        homeScenePreset = preset
+        saveResidentState()
+    }
+
+    public func assignedRoom(for personaId: String) -> PipiHomeRoomKind {
+        if let assigned = botRoomAssignments[personaId] {
+            return assigned
+        }
+        let idx = personas.firstIndex(where: { $0.id == personaId }) ?? 0
+        return PipiHomeRoomKind.defaultRoom(forPersonaId: personaId, index: idx)
+    }
+
+    public func assignBot(_ personaId: String, to room: PipiHomeRoomKind) {
+        botRoomAssignments[personaId] = room
         saveResidentState()
     }
 
@@ -1439,11 +1750,11 @@ public final class PipiAppStore {
         switch target {
         case .llm(let pid):
             if let cfg = llmProviders.first(where: { $0.id == pid }) {
-                return "\(cfg.name) · \(cfg.modelId)"
+                return "PiPi · \(cfg.name) (\(cfg.modelId))"
             }
             return strings.engineStatusUnconfigured
         case .localAgent(let kind):
-            return kind.displayName
+            return "PiPi → \(kind.displayName)"
         case .auto:
             return strings.autoRouteEngine
         }
@@ -1552,6 +1863,7 @@ public final class PipiAppStore {
         guard let conv = conversations.first(where: { $0.id == id }) else { return }
         activePersonaId = conv.personaId
         activeConversationId = conv.id
+        markConversationRead(id)
         syncElapsedAndAvatarForActiveConversation()
         saveResidentState()
     }
@@ -1695,7 +2007,7 @@ public final class PipiAppStore {
         guard let run = activeRuns[convId] else { return }
         run.task?.cancel()
         activeRuns.removeValue(forKey: convId)
-        removeQueuedWaiter(for: convId)
+        modelScheduler.cancelQueued(runId: run.runId)
 
         if let runIdx = runRecords.firstIndex(where: { $0.id == run.runId }) {
             runRecords[runIdx].status = .cancelled
@@ -1721,7 +2033,8 @@ public final class PipiAppStore {
         targetOverride: PipiExecutionTarget? = nil,
         conversationId explicitConversationId: String? = nil,
         personaId explicitPersonaId: String? = nil,
-        activateTargetConversation: Bool = true
+        activateTargetConversation: Bool = true,
+        priority: PipiSchedulerPriority? = nil
     ) async {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty else { return }
@@ -1730,12 +2043,39 @@ public final class PipiAppStore {
             conversations.first(where: { $0.id == id })
         }
         let resolvedPersonaId = explicitPersonaId ?? targetConversation?.personaId ?? activePersona.id
+        // Autonomous on-demand bot-to-bot consultation & capability upgrade (when permitted)
+        _ = evaluatePeerUpgradeForPrompt(botId: resolvedPersonaId, prompt: trimmed)
+
+        // Direct native macOS omnipotent capability execution (/screenshot, /sms, /mail, /build, /sendfile, /voiceclip, /record)
+        if attachments.isEmpty, let directIntent = PipiMacOmnipotentIntentParser.parse(trimmed) {
+            let convId: String
+            if let existing = targetConversation {
+                convId = existing.id
+            } else {
+                let created = createConversation(for: resolvedPersonaId, activate: activateTargetConversation)
+                convId = created.id
+            }
+            _ = await executeOmnipotentIntent(directIntent, userPrompt: trimmed, in: convId, personaId: resolvedPersonaId)
+            return
+        }
+
+        // On-demand external CLI sub-agent invocation (/claude, /codex, /opencode) routed by PiPi
+        var effectiveRawText = rawText
+        var effectiveTargetOverride = targetOverride
+        if effectiveTargetOverride == nil,
+           let delegated = PipiExternalSubAgentRouter.parseOnDemandInvocation(trimmed),
+           usableLocalAgents.contains(where: { $0.kind == delegated.kind }) {
+            effectiveTargetOverride = .localAgent(delegated.kind)
+            effectiveRawText = delegated.taskPrompt
+        }
+
         let input = PipiUserInput(
-            text: rawText,
+            text: effectiveRawText,
             attachments: attachments,
-            targetOverride: targetOverride,
+            targetOverride: effectiveTargetOverride,
             personaId: resolvedPersonaId,
-            activateTargetConversation: activateTargetConversation
+            activateTargetConversation: activateTargetConversation,
+            priority: priority
         )
 
         do {
@@ -1775,14 +2115,37 @@ public final class PipiAppStore {
         let approval = conversations[cIdx].approvals[aIdx]
         guard approval.status == .pending else { return nil }
 
-        let approved = (optionId == "allow_changes") || (optionId == approval.recommendedOptionId)
+        let granularity = PipiApprovalGranularity.fromOptionId(optionId, recommendedOptionId: approval.recommendedOptionId)
+        let approved = granularity.isApproved
         conversations[cIdx].approvals[aIdx].status = approved ? .approved : .denied
         conversations[cIdx].approvals[aIdx].chosenOptionId = optionId
+        conversations[cIdx].approvals[aIdx].chosenGranularity = granularity
         conversations[cIdx].approvals[aIdx].userNote = note
         conversations[cIdx].approvals[aIdx].resolvedAt = nowIso
         conversations[cIdx].updatedAt = nowIso
 
         let sessionId = conversations[cIdx].id
+        let projectIdForApproval = approval.projectId ?? conversations[cIdx].projectId
+
+        // Persist multi-granularity whitelist rule when user opts into session / project / always scope
+        if granularity == .allowSession || granularity == .allowProject || granularity == .allowAlways {
+            let effectiveGranularity: PipiApprovalGranularity = (granularity == .allowProject && projectIdForApproval == nil)
+                ? .allowAlways
+                : granularity
+            let rule = PipiApprovalWhitelistRule(
+                granularity: effectiveGranularity,
+                toolName: approval.actionToolName ?? "*",
+                actionKind: approval.actionKind ?? .localWrite,
+                targetPattern: approval.actionTarget,
+                sessionId: effectiveGranularity == .allowSession ? sessionId : nil,
+                projectId: effectiveGranularity == .allowProject ? projectIdForApproval : nil,
+                note: note
+            )
+            addApprovalWhitelistRule(rule)
+        } else if granularity == .deny, let opId = approval.operationId {
+            permissionGuardrail.ledger.markDenied(opId)
+        }
+
         let updatedApproval = conversations[cIdx].approvals[aIdx]
         appendSessionEvent(sessionId, kind: .approval, approval: updatedApproval)
 
@@ -1796,7 +2159,8 @@ public final class PipiAppStore {
                 personaId: personaId,
                 activateTargetConversation: conversations[cIdx].id == activeConversationId,
                 permissionOverride: .autoEdit,
-                isApprovalResume: true
+                isApprovalResume: true,
+                priority: .approvalReview
             )
             let resumedId = performLocalHostSend(sessionId: sessionId, botId: personaId, input: input)
             return activeRuns[resumedId]?.task
@@ -1977,16 +2341,13 @@ public final class PipiAppStore {
         }
 
         let isLocalAgentTarget: Bool
-        let bucket: RunBucket
         let initialStatusText: String
         switch resolvedTarget {
         case .localAgent(let kind):
             isLocalAgentTarget = true
-            bucket = .localAgent
             initialStatusText = strings.runningAgentStatus(kind.displayName)
         case .llm, .auto:
             isLocalAgentTarget = false
-            bucket = .llm
             initialStatusText = strings.thinkingStatus
         }
 
@@ -2028,19 +2389,79 @@ public final class PipiAppStore {
                 copy.content = expanded
                 return copy
             }
-        let effectiveHistory: [PipiChatMessage] = isApprovalResume
+        var outboundHistory: [PipiChatMessage] = isApprovalResume
             ? [PipiChatMessage(role: .user, content: displayPrompt, createdAt: nowIso)]
             : historySnapshot
+
+        let runPriority: PipiSchedulerPriority = input.priority ?? (isApprovalResume ? .approvalReview : .chatInteractive)
+        if runPriority.isInteractiveOrHigher {
+            proactiveEngine.recordUserChatActivity(at: startedAtDate)
+        }
+
+        // Wave 2 (#02): Prompt-Cache-Safe hidden memory recall.
+        // NEVER mutates `effectiveSystemPrompt` or persisted visible messages; injects Per-Bot `summary.md`
+        // + Personal Wiki recall ONLY on the first message of a session or immediately after compaction.
+        if memoryEnabled && !isApprovalResume {
+            let wikiSnippets: [String] = {
+                guard let wiki = personalWiki else { return [] }
+                let searchHits = wiki.search(PipiWikiSearchOptions(
+                    query: displayPrompt,
+                    scope: .all,
+                    limit: 2,
+                    factLimit: 2
+                ))
+                var lines = searchHits.summaries.prefix(2).map { "[\($0.category.rawValue)] \($0.title): \($0.summary)" }
+                lines.append(contentsOf: searchHits.facts.prefix(2).map(\.factText))
+                return lines
+            }()
+            let recall = botMemoryEngine.buildPromptCacheSafeRecall(
+                botId: persona.id,
+                sessionId: convId,
+                compactionGeneration: conversations[convIndex].compactionGeneration,
+                wikiRecallSnippets: wikiSnippets
+            )
+            lastPromptCacheRecallResult = recall
+            if recall.injected,
+               let hiddenNote = recall.hiddenNote,
+               let lastUserIdx = outboundHistory.lastIndex(where: { $0.role == .user }) {
+                outboundHistory[lastUserIdx].content = "\(hiddenNote)\n\n\(outboundHistory[lastUserIdx].content)"
+            }
+        }
+
+        let effectiveHistory = outboundHistory
         let langSnapshot = resolvedLanguage
         let workDir = (projectForConv?.workspacePath?.isEmpty == false ? projectForConv?.workspacePath : nil) ?? workspaceDirectory
 
+        let endpointKey = schedulerEndpointKey(for: resolvedTarget)
+        ensureDefaultSchedulerPool(for: resolvedTarget, endpointKey: endpointKey)
+        let estimatedPromptTokens = max(
+            100,
+            (effectiveSystemPrompt.count + effectiveHistory.reduce(0) { $0 + $1.content.count }) / 4
+        )
+
+        @MainActor
+        final class RunExecutionCoordinator {
+            var observedOutputOrToolEvent = false
+            var yieldTriggered = false
+            var yieldCount = 0
+            var activeAttemptTask: Task<PipiInferenceResult, Error>?
+        }
+        let coordinator = RunExecutionCoordinator()
+        self.telemetryMonitor.beginInference(
+            runId: runId,
+            engineLabel: engineLabel,
+            inputTokensEstimate: estimatedPromptTokens
+        )
+
         let onDelta: @Sendable (String) -> Void = { [weak self] chunk in
             Task { @MainActor [weak self] in
+                coordinator.observedOutputOrToolEvent = true
                 guard let self,
                       let cIdx = self.conversations.firstIndex(where: { $0.id == convId }),
                       let mIdx = self.conversations[cIdx].messages.firstIndex(where: { $0.id == placeholderId }) else {
                     return
                 }
+                self.telemetryMonitor.markFirstToken(runId: runId)
                 self.conversations[cIdx].messages[mIdx].content += chunk
                 if var runState = self.activeRuns[convId], runState.runId == runId {
                     runState.statusText = self.strings.streamingStatus
@@ -2058,6 +2479,12 @@ public final class PipiAppStore {
 
         let onCLIEvent: @Sendable (PipiParsedCLIEvent) -> Void = { [weak self] parsed in
             Task { @MainActor [weak self] in
+                switch parsed {
+                case .textDelta, .finalText, .stepStarted, .stepFinished, .fileChanged:
+                    coordinator.observedOutputOrToolEvent = true
+                case .sessionId, .planUpdated, .summary:
+                    break
+                }
                 self?.applyParsedCLIEvent(parsed, conversationId: convId, messageId: placeholderId)
             }
         }
@@ -2067,108 +2494,265 @@ public final class PipiAppStore {
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.acquireRunSlot(for: bucket, conversationId: convId, runId: runId)
-                defer { self.releaseRunSlot(for: bucket) }
+                // Wave 1 (#08): Pre-execution two-tier guardrail check for local CLI agent turns
+                var precheckVerdict: PipiGuardrailVerdict?
+                var whitelistedForWrite = false
+                if case .localAgent(let kind) = resolvedTarget {
+                    let actionInput = PipiGuardrailActionInput(
+                        operationId: "op_\(runId)",
+                        toolName: kind.binaryName,
+                        actionKind: effectivePermission == .readOnly ? .readOnly : .localWrite,
+                        target: workDir,
+                        payloadSummary: displayPrompt,
+                        isPreparatoryOnly: effectivePermission == .readOnly,
+                        sessionId: convId,
+                        projectId: projectForConv?.id,
+                        sourceTrust: runPriority == .proactiveRoutine ? .trustedUserRoutine : .trustedUser,
+                        trustedUserMessages: [displayPrompt]
+                    )
+                    let verdict = await self.evaluateActionWithGuardrail(actionInput)
+                    precheckVerdict = verdict
+                    if verdict.decision == .deny {
+                        let durationMs = Int(Date().timeIntervalSince(startedAtDate) * 1000)
+                        let blockedMsg = self.strings.t(
+                            "安全风控已拦截该高危操作（\(verdict.riskLevel.label(.zhHans))）：\(verdict.rationale)",
+                            "Blocked by safety guardrail (\(verdict.riskLevel.label(.en))): \(verdict.rationale)"
+                        )
+                        self.finalizeStreamingMessage(
+                            conversationId: convId,
+                            messageId: placeholderId,
+                            finalContent: blockedMsg,
+                            engineLabel: engineLabel,
+                            isError: true
+                        )
+                        self.finalizeRunRecord(id: runId, status: .failed, durationMs: durationMs)
+                        self.finishGenerating(
+                            conversationId: convId,
+                            runId: runId,
+                            finalSessionState: .failed,
+                            nextAvatarState: .needsYouUrgent
+                        )
+                        self.saveResidentState()
+                        return
+                    }
+                    whitelistedForWrite = (verdict.ruleId == "whitelist.matched")
+                }
 
-                if Task.isCancelled { throw CancellationError() }
-
-                let result: PipiInferenceResult
+                // Wave 1 (#04): Priority admission + interactive reserved slot + preemptive CLI --resume loop
+                var finalAttemptResult: PipiInferenceResult?
                 var shouldRequestWriteApproval = false
 
-                switch resolvedTarget {
-                case .llm(let providerId):
-                    guard let cfg = self.llmProviders.first(where: { $0.id == providerId }) else {
-                        throw PipiInferenceError.emptyResponse
-                    }
-                    if var runState = self.activeRuns[convId], runState.runId == runId {
-                        runState.phase = .running
-                        runState.statusText = self.strings.thinkingStatus
-                        self.activeRuns[convId] = runState
-                    }
-                    self.setSessionState(convId, to: .running)
-                    if convId == self.activeConversationId {
-                        self.avatarEngine.setState(.byokStreaming)
-                    }
-                    if let customSessionExecutor {
-                        result = try await customSessionExecutor(
-                            resolvedTarget,
-                            cfg,
-                            effectiveSystemPrompt,
-                            effectiveHistory,
-                            workDir,
-                            effectivePermission,
-                            nil,
-                            onDelta,
-                            onCLIEvent
-                        )
-                    } else if let customExecutor {
-                        result = try await customExecutor(
-                            resolvedTarget,
-                            cfg,
-                            effectiveSystemPrompt,
-                            effectiveHistory,
-                            workDir,
-                            onDelta
-                        )
-                    } else {
-                        result = try await PipiInferenceEngine.invokeLLM(
-                            config: cfg,
-                            systemPrompt: effectiveSystemPrompt,
-                            history: effectiveHistory,
-                            onDelta: onDelta
-                        )
-                    }
+                while finalAttemptResult == nil {
+                    if Task.isCancelled { throw CancellationError() }
+                    coordinator.yieldTriggered = false
 
-                case .localAgent(let kind):
-                    let needsAskGate = (effectivePermission == .ask) && (kind == .claudeCode || kind == .codex) && (input.permissionOverride == nil)
-                    let invocationPermission: PipiPermissionTier = needsAskGate ? .readOnly : effectivePermission
-                    shouldRequestWriteApproval = needsAskGate
+                    let lease = try await self.modelScheduler.acquire(
+                        endpointKey: endpointKey,
+                        priority: runPriority,
+                        runId: runId,
+                        onQueued: { [weak self] in
+                            guard let self else { return }
+                            if var runState = self.activeRuns[convId], runState.runId == runId {
+                                runState.phase = .queued
+                                runState.statusText = coordinator.yieldCount > 0 ? self.strings.yieldedStatus : self.strings.queuedStatus
+                                self.activeRuns[convId] = runState
+                            }
+                            self.setSessionState(convId, to: .queued)
+                        },
+                        canYield: { [weak self] in
+                            guard let self, runPriority.isPreemptible else { return false }
+                            guard let conv = self.conversations.first(where: { $0.id == convId }) else { return false }
+                            if conv.approvals.contains(where: { $0.status == .pending }) {
+                                return false
+                            }
+                            switch resolvedTarget {
+                            case .llm, .auto:
+                                return true
+                            case .localAgent(let kind):
+                                let hasSession = !(conv.cliSessionId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                                guard hasSession else { return false }
+                                if kind == .codex {
+                                    return coordinator.observedOutputOrToolEvent
+                                }
+                                return true
+                            }
+                        },
+                        onYieldRequested: {
+                            coordinator.yieldTriggered = true
+                            coordinator.activeAttemptTask?.cancel()
+                        }
+                    )
 
-                    if var runState = self.activeRuns[convId], runState.runId == runId {
-                        runState.phase = .running
-                        runState.statusText = self.strings.runningAgentStatus(kind.displayName)
-                        self.activeRuns[convId] = runState
-                    }
-                    self.setSessionState(convId, to: .running)
-                    if convId == self.activeConversationId {
-                        self.avatarEngine.setState(kind.avatarRunningState)
-                    }
+                    let attemptStarted = Date()
+                    do {
+                        if Task.isCancelled {
+                            lease.release()
+                            throw CancellationError()
+                        }
 
-                    if let customSessionExecutor {
-                        result = try await customSessionExecutor(
-                            resolvedTarget,
-                            nil,
-                            effectiveSystemPrompt,
-                            effectiveHistory,
-                            workDir,
-                            invocationPermission,
-                            existingCliSessionId,
-                            onDelta,
-                            onCLIEvent
-                        )
-                    } else if let customExecutor {
-                        result = try await customExecutor(
-                            resolvedTarget,
-                            nil,
-                            effectiveSystemPrompt,
-                            effectiveHistory,
-                            workDir,
-                            onDelta
-                        )
-                    } else {
-                        result = try await PipiInferenceEngine.invokeLocalAgent(
-                            kind: kind,
-                            systemPrompt: effectiveSystemPrompt,
-                            history: effectiveHistory,
-                            workingDirectory: workDir,
-                            permissionTier: invocationPermission,
-                            cliSessionId: existingCliSessionId,
-                            onDelta: onDelta,
-                            onEvent: onCLIEvent
-                        )
-                    }
+                        let attemptCliSessionId = self.conversations.first(where: { $0.id == convId })?.cliSessionId ?? existingCliSessionId
+                        let attemptHistory: [PipiChatMessage] = (coordinator.yieldCount > 0 && attemptCliSessionId != nil)
+                            ? [PipiChatMessage(
+                                role: .user,
+                                content: self.strings.t(
+                                    "前台任务已结束，请从上次暂停处继续完成当前任务。",
+                                    "Foreground work finished. Please resume and complete the task from where you paused."
+                                ),
+                                createdAt: ISO8601DateFormatter().string(from: Date())
+                            )]
+                            : effectiveHistory
 
-                case .auto:
+                        let attemptTask: Task<PipiInferenceResult, Error>
+                        switch resolvedTarget {
+                        case .llm(let providerId):
+                            guard let cfg = self.llmProviders.first(where: { $0.id == providerId }) else {
+                                throw PipiInferenceError.emptyResponse
+                            }
+                            if var runState = self.activeRuns[convId], runState.runId == runId {
+                                runState.phase = .running
+                                runState.statusText = self.strings.thinkingStatus
+                                self.activeRuns[convId] = runState
+                            }
+                            self.setSessionState(convId, to: .running)
+                            if convId == self.activeConversationId {
+                                self.avatarEngine.setState(.byokStreaming)
+                            }
+                            attemptTask = Task {
+                                if let customSessionExecutor {
+                                    return try await customSessionExecutor(
+                                        resolvedTarget,
+                                        cfg,
+                                        effectiveSystemPrompt,
+                                        attemptHistory,
+                                        workDir,
+                                        effectivePermission,
+                                        nil,
+                                        onDelta,
+                                        onCLIEvent
+                                    )
+                                } else if let customExecutor {
+                                    return try await customExecutor(
+                                        resolvedTarget,
+                                        cfg,
+                                        effectiveSystemPrompt,
+                                        attemptHistory,
+                                        workDir,
+                                        onDelta
+                                    )
+                                } else {
+                                    return try await PipiInferenceEngine.invokeLLM(
+                                        config: cfg,
+                                        systemPrompt: effectiveSystemPrompt,
+                                        history: attemptHistory,
+                                        onDelta: onDelta
+                                    )
+                                }
+                            }
+
+                        case .localAgent(let kind):
+                            let needsAskGate = (effectivePermission == .ask)
+                                && (kind == .claudeCode || kind == .codex)
+                                && (input.permissionOverride == nil)
+                                && !whitelistedForWrite
+                            let invocationPermission: PipiPermissionTier = whitelistedForWrite
+                                ? .autoEdit
+                                : (needsAskGate ? .readOnly : effectivePermission)
+                            shouldRequestWriteApproval = needsAskGate
+
+                            if var runState = self.activeRuns[convId], runState.runId == runId {
+                                runState.phase = .running
+                                runState.statusText = self.strings.runningAgentStatus(kind.displayName)
+                                self.activeRuns[convId] = runState
+                            }
+                            self.setSessionState(convId, to: .running)
+                            if convId == self.activeConversationId {
+                                self.avatarEngine.setState(kind.avatarRunningState)
+                            }
+                            attemptTask = Task {
+                                if let customSessionExecutor {
+                                    return try await customSessionExecutor(
+                                        resolvedTarget,
+                                        nil,
+                                        effectiveSystemPrompt,
+                                        attemptHistory,
+                                        workDir,
+                                        invocationPermission,
+                                        attemptCliSessionId,
+                                        onDelta,
+                                        onCLIEvent
+                                    )
+                                } else if let customExecutor {
+                                    return try await customExecutor(
+                                        resolvedTarget,
+                                        nil,
+                                        effectiveSystemPrompt,
+                                        attemptHistory,
+                                        workDir,
+                                        onDelta
+                                    )
+                                } else {
+                                    let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: convId)
+                                    return try await PipiInferenceEngine.invokeLocalAgent(
+                                        kind: kind,
+                                        systemPrompt: effectiveSystemPrompt,
+                                        history: attemptHistory,
+                                        workingDirectory: workDir,
+                                        permissionTier: invocationPermission,
+                                        cliSessionId: attemptCliSessionId,
+                                        extraEnvironment: injectedEnv,
+                                        onDelta: onDelta,
+                                        onEvent: onCLIEvent
+                                    )
+                                }
+                            }
+
+                        case .auto:
+                            throw PipiInferenceError.emptyResponse
+                        }
+
+                        coordinator.activeAttemptTask = attemptTask
+                        let attemptResult = try await withTaskCancellationHandler {
+                            try await attemptTask.value
+                        } onCancel: {
+                            attemptTask.cancel()
+                        }
+                        coordinator.activeAttemptTask = nil
+
+                        lease.reportMetrics(PipiLeaseCompletionMetrics(
+                            durationMs: Date().timeIntervalSince(attemptStarted) * 1000,
+                            promptTokens: estimatedPromptTokens
+                        ))
+                        lease.release()
+                        finalAttemptResult = attemptResult
+                    } catch {
+                        coordinator.activeAttemptTask = nil
+                        let wasYield = coordinator.yieldTriggered || lease.wasYielded
+                        if wasYield && !Task.isCancelled {
+                            coordinator.yieldCount += 1
+                            lease.release()
+                            if var runState = self.activeRuns[convId], runState.runId == runId {
+                                runState.phase = .queued
+                                runState.statusText = self.strings.yieldedStatus
+                                self.activeRuns[convId] = runState
+                            }
+                            self.setSessionState(convId, to: .queued)
+                            continue
+                        }
+                        let rateLimited = Self.isRateLimitOrOverloadError(error)
+                        let timedOut = error.localizedDescription.localizedCaseInsensitiveContains("timed out")
+                            || error.localizedDescription.localizedCaseInsensitiveContains("timeout")
+                        lease.reportMetrics(PipiLeaseCompletionMetrics(
+                            durationMs: Date().timeIntervalSince(attemptStarted) * 1000,
+                            promptTokens: estimatedPromptTokens,
+                            rateLimitedOrOverloaded: rateLimited,
+                            timedOut: timedOut
+                        ))
+                        lease.release()
+                        throw error
+                    }
+                }
+
+                guard let result = finalAttemptResult else {
                     throw PipiInferenceError.emptyResponse
                 }
 
@@ -2205,14 +2789,45 @@ public final class PipiAppStore {
                     fileChanges: finalResult.fileChanges,
                     summaryInfo: finalResult.summaryInfo
                 )
+                self.telemetryMonitor.finishInference(
+                    runId: runId,
+                    outputTokensEstimate: max(1, finalResult.text.count / 3),
+                    succeeded: true
+                )
                 self.finalizeRunRecord(id: runId, status: .succeeded, durationMs: durationMs)
+
+                // Wave 2 (#02): Record successful run for Per-Bot isolated experiential memory (extracts every 5 runs)
+                if self.memoryEnabled && !shouldRequestWriteApproval {
+                    _ = await self.botMemoryEngine.recordSuccessfulRun(PipiBotMemoryRunInput(
+                        botId: persona.id,
+                        sessionId: convId,
+                        userPrompt: displayPrompt,
+                        assistantReply: finalResult.text,
+                        toolSummary: finalResult.steps.isEmpty ? nil : "\(finalResult.steps.count) steps"
+                    ))
+                    self.botMemoryVersionCounter += 1
+                }
+
+                // Wave 3 (#05): Autonomous Meta -> AlterEgo delegation when Meta emits `<pipibot_delegate>`
+                if !shouldRequestWriteApproval,
+                   let directive = PipiDelegationDetector.extractDirective(from: finalResult.text) {
+                    _ = self.spawnAlterEgoTask(
+                        sessionId: convId,
+                        botId: persona.id,
+                        title: directive.title,
+                        goal: directive.goal
+                    )
+                }
 
                 if shouldRequestWriteApproval, case .localAgent(let kind) = resolvedTarget {
                     self.emitWriteApprovalCard(
                         conversationId: convId,
                         messageId: placeholderId,
                         agentKind: kind,
-                        originalPrompt: displayPrompt
+                        originalPrompt: displayPrompt,
+                        workDir: workDir,
+                        projectId: projectForConv?.id,
+                        verdict: precheckVerdict
                     )
                     self.finishGenerating(
                         conversationId: convId,
@@ -2238,6 +2853,7 @@ public final class PipiAppStore {
                 self.saveResidentState()
             } catch is CancellationError {
                 let durationMs = Int(Date().timeIntervalSince(startedAtDate) * 1000)
+                self.telemetryMonitor.finishInference(runId: runId, outputTokensEstimate: 0, succeeded: false)
                 self.finalizeRunRecord(id: runId, status: .cancelled, durationMs: durationMs)
                 self.finishGenerating(
                     conversationId: convId,
@@ -2247,6 +2863,7 @@ public final class PipiAppStore {
                 )
             } catch let err as PipiInferenceError {
                 let durationMs = Int(Date().timeIntervalSince(startedAtDate) * 1000)
+                self.telemetryMonitor.finishInference(runId: runId, outputTokensEstimate: 0, succeeded: false)
                 self.finalizeStreamingMessage(
                     conversationId: convId,
                     messageId: placeholderId,
@@ -2264,6 +2881,7 @@ public final class PipiAppStore {
                 self.saveResidentState()
             } catch {
                 let durationMs = Int(Date().timeIntervalSince(startedAtDate) * 1000)
+                self.telemetryMonitor.finishInference(runId: runId, outputTokensEstimate: 0, succeeded: false)
                 self.finalizeStreamingMessage(
                     conversationId: convId,
                     messageId: placeholderId,
@@ -2357,11 +2975,111 @@ public final class PipiAppStore {
         }
     }
 
+    // MARK: - Wave 1 (#04 & #08): Scheduler Endpoint Helpers & Two-Tier Guardrail APIs
+
+    public func schedulerEndpointKey(for target: PipiExecutionTarget) -> String {
+        switch target {
+        case .llm(let pid):
+            if let cfg = llmProviders.first(where: { $0.id == pid }), cfg.kind == .ollama {
+                return "local-model:\(pid)"
+            }
+            return "llm:\(pid)"
+        case .localAgent(let kind):
+            return "local-agent:\(kind.rawValue)"
+        case .auto:
+            return "llm:auto"
+        }
+    }
+
+    private func ensureDefaultSchedulerPool(for target: PipiExecutionTarget, endpointKey: String) {
+        switch target {
+        case .llm(let pid):
+            if let cfg = llmProviders.first(where: { $0.id == pid }), cfg.kind == .ollama {
+                modelScheduler.ensureDefaultEndpointConfig(endpointKey, config: .localModelDefault)
+            } else {
+                modelScheduler.ensureDefaultEndpointConfig(
+                    endpointKey,
+                    config: PipiEndpointPoolConfig(
+                        initialLimit: Self.maxConcurrentLLMRuns,
+                        maxLimit: Self.maxConcurrentLLMRuns
+                    )
+                )
+            }
+        case .localAgent:
+            modelScheduler.ensureDefaultEndpointConfig(
+                endpointKey,
+                config: PipiEndpointPoolConfig(
+                    initialLimit: Self.maxConcurrentLocalAgentRuns,
+                    maxLimit: Self.maxConcurrentLocalAgentRuns
+                )
+            )
+        case .auto:
+            modelScheduler.ensureDefaultEndpointConfig(
+                endpointKey,
+                config: PipiEndpointPoolConfig(
+                    initialLimit: Self.maxConcurrentLLMRuns,
+                    maxLimit: Self.maxConcurrentLLMRuns
+                )
+            )
+        }
+    }
+
+    private static func isRateLimitOrOverloadError(_ error: Error) -> Bool {
+        if case PipiInferenceError.httpError(let code, _) = error {
+            return code == 429 || code == 503 || code == 529
+        }
+        let msg = error.localizedDescription.lowercased()
+        return msg.contains("429") || msg.contains("rate limit") || msg.contains("overloaded")
+    }
+
+    public func setLLMGuardrailJudgeEnabled(_ enabled: Bool) {
+        llmGuardrailJudgeEnabled = enabled
+        saveResidentState()
+    }
+
+    public func addApprovalWhitelistRule(_ rule: PipiApprovalWhitelistRule) {
+        if !approvalWhitelistRules.contains(where: {
+            $0.granularity == rule.granularity &&
+            $0.toolName == rule.toolName &&
+            $0.actionKind == rule.actionKind &&
+            $0.targetPattern == rule.targetPattern &&
+            $0.sessionId == rule.sessionId &&
+            $0.projectId == rule.projectId
+        }) {
+            approvalWhitelistRules.append(rule)
+            permissionGuardrail.addWhitelistRule(rule)
+            saveResidentState()
+        }
+    }
+
+    public func revokeApprovalWhitelistRule(id: String) {
+        approvalWhitelistRules.removeAll(where: { $0.id == id })
+        permissionGuardrail.revokeWhitelistRule(id: id)
+        saveResidentState()
+    }
+
+    public func clearApprovalWhitelistRules() {
+        approvalWhitelistRules.removeAll()
+        permissionGuardrail.clearWhitelistRules()
+        saveResidentState()
+    }
+
+    public func evaluateActionWithGuardrail(_ action: PipiGuardrailActionInput) async -> PipiGuardrailVerdict {
+        await permissionGuardrail.evaluate(
+            action,
+            enableLLMJudge: llmGuardrailJudgeEnabled,
+            llmJudge: llmGuardrailJudge
+        )
+    }
+
     private func emitWriteApprovalCard(
         conversationId convId: String,
         messageId: String,
         agentKind: PipiLocalAgentKind,
-        originalPrompt: String
+        originalPrompt: String,
+        workDir: String = "",
+        projectId: String? = nil,
+        verdict: PipiGuardrailVerdict? = nil
     ) {
         guard let cIdx = conversations.firstIndex(where: { $0.id == convId }) else { return }
         let nextSeq = (conversations[cIdx].events.last?.seq ?? 0) + 1
@@ -2369,6 +3087,8 @@ public final class PipiAppStore {
             "用户已批准工作区修改权限，请继续执行此前分析的改动。原始需求：\(originalPrompt)",
             "Write permissions approved. Please proceed with applying the planned changes. Original request: \(originalPrompt)"
         )
+        let projectOrAlwaysLabel = (projectId != nil) ? strings.allowProjectAction : strings.allowAlwaysAction
+        let projectOrAlwaysOptionId = (projectId != nil) ? "allow_project" : "allow_always"
         let approval = PipiSessionApproval(
             sessionId: convId,
             eventSeq: nextSeq,
@@ -2381,13 +3101,23 @@ public final class PipiAppStore {
                 "Read-only analysis finished. Approving resumes this session with write permissions."
             ),
             options: [
-                PipiSessionApproval.Option(id: "allow_changes", label: strings.allowChangesAction, style: .primary),
-                PipiSessionApproval.Option(id: "keep_readonly", label: strings.keepReadOnlyAction, style: .secondary)
+                PipiSessionApproval.Option(id: "allow_changes", label: strings.allowOnceAction, style: .primary),
+                PipiSessionApproval.Option(id: "allow_session", label: strings.allowSessionAction, style: .secondary),
+                PipiSessionApproval.Option(id: projectOrAlwaysOptionId, label: projectOrAlwaysLabel, style: .secondary),
+                PipiSessionApproval.Option(id: "keep_readonly", label: strings.keepReadOnlyAction, style: .destructive)
             ],
             recommendedOptionId: "allow_changes",
             status: .pending,
             pendingPrompt: resumePrompt,
-            pendingTarget: .localAgent(agentKind)
+            pendingTarget: .localAgent(agentKind),
+            riskLevel: verdict?.riskLevel ?? .medium,
+            userAuthorization: verdict?.userAuthorization ?? .medium,
+            rationale: verdict?.rationale,
+            operationId: verdict?.operationId ?? "op_\(UUID().uuidString.prefix(8).lowercased())",
+            actionToolName: agentKind.binaryName,
+            actionKind: .localWrite,
+            actionTarget: workDir.isEmpty ? nil : workDir,
+            projectId: projectId
         )
         conversations[cIdx].approvals.append(approval)
         if let mIdx = conversations[cIdx].messages.firstIndex(where: { $0.id == messageId }) {
@@ -2438,101 +3168,6 @@ public final class PipiAppStore {
             conversations[cIdx].events.removeFirst(conversations[cIdx].events.count - 400)
         }
         localHostConnection.publishEvent(event)
-    }
-
-    private func acquireRunSlot(for bucket: RunBucket, conversationId: String, runId: String) async throws {
-        let cap = (bucket == .localAgent) ? Self.maxConcurrentLocalAgentRuns : Self.maxConcurrentLLMRuns
-        let currentCount = (bucket == .localAgent) ? inFlightLocalAgentCount : inFlightLLMCount
-        if currentCount < cap {
-            if bucket == .localAgent {
-                inFlightLocalAgentCount += 1
-            } else {
-                inFlightLLMCount += 1
-            }
-            return
-        }
-
-        if var runState = activeRuns[conversationId], runState.runId == runId {
-            runState.phase = .queued
-            runState.statusText = strings.queuedStatus
-            activeRuns[conversationId] = runState
-        }
-        setSessionState(conversationId, to: .queued)
-
-        let waiterId = UUID()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                if Task.isCancelled {
-                    cont.resume(throwing: CancellationError())
-                    return
-                }
-                let waiter = QueuedRunWaiter(id: waiterId, conversationId: conversationId, continuation: cont)
-                if bucket == .localAgent {
-                    localAgentWaiters.append(waiter)
-                } else {
-                    llmWaiters.append(waiter)
-                }
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in
-                self?.cancelQueuedWaiter(id: waiterId, bucket: bucket)
-            }
-        }
-    }
-
-    private func releaseRunSlot(for bucket: RunBucket) {
-        switch bucket {
-        case .localAgent:
-            if !localAgentWaiters.isEmpty {
-                let next = localAgentWaiters.removeFirst()
-                if var runState = activeRuns[next.conversationId] {
-                    runState.phase = .running
-                    activeRuns[next.conversationId] = runState
-                }
-                setSessionState(next.conversationId, to: .running)
-                next.continuation.resume()
-            } else {
-                inFlightLocalAgentCount = max(0, inFlightLocalAgentCount - 1)
-            }
-        case .llm:
-            if !llmWaiters.isEmpty {
-                let next = llmWaiters.removeFirst()
-                if var runState = activeRuns[next.conversationId] {
-                    runState.phase = .running
-                    activeRuns[next.conversationId] = runState
-                }
-                setSessionState(next.conversationId, to: .running)
-                next.continuation.resume()
-            } else {
-                inFlightLLMCount = max(0, inFlightLLMCount - 1)
-            }
-        }
-    }
-
-    private func cancelQueuedWaiter(id: UUID, bucket: RunBucket) {
-        switch bucket {
-        case .localAgent:
-            if let idx = localAgentWaiters.firstIndex(where: { $0.id == id }) {
-                let waiter = localAgentWaiters.remove(at: idx)
-                waiter.continuation.resume(throwing: CancellationError())
-            }
-        case .llm:
-            if let idx = llmWaiters.firstIndex(where: { $0.id == id }) {
-                let waiter = llmWaiters.remove(at: idx)
-                waiter.continuation.resume(throwing: CancellationError())
-            }
-        }
-    }
-
-    private func removeQueuedWaiter(for conversationId: String) {
-        while let idx = llmWaiters.firstIndex(where: { $0.conversationId == conversationId }) {
-            let waiter = llmWaiters.remove(at: idx)
-            waiter.continuation.resume(throwing: CancellationError())
-        }
-        while let idx = localAgentWaiters.firstIndex(where: { $0.conversationId == conversationId }) {
-            let waiter = localAgentWaiters.remove(at: idx)
-            waiter.continuation.resume(throwing: CancellationError())
-        }
     }
 
     private func finalizeStreamingMessage(
@@ -2588,6 +3223,9 @@ public final class PipiAppStore {
             )
         }
         conversations[cIdx].updatedAt = nowIso
+        if currentlyVisibleSessionId != conversationId {
+            unreadConversationCounts[conversationId, default: 0] += 1
+        }
         if isError {
             appendSessionEvent(conversationId, kind: .error, messageId: messageId, errorMessage: finalContent)
         } else {
@@ -2673,6 +3311,12 @@ public final class PipiAppStore {
             if !trimmedNote.isEmpty {
                 sections.append("[Personal Memory & Preferences]\n\(trimmedNote)")
             }
+        }
+        if !usableLocalAgents.isEmpty {
+            let names = usableLocalAgents.map(\.kind.displayName).joined(separator: ", ")
+            sections.append(
+                "[PiPi Built-in Engine & External Sub-Agents]\nYou run on PiPi (built-in pi agent kernel). Enabled external CLI sub-agents available for on-demand coding/terminal delegation: \(names). The user can also invoke them directly via /claude, /codex, or /opencode."
+            )
         }
         return sections.joined(separator: "\n\n")
     }
@@ -2973,6 +3617,7 @@ public final class PipiAppStore {
     public func selectGroupChat(_ id: String?) {
         if let id, groupChats.contains(where: { $0.id == id }) {
             activeGroupChatId = id
+            markGroupRead(id)
         } else {
             activeGroupChatId = nil
         }
@@ -3645,6 +4290,9 @@ public final class PipiAppStore {
         activeGroupRuns.removeValue(forKey: groupId)
         activeGroupStreamingMessageIds.removeValue(forKey: groupId)
         activeGroupRunStartTimes.removeValue(forKey: groupId)
+        if !produced.isEmpty {
+            incrementGroupUnreadIfNotVisible(groupId)
+        }
         syncElapsedAndAvatarForActiveConversation()
         saveResidentState()
         return produced
@@ -4183,6 +4831,7 @@ public final class PipiAppStore {
                         onDelta
                     )
                 } else {
+                    let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: groupId)
                     result = try await PipiInferenceEngine.invokeLocalAgent(
                         kind: kind,
                         systemPrompt: effectiveSystemPrompt,
@@ -4190,6 +4839,7 @@ public final class PipiAppStore {
                         workingDirectory: workDir,
                         permissionTier: safePerm,
                         cliSessionId: nil,
+                        extraEnvironment: injectedEnv,
                         onDelta: onDelta,
                         onEvent: onCLIEvent
                     )
@@ -5096,6 +5746,1774 @@ public final class PipiAppStore {
             understanding: understanding,
             digest: digest,
             soul: soul
+        )
+    }
+
+    // MARK: - Wave 2 (#01 Personal Wiki, #02 Per-Bot Memory, #03 Native Proactive & Prepare)
+
+    public func refreshWikiPages() {
+        wikiPages = personalWiki?.listPages() ?? []
+    }
+
+    @discardableResult
+    public func upsertWikiPage(_ input: PipiWikiPageInput) -> PipiPersonalWikiPage? {
+        guard let wiki = personalWiki else { return nil }
+        guard let page = try? wiki.upsertPage(input) else { return nil }
+        refreshWikiPages()
+        return page
+    }
+
+    public func deleteWikiPage(id: String) {
+        guard let wiki = personalWiki else { return }
+        _ = wiki.deletePage(id: id)
+        refreshWikiPages()
+    }
+
+    public func searchPersonalWiki(_ options: PipiWikiSearchOptions) -> PipiWikiSearchResult {
+        guard let wiki = personalWiki else {
+            return PipiWikiSearchResult(
+                query: options.query,
+                effectiveQueries: [],
+                scope: options.scope,
+                usedFts5: false,
+                usedVectorChannel: false,
+                chunks: [],
+                facts: [],
+                summaries: []
+            )
+        }
+        return wiki.search(options)
+    }
+
+    public func botMemorySummary(for botId: String) -> String {
+        _ = botMemoryVersionCounter
+        return botMemoryEngine.readSummary(for: botId)
+    }
+
+    public func botMemoryState(for botId: String) -> PipiBotMemoryState {
+        _ = botMemoryVersionCounter
+        return botMemoryEngine.readState(for: botId)
+    }
+
+    public func botMemoryCandidates(for botId: String) -> [PipiBotMemoryCandidate] {
+        _ = botMemoryVersionCounter
+        return botMemoryEngine.readCandidates(for: botId)
+    }
+
+    @discardableResult
+    public func consolidateBotMemoryNow(for botId: String, now: Date = Date()) async -> PipiBotMemoryConsolidationOutcome {
+        let res = await botMemoryEngine.consolidateIfDue(botId: botId, now: now, trigger: .manual)
+        botMemoryVersionCounter += 1
+        return res
+    }
+
+    public func saveBotMemorySummary(for botId: String, summary: String) {
+        botMemoryEngine.writeSummaryManually(for: botId, summary: summary)
+        botMemoryVersionCounter += 1
+    }
+
+    /// Wave 2 (#02): Compacts older conversation turns into a crisp summary, triggers Per-Bot memory
+    /// consolidation, and increments `compactionGeneration` so the next turn re-injects memory
+    /// without mutating System Prompt.
+    @discardableResult
+    public func compactConversation(id: String, now: Date = Date()) async -> Bool {
+        guard let idx = conversations.firstIndex(where: { $0.id == id }) else { return false }
+        let conv = conversations[idx]
+        guard conv.messages.count >= 2 else {
+            conversations[idx].compactionGeneration += 1
+            _ = await botMemoryEngine.consolidateIfDue(botId: conv.personaId, now: now, trigger: .compaction)
+            botMemoryVersionCounter += 1
+            saveResidentState()
+            return true
+        }
+
+        let keepCount = min(2, conv.messages.count)
+        let older = Array(conv.messages.dropLast(keepCount))
+        let recent = Array(conv.messages.suffix(keepCount))
+        let summaryLines = older.suffix(8).map { msg -> String in
+            let prefix = msg.role == .user ? "User" : "Assistant"
+            let snippet = msg.content
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .prefix(120)
+            return "- [\(prefix)] \(snippet)"
+        }
+        let compactedMessage = PipiChatMessage(
+            role: .assistant,
+            content: strings.t(
+                "已压缩早期 \(older.count) 条上下文记录：\n\(summaryLines.joined(separator: "\n"))",
+                "Compacted \(older.count) earlier message(s):\n\(summaryLines.joined(separator: "\n"))"
+            ),
+            createdAt: ISO8601DateFormatter().string(from: now),
+            engineLabel: "Context Compaction"
+        )
+
+        conversations[idx].messages = [compactedMessage] + recent
+        conversations[idx].compactionGeneration += 1
+        conversations[idx].updatedAt = ISO8601DateFormatter().string(from: now)
+
+        _ = await botMemoryEngine.consolidateIfDue(botId: conv.personaId, now: now, trigger: .compaction)
+        botMemoryVersionCounter += 1
+        saveResidentState()
+        return true
+    }
+
+    public func syncProactiveObservableState() {
+        proactiveBriefings = proactiveEngine.briefings
+        proactiveRules = proactiveEngine.rules
+        proactiveClues = proactiveEngine.clues
+        proactiveGuidelineVersion = proactiveEngine.guidelineVersion
+        proactiveHistoryVersions = proactiveEngine.history.map(\.version)
+        proactivePolicy = proactiveEngine.policy
+    }
+
+    public func refreshEventKitAuthStates() {
+        eventKitCalendarAuth = nativeSignalProvider.calendarAuthorizationState()
+        eventKitRemindersAuth = nativeSignalProvider.remindersAuthorizationState()
+    }
+
+    public func requestEventKitCalendarAccess() async {
+        eventKitCalendarAuth = await nativeSignalProvider.requestCalendarAccess()
+    }
+
+    public func requestEventKitRemindersAccess() async {
+        eventKitRemindersAuth = await nativeSignalProvider.requestRemindersAccess()
+    }
+
+    @discardableResult
+    public func scanNativeProactiveSignals(
+        now: Date = Date(),
+        localHourOverride: Int? = nil
+    ) async -> [PipiProactiveEvaluationResult] {
+        var workspaceDirs = [workspaceDirectory]
+        for proj in projects {
+            if let path = proj.workspacePath, !path.isEmpty {
+                workspaceDirs.append(path)
+            }
+        }
+        let collectorInput = PipiNativeSignalCollectorInput(
+            enabledSources: Set(proactiveEngine.policy.enabledSources),
+            workspaceDirectories: workspaceDirs,
+            recentProfileNote: personalProfileNote,
+            now: now
+        )
+        let signals = await nativeSignalProvider.collectSignals(input: collectorInput)
+        var outcomes: [PipiProactiveEvaluationResult] = []
+        for signal in signals {
+            let res = proactiveEngine.evaluateSignal(signal, now: now, localHourOverride: localHourOverride)
+            outcomes.append(res)
+        }
+        syncProactiveObservableState()
+        saveResidentState()
+        return outcomes
+    }
+
+    public func recordProactiveFeedback(
+        briefingId: String,
+        signal: PipiProactiveFeedbackSignal,
+        now: Date = Date()
+    ) {
+        _ = proactiveEngine.recordFeedback(briefingId: briefingId, signal: signal, now: now)
+        syncProactiveObservableState()
+        saveResidentState()
+    }
+
+    @discardableResult
+    public func runProactiveNightlyDreaming(
+        todayYmd: String? = nil,
+        removedRuleIds: [String] = []
+    ) -> PipiNightlyDreamResult {
+        let res = proactiveEngine.runNightlyDreaming(todayYmd: todayYmd, removedRuleIds: removedRuleIds)
+        syncProactiveObservableState()
+        saveResidentState()
+        return res
+    }
+
+    @discardableResult
+    public func rollbackProactiveGuideline(toVersion version: Int) -> Bool {
+        let ok = proactiveEngine.rollbackGuideline(toVersion: version)
+        if ok {
+            syncProactiveObservableState()
+            saveResidentState()
+        }
+        return ok
+    }
+
+    public func updateProactivePolicy(_ policy: PipiProactiveGuardrailPolicy) {
+        proactiveEngine.policy = policy
+        syncProactiveObservableState()
+        saveResidentState()
+    }
+
+    public func toggleProactiveRule(id: String, enabled: Bool) {
+        proactiveEngine.toggleRule(id: id, enabled: enabled)
+        syncProactiveObservableState()
+        saveResidentState()
+    }
+
+    public func deleteProactiveRule(id: String) {
+        proactiveEngine.deleteRule(id: id)
+        syncProactiveObservableState()
+        saveResidentState()
+    }
+
+    @discardableResult
+    public func openBriefingInChat(_ briefing: PipiPreparedBriefing) -> PipiConversation {
+        recordProactiveFeedback(briefingId: briefing.id, signal: .acted)
+        let conv = createConversation(for: activePersona.id, title: briefing.title, activate: true)
+        if let idx = conversations.firstIndex(where: { $0.id == conv.id }) {
+            let bullets = briefing.bulletPoints.map { "- \($0)" }.joined(separator: "\n")
+            let intro = PipiChatMessage(
+                role: .assistant,
+                content: "### \(briefing.title)\n\n\(briefing.summary)\n\n\(bullets)",
+                createdAt: ISO8601DateFormatter().string(from: Date()),
+                engineLabel: "Prepare Briefing"
+            )
+            conversations[idx].messages.append(intro)
+            conversations[idx].updatedAt = intro.createdAt
+            saveResidentState()
+        }
+        return conversations.first(where: { $0.id == conv.id }) ?? conv
+    }
+
+    // MARK: - Wave 3 (#05 AlterEgo Delegation, #06 team.md & Dynamic Bots, #11 Pocket Notes / Docs / Skills)
+
+    public func syncAlterEgoObservableState() {
+        alterEgoTasks = alterEgoCoordinator.tasks
+    }
+
+    public func alterEgoTasks(forSession sessionId: String) -> [PipiAlterEgoTask] {
+        alterEgoTasks.filter { $0.sessionId == sessionId }
+    }
+
+    @discardableResult
+    public func spawnAlterEgoTask(
+        sessionId: String,
+        botId: String? = nil,
+        title: String,
+        goal: String,
+        runner: PipiAlterEgoRunner? = nil
+    ) -> PipiAlterEgoTask {
+        let resolvedBotId = botId ?? activePersona.id
+        let task = alterEgoCoordinator.spawnTask(
+            sessionId: sessionId,
+            botId: resolvedBotId,
+            title: title,
+            goal: goal,
+            runner: runner
+        )
+        syncAlterEgoObservableState()
+        saveResidentState()
+        return task
+    }
+
+    public func steerAlterEgoTask(id: String, instruction: String) {
+        if alterEgoCoordinator.steerTask(id: id, instruction: instruction) {
+            syncAlterEgoObservableState()
+            saveResidentState()
+        }
+    }
+
+    public func cancelAlterEgoTask(id: String) {
+        if alterEgoCoordinator.cancelTask(id: id) {
+            syncAlterEgoObservableState()
+            saveResidentState()
+        }
+    }
+
+    @discardableResult
+    public func resumeAlterEgoTask(
+        id: String,
+        additionalInstruction: String? = nil,
+        runner: PipiAlterEgoRunner? = nil
+    ) -> PipiAlterEgoTask? {
+        let resumed = alterEgoCoordinator.resumeTask(
+            id: id,
+            additionalInstruction: additionalInstruction,
+            runner: runner
+        )
+        syncAlterEgoObservableState()
+        saveResidentState()
+        return resumed
+    }
+
+    // ---- #06 Structured `team.md` Protocol & Dynamic Bot Proposals ----
+
+    public func generateGroupTeamTemplate(
+        groupId: String,
+        pattern: PipiTeamCollaborationPattern,
+        taskGoal: String? = nil
+    ) -> String? {
+        guard let group = groupChats.first(where: { $0.id == groupId }) else { return nil }
+        let leadId = group.leadPersonaId ?? group.participantPersonaIds.first ?? activePersona.id
+        let leadPersona = personas.first(where: { $0.id == leadId }) ?? activePersona
+        let memberPersonas = group.participantPersonaIds
+            .filter { $0 != leadId }
+            .compactMap { pid in personas.first(where: { $0.id == pid }) }
+        let effectiveMembers = memberPersonas.isEmpty ? [leadPersona] : memberPersonas
+
+        let goal = (taskGoal?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+            ?? strings.t("围绕「\(group.title)」按结构化协作协议产出高质量交付物", "Collaborate cleanly on \"\(group.title)\" using structured handoffs")
+
+        let md = PipiTeamProtocol.renderTemplate(
+            pattern: pattern,
+            taskGoal: goal,
+            orchestrator: PipiTeamParticipant(
+                name: leadPersona.name(resolvedLanguage),
+                actorId: leadPersona.id,
+                role: leadPersona.role(resolvedLanguage)
+            ),
+            members: effectiveMembers.map { p in
+                PipiTeamParticipant(
+                    name: p.name(resolvedLanguage),
+                    actorId: p.id,
+                    role: p.role(resolvedLanguage)
+                )
+            }
+        )
+        _ = updateGroupTeamProtocol(groupId: groupId, markdown: md)
+        return md
+    }
+
+    @discardableResult
+    public func updateGroupTeamProtocol(groupId: String, markdown: String) -> PipiTeamMdValidationResult? {
+        guard let gIdx = groupChats.firstIndex(where: { $0.id == groupId }) else { return nil }
+        groupChats[gIdx].teamProtocolMarkdown = markdown
+        groupChats[gIdx].updatedAt = ISO8601DateFormatter().string(from: Date())
+
+        let result = PipiTeamProtocol.parseAndValidate(
+            markdown,
+            roomMemberActorIds: groupChats[gIdx].participantPersonaIds
+        )
+
+        if let doc = result.document, !result.missingMemberActorIds.isEmpty {
+            let newProposals = PipiTeamProtocol.buildDynamicBotProposals(
+                groupId: groupId,
+                document: doc,
+                groupMemberIds: groupChats[gIdx].participantPersonaIds,
+                allPersonas: personas,
+                language: resolvedLanguage
+            )
+            for prop in newProposals {
+                let alreadyPending = groupChats[gIdx].dynamicBotProposals.contains {
+                    $0.status == .pending && $0.requestedActorId == prop.requestedActorId
+                }
+                if !alreadyPending {
+                    groupChats[gIdx].dynamicBotProposals.insert(prop, at: 0)
+                }
+            }
+        }
+
+        saveResidentState()
+        return result
+    }
+
+    public func validateGroupTeamProtocol(groupId: String) -> PipiTeamMdValidationResult? {
+        guard let group = groupChats.first(where: { $0.id == groupId }),
+              let md = group.teamProtocolMarkdown else {
+            return nil
+        }
+        return PipiTeamProtocol.parseAndValidate(md, roomMemberActorIds: group.participantPersonaIds)
+    }
+
+    @discardableResult
+    public func resolveDynamicBotProposal(groupId: String, proposalId: String, approve: Bool) -> PipiBotPersona? {
+        guard let gIdx = groupChats.firstIndex(where: { $0.id == groupId }),
+              let pIdx = groupChats[gIdx].dynamicBotProposals.firstIndex(where: { $0.id == proposalId }) else {
+            return nil
+        }
+
+        let proposal = groupChats[gIdx].dynamicBotProposals[pIdx]
+        guard proposal.status == .pending else { return nil }
+
+        if !approve {
+            groupChats[gIdx].dynamicBotProposals[pIdx].status = .rejected
+            groupChats[gIdx].updatedAt = ISO8601DateFormatter().string(from: Date())
+            saveResidentState()
+            return nil
+        }
+
+        let joinedPersona: PipiBotPersona
+        switch proposal.action {
+        case .inviteExisting:
+            if let existingId = proposal.existingBotId,
+               let found = personas.first(where: { $0.id == existingId }) {
+                joinedPersona = found
+            } else {
+                let created = PipiBotPersona(
+                    id: proposal.requestedActorId,
+                    nameZh: proposal.proposedName,
+                    nameEn: proposal.proposedName,
+                    roleZh: proposal.proposedRole,
+                    roleEn: proposal.proposedRole,
+                    greetingZh: "你好，我是 \(proposal.proposedName)，已加入本群协助协作。",
+                    greetingEn: "Hi, I'm \(proposal.proposedName), ready to collaborate.",
+                    systemPrompt: proposal.proposedSystemPrompt,
+                    accent: .sky,
+                    avatarShape: .spark
+                )
+                personas.append(created)
+                joinedPersona = created
+            }
+        case .createAndInvite:
+            let created = PipiBotPersona(
+                id: proposal.requestedActorId,
+                nameZh: proposal.proposedName,
+                nameEn: proposal.proposedName,
+                roleZh: proposal.proposedRole,
+                roleEn: proposal.proposedRole,
+                greetingZh: "你好，我是新创建的 \(proposal.proposedName)，负责「\(proposal.proposedRole)」。",
+                greetingEn: "Hi, I'm \(proposal.proposedName) (\(proposal.proposedRole)), ready to collaborate.",
+                systemPrompt: proposal.proposedSystemPrompt,
+                accent: .emerald,
+                avatarShape: .shield
+            )
+            personas.append(created)
+            joinedPersona = created
+        }
+
+        if !groupChats[gIdx].participantPersonaIds.contains(joinedPersona.id) {
+            groupChats[gIdx].participantPersonaIds.append(joinedPersona.id)
+        }
+        groupChats[gIdx].dynamicBotProposals[pIdx].status = .approved
+        let nowIso = ISO8601DateFormatter().string(from: Date())
+        groupChats[gIdx].messages.append(PipiGroupMessage(
+            senderKind: .bot(personaId: joinedPersona.id),
+            content: strings.t(
+                "已通过动态协作审批，\(joinedPersona.name(.zhHans))（\(joinedPersona.role(.zhHans))）已加入本群。",
+                "Approved dynamic proposal: \(joinedPersona.name(.en)) (\(joinedPersona.role(.en))) joined this group."
+            ),
+            createdAt: nowIso,
+            engineLabel: "team.md"
+        ))
+        groupChats[gIdx].updatedAt = nowIso
+        saveResidentState()
+        return joinedPersona
+    }
+
+    @discardableResult
+    public func runGroupTeamProtocol(
+        groupId: String,
+        userPrompt: String,
+        executorOverride: PipiTeamBotExecutor? = nil
+    ) async throws -> PipiTeamExecutionResult? {
+        guard let gIdx = groupChats.firstIndex(where: { $0.id == groupId }),
+              let md = groupChats[gIdx].teamProtocolMarkdown else {
+            return nil
+        }
+        let validation = PipiTeamProtocol.parseAndValidate(
+            md,
+            roomMemberActorIds: groupChats[gIdx].participantPersonaIds
+        )
+        guard validation.valid, let doc = validation.document else {
+            return nil
+        }
+
+        let effectiveExecutor: PipiTeamBotExecutor
+        if let executorOverride {
+            effectiveExecutor = executorOverride
+        } else {
+            let storeExecutor = self.sessionInferenceExecutor
+            let providersSnapshot = self.llmProviders
+            let defaultProviderId = self.defaultLLMProviderId
+            let personasSnapshot = self.personas
+            let workDir = self.workspaceDirectory
+            effectiveExecutor = { req in
+                let persona = personasSnapshot.first(where: { $0.id == req.actorId })
+                let sysPrompt = persona?.systemPrompt ?? "You are \(req.memberName) (\(req.role))."
+                let upstreamBlock = req.upstreamOutputs
+                    .map { "[\($0.memberName)]: \($0.output)" }
+                    .joined(separator: "\n\n")
+                let fullPrompt = upstreamBlock.isEmpty ? req.prompt : "\(req.prompt)\n\nUpstream context:\n\(upstreamBlock)"
+
+                if let storeExecutor {
+                    let provider = providersSnapshot.first(where: { $0.id == defaultProviderId && $0.isReady })
+                        ?? providersSnapshot.first(where: \.isReady)
+                    let target: PipiExecutionTarget = provider.map { .llm(providerId: $0.id) } ?? .auto
+                    let res = try await storeExecutor(
+                        target,
+                        provider,
+                        sysPrompt,
+                        [PipiChatMessage(role: .user, content: fullPrompt)],
+                        workDir,
+                        .readOnly,
+                        nil,
+                        nil,
+                        nil
+                    )
+                    return PipiTeamBotTurnResponse(
+                        output: res.text,
+                        selectedActorId: doc.members.first?.actorId,
+                        approved: req.phase == .verify ? true : nil,
+                        done: req.phase == .loopStep ? true : nil
+                    )
+                }
+
+                // Deterministic local fallback when no cloud/CLI engine is configured yet
+                return PipiTeamBotTurnResponse(
+                    output: "[\(req.memberName) · \(req.phase.rawValue) r\(req.round)] Completed response for: \(req.prompt.prefix(120))",
+                    selectedActorId: doc.members.first?.actorId,
+                    approved: req.phase == .verify ? true : nil,
+                    done: req.phase == .loopStep ? true : nil
+                )
+            }
+        }
+
+        let result = try await PipiTeamProtocol.execute(
+            document: doc,
+            userPrompt: userPrompt,
+            executor: effectiveExecutor
+        )
+
+        if let latestIdx = groupChats.firstIndex(where: { $0.id == groupId }) {
+            let nowIso = ISO8601DateFormatter().string(from: Date())
+            for entry in result.trace {
+                groupChats[latestIdx].messages.append(PipiGroupMessage(
+                    senderKind: .bot(personaId: entry.actorId),
+                    content: entry.output,
+                    createdAt: nowIso,
+                    engineLabel: "team.md · \(doc.pattern.rawValue)"
+                ))
+            }
+            groupChats[latestIdx].deliverables.insert(
+                PipiGroupDeliverable(
+                    title: "team.md · \(doc.pattern.label(resolvedLanguage))",
+                    kind: .summary,
+                    summary: String(result.finalOutput.prefix(160)),
+                    content: result.finalOutput,
+                    producedByPersonaId: doc.orchestrator.actorId
+                ),
+                at: 0
+            )
+            groupChats[latestIdx].updatedAt = nowIso
+            saveResidentState()
+        }
+
+        return result
+    }
+
+    // ---- #11 Daily Pocket Notes, Editable Artifact Documents & Builtin Skills ----
+
+    public func syncPocketNotesObservableState() {
+        pocketTrackingItems = pocketNotesEngine.trackingItems
+        artifactDocuments = pocketNotesEngine.documents
+        pocketNotesVersionCounter += 1
+    }
+
+    public func dailyPocketNoteText(for dateYmd: String) -> String {
+        _ = pocketNotesVersionCounter
+        return pocketNotesEngine.dailyNote(for: dateYmd)?.content ?? ""
+    }
+
+    @discardableResult
+    public func saveDailyPocketNote(dateYmd: String, content: String, now: Date = Date()) -> PipiDailyPocketNote {
+        let saved = pocketNotesEngine.saveDailyNote(dateYmd: dateYmd, content: content, now: now)
+        syncPocketNotesObservableState()
+        saveResidentState()
+        return saved
+    }
+
+    @discardableResult
+    public func reconcileDailyPocketNote(
+        dateYmd: String,
+        now: Date = Date(),
+        force: Bool = false
+    ) -> PipiPocketReconcileResult {
+        let res = pocketNotesEngine.reconcileDailyNoteIfQuiet(dateYmd: dateYmd, now: now, force: force)
+        if res.extracted {
+            syncPocketNotesObservableState()
+            saveResidentState()
+        }
+        return res
+    }
+
+    public func setTrackingItemStatus(id: String, status: PipiTrackingItemStatus) {
+        pocketNotesEngine.setTrackingItemStatus(id: id, status: status)
+        syncPocketNotesObservableState()
+        saveResidentState()
+    }
+
+    @discardableResult
+    public func upsertArtifactDocument(
+        id: String? = nil,
+        title: String,
+        kind: PipiArtifactDocumentKind = .note,
+        markdown: String,
+        sessionId: String? = nil,
+        groupId: String? = nil,
+        tags: [String] = []
+    ) -> PipiArtifactDocument {
+        let saved = pocketNotesEngine.upsertDocument(
+            id: id,
+            title: title,
+            kind: kind,
+            markdown: markdown,
+            sessionId: sessionId,
+            groupId: groupId,
+            tags: tags
+        )
+        syncPocketNotesObservableState()
+        saveResidentState()
+        return saved
+    }
+
+    public func deleteArtifactDocument(id: String) {
+        pocketNotesEngine.deleteDocument(id: id)
+        syncPocketNotesObservableState()
+        saveResidentState()
+    }
+
+    @discardableResult
+    public func syncArtifactDocumentToWiki(docId: String) -> PipiPersonalWikiPage? {
+        guard let wiki = personalWiki else { return nil }
+        let page = pocketNotesEngine.syncDocumentToWiki(docId: docId, wiki: wiki)
+        if page != nil {
+            refreshWikiPages()
+        }
+        return page
+    }
+
+    @discardableResult
+    public func projectBuiltinSkillsNow() -> [PipiProjectedSkillReceipt] {
+        let receipts = (try? PipiBuiltinSkillsRegistry.projectReadOnly(to: localDataRootURL)) ?? []
+        builtinSkillReceipts = receipts
+        return receipts
+    }
+
+    public func verifyBuiltinSkillsNow() -> PipiSkillIntegrityReport {
+        PipiBuiltinSkillsRegistry.verifyIntegrity(at: localDataRootURL)
+    }
+
+    // MARK: - Wave 4 (#07 Hardware Model Autopilot, PolyStrata, Local Unified Gateway & CLI Reverse Injection)
+
+    @discardableResult
+    public func refreshHardwareAndModelPlan(overrideHardware: PipiHardwareProfile? = nil) -> PipiModelAutopilotPlan {
+        let hw = overrideHardware ?? PipiHardwareProfile.detectCurrentHost()
+        let engines = PipiModelAutopilot.probeInstalledEngines()
+        let plan = PipiModelAutopilot.plan(
+            hardware: hw,
+            enableMacPolyStrataBeta: localGatewayConfig.enableMacPolyStrataBeta,
+            installedEngines: engines
+        )
+        hardwareProfile = hw
+        localEngineStatuses = engines
+        modelAutopilotPlan = plan
+        return plan
+    }
+
+    public func updateLocalGatewayConfig(_ config: PipiLocalGatewayConfig) {
+        localGatewayConfig = config
+        refreshHardwareAndModelPlan()
+        saveResidentState()
+    }
+
+    public func applyAutopilotPlanToGatewayConfig() {
+        let plan = modelAutopilotPlan
+        var updated = localGatewayConfig
+        updated.selectedLocalEngine = plan.selectedEngine
+        updated.selectedLocalModelId = plan.primaryModel.id
+        if let engineInfo = localEngineStatuses.first(where: { $0.engine == plan.selectedEngine }) {
+            updated.localUpstreamBaseURL = engineInfo.endpointUrl
+        }
+        updated.sourceMode = .localModel
+        localGatewayConfig = updated
+        saveResidentState()
+    }
+
+    public func resolveCurrentGatewayUpstreamTarget() -> PipiGatewayUpstreamTarget {
+        switch localGatewayConfig.sourceMode {
+        case .byok:
+            let cfg = llmProviders.first(where: { $0.id == localGatewayConfig.byokProviderId })
+                ?? readyLLMProviders.first
+            if let cfg {
+                let dialect: PipiGatewayUpstreamDialect = (cfg.kind == .anthropic)
+                    ? .anthropic
+                    : PipiGatewayUpstreamDialect.detect(baseURL: cfg.baseURL)
+                return PipiGatewayUpstreamTarget(
+                    sourceMode: .byok,
+                    dialect: dialect,
+                    baseURL: cfg.baseURL,
+                    modelId: cfg.modelId,
+                    apiKey: cfg.apiKey,
+                    contextWindow: 131_072
+                )
+            }
+            fallthrough
+        case .localModel, .subscription:
+            let base = localGatewayConfig.localUpstreamBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedBase = base.isEmpty ? "http://127.0.0.1:11438/v1" : base
+            let modelId = localGatewayConfig.selectedLocalModelId.trimmingCharacters(in: .whitespacesAndNewlines)
+            return PipiGatewayUpstreamTarget(
+                sourceMode: localGatewayConfig.sourceMode,
+                dialect: PipiGatewayUpstreamDialect.detect(baseURL: resolvedBase),
+                baseURL: resolvedBase,
+                modelId: modelId.isEmpty ? modelAutopilotPlan.primaryModel.id : modelId,
+                apiKey: nil,
+                contextWindow: modelAutopilotPlan.plannedContextWindow
+            )
+        }
+    }
+
+    @discardableResult
+    public func startLocalGateway(
+        portOverride: UInt16? = nil,
+        transport: PipiLocalLLMGateway.UpstreamTransport? = nil
+    ) async throws -> PipiGatewayRuntimeStatus {
+        let target = resolveCurrentGatewayUpstreamTarget()
+        if let existing = localGateway {
+            await existing.updateUpstream(target)
+            let current = await existing.currentStatus()
+            if current.isRunning {
+                localGatewayStatus = current
+                return current
+            }
+        }
+        let gateway = PipiLocalLLMGateway(upstream: target, transport: transport)
+        let requestedPort: UInt16 = portOverride ?? UInt16(clamping: max(0, min(65535, localGatewayConfig.gatewayPort)))
+        let status = try await gateway.start(port: requestedPort)
+        self.localGateway = gateway
+        self.localGatewayStatus = status
+        return status
+    }
+
+    public func stopLocalGateway() async {
+        if let gateway = localGateway {
+            await gateway.stop()
+        }
+        localGatewayStatus = .stopped
+    }
+
+    public func switchModelSourceMode(
+        _ targetMode: PipiModelSourceMode,
+        confirmedInterruptActiveRuns: Bool = false
+    ) async -> (switched: Bool, requiresConfirmation: Bool, unloadedLocalModel: Bool, message: String) {
+        let activeCount = activeRuns.count
+        if activeCount > 0 && !confirmedInterruptActiveRuns {
+            return (
+                false,
+                true,
+                false,
+                strings.t(
+                    "当前有 \(activeCount) 个会话正在运行，切换模型源前请先确认是否中断。",
+                    "\(activeCount) active run(s) in progress. Confirm before switching model source."
+                )
+            )
+        }
+
+        let previousMode = localGatewayConfig.sourceMode
+        var unloadedLocal = false
+        if activeCount > 0 && confirmedInterruptActiveRuns {
+            for convId in Array(activeRuns.keys) {
+                stopGenerating(conversationId: convId)
+            }
+        }
+        if previousMode == .localModel && targetMode != .localModel {
+            unloadedLocal = true
+        }
+
+        localGatewayConfig.sourceMode = targetMode
+        if let gateway = localGateway {
+            await gateway.updateUpstream(resolveCurrentGatewayUpstreamTarget())
+            localGatewayStatus = await gateway.currentStatus()
+        }
+        saveResidentState()
+        return (
+            true,
+            false,
+            unloadedLocal,
+            strings.t(
+                "已将模型源切换为 \(targetMode.label(.zhHans))\(unloadedLocal ? "（已释放本地模型内存）" : "")",
+                "Switched model source to \(targetMode.label(.en))\(unloadedLocal ? " (local model memory released)" : "")"
+            )
+        )
+    }
+
+    @discardableResult
+    public func runLocalModelSelfTest(
+        transport: PipiModelAutopilot.QATransport? = nil
+    ) async -> PipiModelSelfTestResult {
+        isRunningModelSelfTest = true
+        defer { isRunningModelSelfTest = false }
+
+        let target = resolveCurrentGatewayUpstreamTarget()
+        let endpoint = localGatewayStatus.isRunning ? "\(localGatewayStatus.origin)/v1" : target.baseURL
+        let apiKey: String? = localGatewayStatus.isRunning ? (localGateway?.token) : target.apiKey
+        let result = await PipiModelAutopilot.verifyModelWithQA(
+            endpointUrl: endpoint,
+            modelId: target.modelId,
+            apiKey: apiKey,
+            transport: transport
+        )
+        lastModelSelfTestResult = result
+        return result
+    }
+
+    @discardableResult
+    public func prepareIsolatedCLIOverlay(
+        for cli: PipiReverseInjectedCLITarget,
+        profileId: String = "default"
+    ) async throws -> PipiIsolatedCLIOverlay {
+        if !localGatewayStatus.isRunning {
+            _ = try await startLocalGateway(portOverride: 0)
+        }
+        guard let gateway = localGateway else {
+            throw PipiInferenceError.invalidEndpoint("Local gateway unavailable")
+        }
+        let overlay = try await gateway.prepareOverlay(
+            dataRootURL: localDataRootURL,
+            cli: cli,
+            profileId: profileId
+        )
+        lastIsolatedCLIOverlays[cli] = overlay
+        return overlay
+    }
+
+    private func resolveCLIReverseInjectionEnvironment(
+        for kind: PipiLocalAgentKind,
+        profileId: String
+    ) async -> [String: String] {
+        guard localGatewayConfig.reverseInjectCLIAgents else { return [:] }
+        guard localGatewayConfig.sourceMode != .subscription else { return [:] }
+        let target = PipiReverseInjectedCLITarget(localAgentKind: kind)
+        guard let overlay = try? await prepareIsolatedCLIOverlay(for: target, profileId: profileId) else {
+            return [:]
+        }
+        return overlay.environment
+    }
+
+    // MARK: - Wave 4 (#10 Personal Daily Voice: Dictation, Muse Hands-Free & Voice-to-Task)
+
+    private func wireVoiceEngineCallbacks() {
+        voiceEngine.onStateChanged = { [weak self] newState in
+            guard let self else { return }
+            self.voiceSessionState = newState
+            switch newState {
+            case .listening, .transcribing:
+                self.avatarEngine.setState(.voiceTranscribing)
+            case .interrupted:
+                self.avatarEngine.setState(.voiceInterrupted)
+            case .idle:
+                if !self.isAnyConversationRunning {
+                    self.avatarEngine.setState(.idle)
+                }
+            default:
+                break
+            }
+        }
+        voiceEngine.onTranscriptUpdated = { [weak self] text, _ in
+            self?.voiceLiveTranscript = text
+        }
+        voiceEngine.onInputLevelUpdated = { [weak self] rms in
+            self?.voiceInputLevel = rms
+        }
+        voiceEngine.onBargeInInterrupt = { [weak self] in
+            guard let self else { return }
+            self.avatarEngine.setState(.voiceInterrupted)
+        }
+        voiceEngine.onSpeakingFinished = { [weak self] in
+            guard let self else { return }
+            // In active Voice Call mode, seamlessly reopen listening after the assistant finishes speaking
+            if self.isVoiceCallActive && !self.isVoiceCallMuted {
+                Task { @MainActor [weak self] in
+                    guard let self, self.isVoiceCallActive, !self.isVoiceCallMuted else { return }
+                    await self.startVoiceCapture(mode: .museHandsFree)
+                }
+            }
+        }
+    }
+
+    public func effectiveVoiceProfileId(for personaId: String? = nil) -> String {
+        let targetId = personaId ?? voiceCallPersonaId ?? activePersona.id
+        if let bot = personas.first(where: { $0.id == targetId }),
+           let explicit = bot.voiceProfileId,
+           !explicit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return explicit
+        }
+        return voiceConfig.selectedVoiceProfileId
+    }
+
+    public func previewVoiceProfile(_ profileId: String) {
+        voiceEngine.previewVoice(profileId: profileId, lang: resolvedLanguage)
+    }
+
+    /// Starts a live hands-free Voice Call with the specified assistant (or current active assistant).
+    public func startVoiceCall(with personaId: String? = nil) async {
+        let targetBotId = personaId ?? activePersona.id
+        selectPersona(targetBotId)
+        voiceCallPersonaId = targetBotId
+        isVoiceCallActive = true
+        isVoiceCallMuted = false
+        voiceCallStartedAt = Date()
+        voiceActiveMode = .museHandsFree
+        voiceIsOverlayPresented = true
+        voiceLastError = nil
+        voiceLiveTranscript = ""
+        await startVoiceCapture(mode: .museHandsFree)
+    }
+
+    public func endVoiceCall() {
+        isVoiceCallActive = false
+        voiceCallStartedAt = nil
+        isVoiceCallMuted = false
+        voiceCallPersonaId = nil
+        voiceEngine.stopLiveCapture()
+        voiceEngine.interruptPlaybackImmediately()
+        voiceSessionState = .idle
+        voiceIsOverlayPresented = false
+    }
+
+    public func toggleVoiceCallMute() {
+        guard isVoiceCallActive else { return }
+        isVoiceCallMuted.toggle()
+        if isVoiceCallMuted {
+            voiceEngine.stopLiveCapture()
+        } else {
+            Task { @MainActor in
+                await startVoiceCapture(mode: .museHandsFree)
+            }
+        }
+    }
+
+    // MARK: - Per-Agent Capabilities, Global Sharing Pool & Autonomous Bot-to-Bot Upgrade
+
+    public func updateGlobalCapabilityPool(_ pool: PipiGlobalCapabilityPool) {
+        globalCapabilityPool = pool
+        saveResidentState()
+    }
+
+    public func effectiveCapabilities(for personaId: String) -> PipiEffectiveBotCapabilities {
+        let bot = personas.first(where: { $0.id == personaId }) ?? activePersona
+        return PipiBotCapabilityMesh.effectiveCapabilities(
+            for: bot,
+            allPersonas: personas,
+            globalPool: globalCapabilityPool,
+            globalDefaultVoiceId: voiceConfig.selectedVoiceProfileId
+        )
+    }
+
+    @discardableResult
+    public func evaluatePeerUpgradeForPrompt(botId: String, prompt: String) -> PipiPeerUpgradeOutcome? {
+        guard let idx = personas.firstIndex(where: { $0.id == botId }) else { return nil }
+        let outcome = PipiBotCapabilityMesh.evaluateAndUpgradeOnDemand(
+            targetBot: personas[idx],
+            prompt: prompt,
+            allPersonas: personas,
+            globalPool: globalCapabilityPool,
+            peerMemorySummaryLookup: { [weak self] peerId in
+                self?.botMemorySummary(for: peerId)
+            },
+            lang: resolvedLanguage
+        )
+        if !outcome.newUpgrades.isEmpty {
+            personas[idx] = outcome.updatedBot
+            if let first = outcome.newUpgrades.first {
+                lastPeerUpgradeNotice = first.summary
+            }
+            saveResidentState()
+        }
+        return outcome
+    }
+
+    @discardableResult
+    public func syncPeerUpgrades(for botId: String) -> PipiPeerUpgradeOutcome? {
+        guard let idx = personas.firstIndex(where: { $0.id == botId }) else { return nil }
+        let outcome = PipiBotCapabilityMesh.syncAllShareableCapabilities(
+            for: personas[idx],
+            allPersonas: personas,
+            peerMemorySummaryLookup: { [weak self] peerId in
+                self?.botMemorySummary(for: peerId)
+            },
+            lang: resolvedLanguage
+        )
+        if !outcome.newUpgrades.isEmpty {
+            personas[idx] = outcome.updatedBot
+            lastPeerUpgradeNotice = strings.t(
+                "已从团队同伴同步 \(outcome.newUpgrades.count) 项新能力。",
+                "Synced \(outcome.newUpgrades.count) capability upgrade(s) from peers."
+            )
+            saveResidentState()
+        } else {
+            lastPeerUpgradeNotice = strings.t(
+                "当前助手已拥有所有可共享的团队能力。",
+                "This assistant already has all shareable peer capabilities."
+            )
+        }
+        return outcome
+    }
+
+    public func updateVoiceConfig(_ config: PipiVoiceConfig) {
+        voiceConfig = config
+        voiceEngine.config = config
+        saveResidentState()
+    }
+
+    public func voiceCloudSttApiKey() -> String {
+        secretStore.secret(for: voiceConfig.cloudStt.keychainAccount) ?? ""
+    }
+
+    public func setVoiceCloudSttApiKey(_ key: String) {
+        secretStore.setSecret(key, for: voiceConfig.cloudStt.keychainAccount)
+    }
+
+    public func voiceCloudTtsApiKey() -> String {
+        secretStore.secret(for: voiceConfig.cloudTts.keychainAccount) ?? ""
+    }
+
+    public func setVoiceCloudTtsApiKey(_ key: String) {
+        secretStore.setSecret(key, for: voiceConfig.cloudTts.keychainAccount)
+    }
+
+    public func startVoiceCapture(mode: PipiVoiceInteractionMode) async {
+        voiceActiveMode = mode
+        voiceLastError = nil
+        voiceLiveTranscript = ""
+        voiceIsOverlayPresented = true
+        do {
+            try await voiceEngine.startLiveCapture()
+        } catch {
+            voiceLastError = error.localizedDescription
+            voiceSessionState = .error
+        }
+    }
+
+    public func stopVoiceCapture(commitTranscript: Bool = true) async {
+        let captured = voiceLiveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        voiceEngine.stopLiveCapture()
+        if commitTranscript && !captured.isEmpty {
+            _ = await dispatchVoiceUtterance(captured, mode: voiceActiveMode)
+        }
+    }
+
+    public func interruptVoicePlayback() {
+        voiceEngine.interruptPlaybackImmediately()
+    }
+
+    /// Dispatches a daily voice utterance under `.voiceInteractive` scheduler priority.
+    @discardableResult
+    public func dispatchVoiceUtterance(
+        _ transcript: String,
+        mode: PipiVoiceInteractionMode? = nil,
+        explicitAction: PipiVoiceIntentAction? = nil
+    ) async -> PipiVoiceUtteranceRoute {
+        let resolvedMode = mode ?? voiceActiveMode
+        let lease = try? await modelScheduler.acquire(
+            endpointKey: "voice_daily",
+            priority: .voiceInteractive,
+            runId: "voice_\(resolvedMode.rawValue)_\(UUID().uuidString.prefix(6).lowercased())"
+        )
+        defer { lease?.release() }
+
+        let route = PipiDailyVoiceEngine.routeUtterance(
+            transcript: transcript,
+            mode: resolvedMode,
+            explicitAction: explicitAction
+        )
+        guard !route.cleanedPayload.isEmpty else { return route }
+
+        switch route.action {
+        case .dictationInsert:
+            voicePendingDictationText = route.cleanedPayload
+            voiceSessionState = .idle
+
+        case .museReply:
+            let convId = activeConversationId ?? createConversation(activate: true).id
+            let targetPersonaId = conversations.first(where: { $0.id == convId })?.personaId ?? voiceCallPersonaId ?? activePersona.id
+            voiceSessionState = .thinking
+            await sendPersonalMessage(
+                route.cleanedPayload,
+                conversationId: convId,
+                personaId: targetPersonaId,
+                priority: .voiceInteractive
+            )
+            let shouldSpeak = isVoiceCallActive || voiceConfig.autoSpeakMuseReplies
+            if shouldSpeak,
+               let reply = conversations.first(where: { $0.id == convId })?.messages.last(where: { $0.role == .assistant && !$0.isError })?.content,
+               !reply.isEmpty {
+                let voiceId = effectiveVoiceProfileId(for: targetPersonaId)
+                voiceEngine.speakOnDevice(reply, voiceProfileId: voiceId)
+            } else {
+                voiceSessionState = .idle
+                if isVoiceCallActive && !isVoiceCallMuted {
+                    await startVoiceCapture(mode: .museHandsFree)
+                }
+            }
+
+        case .delegateAlterEgo:
+            let convId = activeConversationId ?? createConversation(activate: true).id
+            _ = spawnAlterEgoTask(
+                sessionId: convId,
+                title: String(route.cleanedPayload.prefix(48)),
+                goal: route.cleanedPayload
+            )
+            voiceSessionState = .idle
+
+        case .appendPocketNote:
+            let today = Self.todayYmdString()
+            let existing = pocketNotesEngine.dailyNote(for: today)?.content ?? ""
+            let appended = existing.isEmpty ? "- \(route.cleanedPayload)" : "\(existing)\n- \(route.cleanedPayload)"
+            _ = saveDailyPocketNote(dateYmd: today, content: appended)
+            voiceSessionState = .idle
+
+        case .createTrackingItem:
+            let today = Self.todayYmdString()
+            let existing = pocketNotesEngine.dailyNote(for: today)?.content ?? ""
+            let line = "- [ ] \(route.cleanedPayload)"
+            let appended = existing.isEmpty ? line : "\(existing)\n\(line)"
+            _ = saveDailyPocketNote(dateYmd: today, content: appended)
+            _ = reconcileDailyPocketNote(dateYmd: today, force: true)
+            voiceSessionState = .idle
+        }
+        return route
+    }
+
+    private static func todayYmdString(date: Date = Date()) -> String {
+        let fmt = DateFormatter()
+        fmt.calendar = Calendar(identifier: .gregorian)
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.string(from: date)
+    }
+
+    // MARK: - Wave 5 (#09 Dual-Phase Computer Use: Chrome Seats, macOS AX/Cua, Human Yield & WAL)
+
+    private func wireComputerUseCallbacks() {
+        computerUseCoordinator.onStateChanged = { [weak self] in
+            self?.syncComputerUseObservableState()
+        }
+        syncComputerUseObservableState()
+    }
+
+    public func syncComputerUseObservableState() {
+        computerUseLanes = computerUseCoordinator.listLanes()
+        computerUseSeats = computerUseCoordinator.listSeats()
+        computerUseJournal = Array(computerUseCoordinator.journal.listEntries().suffix(30).reversed())
+        computerUseYieldedToHuman = computerUseCoordinator.isYieldedToHuman
+        computerUseYieldReason = computerUseCoordinator.humanYieldReason
+    }
+
+    public var hasComputerUseAttention: Bool {
+        computerUseBarPresented ||
+            computerUseYieldedToHuman ||
+            computerUseLanes.contains(where: { $0.state != .idle }) ||
+            !computerUseSeats.isEmpty
+    }
+
+    public func updateComputerUseConfig(_ config: PipiComputerUseConfig) {
+        computerUseConfig = config
+        computerUseCoordinator.config = config
+        saveResidentState()
+    }
+
+    @discardableResult
+    public func refreshComputerUseEnvironment() async -> PipiComputerUseEnvironmentProbe {
+        let probe = await computerUseCoordinator.probeEnvironment()
+        computerUseEnvironment = probe
+        syncComputerUseObservableState()
+        return probe
+    }
+
+    @discardableResult
+    public func executeComputerUseAction(_ request: PipiComputerUseActionRequest) async -> PipiComputerUseActionResult {
+        let result = await computerUseCoordinator.executeAction(request)
+        syncComputerUseObservableState()
+        if result.yieldedToHuman {
+            avatarEngine.setState(.needsYou)
+        } else if result.status == .unknownOutcome {
+            avatarEngine.setState(.needsYouUrgent)
+        } else if result.ok {
+            avatarEngine.setState(.macAutomating)
+        }
+        return result
+    }
+
+    public func humanTakeOverComputerUse(reason: String = "Manual human takeover") {
+        _ = computerUseCoordinator.notifyHumanFocusChanged(activeBundleId: "user.manual.takeover", reason: reason)
+        syncComputerUseObservableState()
+        avatarEngine.setState(.idle)
+    }
+
+    public func resumeComputerUseAfterHumanYield() {
+        computerUseCoordinator.resumeFromHumanYield()
+        syncComputerUseObservableState()
+    }
+
+    @discardableResult
+    public func acknowledgeAndUnlockComputerUseLane(_ laneId: String, note: String? = nil) -> Bool {
+        let ok = computerUseCoordinator.acknowledgeUnknownOutcomeAndUnlockLane(laneId, note: note)
+        syncComputerUseObservableState()
+        return ok
+    }
+
+    // MARK: - Cloudflare Tunnel Remote PWA Control
+
+    public func refreshCloudflaredAvailability() {
+        remoteTunnelManager.refreshCloudflaredAvailability()
+    }
+
+    public func startRemoteTunnel() async {
+        await remoteTunnelManager.start(bridge: makeRemoteControlBridge())
+    }
+
+    public func regenerateRemoteTunnel() async {
+        await remoteTunnelManager.regenerate(bridge: makeRemoteControlBridge())
+    }
+
+    public func stopRemoteTunnel() {
+        remoteTunnelManager.stop()
+    }
+
+    public func makeRemoteControlBridge() -> PipiRemoteControlBridge {
+        PipiRemoteControlBridge(
+            fetchSnapshot: { [weak self] requestedConvId in
+                await MainActor.run {
+                    guard let self else {
+                        return PipiRemoteControlSnapshot(
+                            hostName: "Mac",
+                            appVersion: "0.9.0",
+                            activeModelLabel: "",
+                            language: "zh-Hans",
+                            bots: [],
+                            conversations: [],
+                            selectedConversationId: nil,
+                            messages: [],
+                            isSelectedConversationRunning: false,
+                            pendingItems: []
+                        )
+                    }
+                    let lang = self.resolvedLanguage
+                    let botDTOs = self.personas.map { bot in
+                        PipiRemoteBotDTO(
+                            id: bot.id,
+                            name: bot.name(lang),
+                            role: bot.role(lang),
+                            isRunning: self.isPersonaRunning(bot.id),
+                            skillCount: bot.assignedSkillSlugs.count
+                        )
+                    }
+                    let visibleConvs = self.conversations
+                        .filter { !$0.isArchived }
+                        .sorted { $0.updatedAt > $1.updatedAt }
+                    let convDTOs = visibleConvs.prefix(20).map { conv in
+                        let persona = self.personas.first(where: { $0.id == conv.personaId })
+                        return PipiRemoteConversationDTO(
+                            id: conv.id,
+                            personaId: conv.personaId,
+                            personaName: persona?.name(lang) ?? self.strings.appName,
+                            title: conv.title,
+                            messageCount: conv.messages.count,
+                            updatedAt: conv.updatedAt,
+                            isRunning: self.isRunning(conversationId: conv.id)
+                        )
+                    }
+
+                    let targetConv: PipiConversation? = {
+                        if let requestedConvId, let found = visibleConvs.first(where: { $0.id == requestedConvId }) {
+                            return found
+                        }
+                        if let activeId = self.activeConversationId, let found = visibleConvs.first(where: { $0.id == activeId }) {
+                            return found
+                        }
+                        return visibleConvs.first
+                    }()
+
+                    let msgDTOs = (targetConv?.messages ?? []).suffix(60).map { msg in
+                        let deliverables: [PipiRemoteDeliverableDTO] = (msg.attachments ?? []).compactMap { att in
+                            if let art = self.macOmnipotentEngine.artifact(id: att.id) {
+                                return PipiRemoteDeliverableDTO(
+                                    id: art.id,
+                                    kind: art.kind.rawValue,
+                                    fileName: art.fileName,
+                                    mimeType: art.mimeType,
+                                    byteSize: art.byteSize
+                                )
+                            }
+                            if FileManager.default.fileExists(atPath: att.path) {
+                                let (kind, mime) = PipiDeliverableArtifact.inferKindAndMime(for: att.path)
+                                let registered = PipiDeliverableArtifact(
+                                    id: att.id,
+                                    kind: kind,
+                                    fileName: att.name,
+                                    filePath: att.path,
+                                    mimeType: mime,
+                                    byteSize: Int64(att.sizeBytes)
+                                )
+                                self.macOmnipotentEngine.registerArtifact(registered)
+                                return PipiRemoteDeliverableDTO(
+                                    id: registered.id,
+                                    kind: kind.rawValue,
+                                    fileName: att.name,
+                                    mimeType: mime,
+                                    byteSize: Int64(att.sizeBytes)
+                                )
+                            }
+                            return nil
+                        }
+                        return PipiRemoteMessageDTO(
+                            id: msg.id,
+                            role: msg.role.rawValue,
+                            content: msg.content,
+                            createdAt: msg.createdAt,
+                            engineLabel: msg.engineLabel,
+                            isError: msg.isError,
+                            deliverables: deliverables
+                        )
+                    }
+
+                    var pending: [PipiRemotePendingItemDTO] = []
+                    for dec in self.decisions where dec.status == .pending {
+                        pending.append(PipiRemotePendingItemDTO(
+                            kind: "decision",
+                            id: dec.id,
+                            title: dec.title,
+                            summary: dec.summary,
+                            severity: dec.severity.rawValue,
+                            options: dec.options.map { opt in
+                                PipiRemotePendingOptionDTO(
+                                    id: opt.id,
+                                    label: opt.label,
+                                    isPrimary: opt.style == .primary,
+                                    isDestructive: opt.style == .destructive
+                                )
+                            }
+                        ))
+                    }
+                    for conv in visibleConvs {
+                        for appr in conv.approvals where appr.status == .pending {
+                            pending.append(PipiRemotePendingItemDTO(
+                                kind: "approval",
+                                id: appr.id,
+                                title: appr.question,
+                                summary: appr.detail ?? appr.rationale ?? conv.title,
+                                severity: appr.riskLevel?.rawValue ?? "warning",
+                                options: appr.options.map { opt in
+                                    PipiRemotePendingOptionDTO(
+                                        id: opt.id,
+                                        label: opt.label,
+                                        isPrimary: opt.style == .primary,
+                                        isDestructive: opt.style == .destructive
+                                    )
+                                }
+                            ))
+                        }
+                    }
+
+                    let hostName: String = {
+                        #if os(macOS)
+                        return Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+                        #else
+                        return ProcessInfo.processInfo.hostName
+                        #endif
+                    }()
+
+                    return PipiRemoteControlSnapshot(
+                        hostName: hostName,
+                        appVersion: self.appDisplayVersion,
+                        activeModelLabel: self.activeEngineDisplayLabel(),
+                        language: lang.rawValue,
+                        bots: botDTOs,
+                        conversations: convDTOs,
+                        selectedConversationId: targetConv?.id,
+                        messages: msgDTOs,
+                        isSelectedConversationRunning: targetConv.map { self.isRunning(conversationId: $0.id) } ?? false,
+                        pendingItems: pending
+                    )
+                }
+            },
+            sendMessage: { [weak self] conversationId, personaId, text in
+                await MainActor.run {
+                    guard let self else { return "" }
+                    let resolvedConvId: String
+                    if let conversationId, self.conversations.contains(where: { $0.id == conversationId }) {
+                        resolvedConvId = conversationId
+                    } else {
+                        let created = self.createConversation(for: personaId, activate: true)
+                        resolvedConvId = created.id
+                    }
+                    let convPersonaId = personaId ?? self.conversations.first(where: { $0.id == resolvedConvId })?.personaId
+                    Task { @MainActor in
+                        await self.sendPersonalMessage(
+                            text,
+                            conversationId: resolvedConvId,
+                            personaId: convPersonaId,
+                            activateTargetConversation: true
+                        )
+                    }
+                    return resolvedConvId
+                }
+            },
+            createConversation: { [weak self] personaId in
+                await MainActor.run {
+                    guard let self else { return "" }
+                    return self.createConversation(for: personaId, activate: true).id
+                }
+            },
+            stopGeneration: { [weak self] conversationId in
+                await MainActor.run {
+                    self?.stopGenerating(conversationId: conversationId)
+                }
+            },
+            resolvePending: { [weak self] kind, id, optionId, note in
+                guard let self else { return false }
+                if kind == "approval" {
+                    await self.resolveApproval(id, optionId: optionId, note: note)
+                    return true
+                } else {
+                    await self.resolveDecision(id, optionId: optionId, note: note)
+                    return true
+                }
+            },
+            loadDeliverableData: { [weak self] artifactId in
+                guard let self,
+                      let art = self.macOmnipotentEngine.artifact(id: artifactId),
+                      let data = try? Data(contentsOf: URL(fileURLWithPath: art.filePath)) else {
+                    return nil
+                }
+                return (data: data, mimeType: art.mimeType, fileName: art.fileName)
+            }
+        )
+    }
+
+    // MARK: - macOS Native System Takeover, Permissions & Omnipotent Execution
+
+    public func refreshMacPermissions() {
+        macPermissionsSnapshot = macOmnipotentEngine.probePermissions()
+    }
+
+    public func openMacPermissionSettings(_ kind: PipiMacPermissionKind) {
+        PipiMacOmnipotentEngine.openSystemSettings(for: kind)
+    }
+
+    public func requestMacPermission(_ kind: PipiMacPermissionKind) async {
+        await PipiMacOmnipotentEngine.requestInteractivePermission(for: kind)
+        refreshMacPermissions()
+    }
+
+    public func revealCurrentAppInFinder() {
+        PipiMacOmnipotentEngine.revealCurrentAppInFinder()
+    }
+
+    public func relaunchAppForPermissions() {
+        flush()
+        PipiMacOmnipotentEngine.relaunchCurrentApp()
+    }
+
+    public var grantedMacPermissionsCount: Int {
+        macPermissionsSnapshot.items.filter { $0.state == .granted }.count
+    }
+
+    @discardableResult
+    public func executeOmnipotentIntent(
+        _ intent: PipiOmnipotentDirectIntent,
+        userPrompt: String,
+        in conversationId: String,
+        personaId: String
+    ) async -> PipiMacOmnipotentCommandResult {
+        let nowIso = ISO8601DateFormatter().string(from: Date())
+        if let idx = conversations.firstIndex(where: { $0.id == conversationId }) {
+            let userMsg = PipiChatMessage(role: .user, content: userPrompt, createdAt: nowIso)
+            conversations[idx].messages.append(userMsg)
+            conversations[idx].updatedAt = nowIso
+            if conversations[idx].messages.count == 1 {
+                conversations[idx].title = String(userPrompt.prefix(24))
+            }
+        }
+
+        avatarEngine.setState(.macAutomating)
+
+        let projectDir: String? = {
+            if let conv = conversations.first(where: { $0.id == conversationId }),
+               let projId = conv.projectId,
+               let proj = projects.first(where: { $0.id == projId }),
+               let path = proj.workspacePath, !path.isEmpty {
+                return path
+            }
+            return workspaceDirectory
+        }()
+
+        let personaVoiceName: String? = {
+            if let bot = personas.first(where: { $0.id == personaId }),
+               let opt = PipiVoiceTimbreOption.builtInPresets.first(where: { $0.id == bot.voiceProfileId }) {
+                return opt.systemVoiceIdentifier
+            }
+            return nil
+        }()
+
+        let result: PipiMacOmnipotentCommandResult
+        switch intent {
+        case .screenshot:
+            result = await macOmnipotentEngine.captureScreenshot()
+        case .recordScreen(let seconds):
+            result = await macOmnipotentEngine.recordScreenVideo(durationSeconds: seconds)
+        case .readSMS(let limit):
+            result = await macOmnipotentEngine.readRecentSMS(limit: limit)
+        case .sendSMS(let recipient, let body):
+            result = await macOmnipotentEngine.sendSMS(recipient: recipient, body: body)
+        case .readMail(let limit):
+            result = await macOmnipotentEngine.readRecentMail(limit: limit)
+        case .sendMail(let recipient, let subject, let body):
+            result = await macOmnipotentEngine.sendOrDraftMail(to: recipient, subject: subject, body: body, sendImmediately: false)
+        case .voiceClip(let text):
+            result = await macOmnipotentEngine.synthesizeVoiceClip(text: text, voiceName: personaVoiceName)
+        case .sendFile(let path):
+            result = await macOmnipotentEngine.prepareFileDeliverable(path: path)
+        case .runCommand(let command):
+            result = await macOmnipotentEngine.runShellBuildOrTask(command: command, workingDirectory: projectDir)
+        }
+
+        let chatAttachments: [PipiChatAttachment] = result.artifacts.map { art in
+            PipiChatAttachment(
+                id: art.id,
+                name: art.fileName,
+                path: art.filePath,
+                sizeBytes: Int(art.byteSize)
+            )
+        }
+
+        let replyIso = ISO8601DateFormatter().string(from: Date())
+        if let idx = conversations.firstIndex(where: { $0.id == conversationId }) {
+            let replyMsg = PipiChatMessage(
+                role: .assistant,
+                content: result.summary,
+                createdAt: replyIso,
+                engineLabel: strings.t("Mac 原生执行", "Mac Native"),
+                isError: !result.succeeded,
+                attachments: chatAttachments.isEmpty ? nil : chatAttachments
+            )
+            conversations[idx].messages.append(replyMsg)
+            conversations[idx].updatedAt = replyIso
+            if currentlyVisibleSessionId != conversationId {
+                unreadConversationCounts[conversationId, default: 0] += 1
+            }
+            if !result.succeeded {
+                setSessionState(conversationId, to: .failed)
+            }
+        }
+        avatarEngine.setState(result.succeeded ? .idle : .needsYou)
+        saveResidentState()
+        return result
+    }
+
+    // MARK: - Dynamic Conversation Row Status & Local Model Platform Launcher
+
+    public func unreadCount(forConversation id: String) -> Int {
+        unreadConversationCounts[id] ?? 0
+    }
+
+    public func unreadCount(forGroup id: String) -> Int {
+        unreadGroupCounts[id] ?? 0
+    }
+
+    public func markConversationRead(_ id: String) {
+        unreadConversationCounts.removeValue(forKey: id)
+    }
+
+    public func markGroupRead(_ id: String) {
+        unreadGroupCounts.removeValue(forKey: id)
+    }
+
+    public func incrementGroupUnreadIfNotVisible(_ groupId: String) {
+        if currentlyVisibleGroupId != groupId {
+            unreadGroupCounts[groupId, default: 0] += 1
+        }
+    }
+
+    public func conversationRowStatus(for conv: PipiConversation) -> PipiConversationRowStatus {
+        if let phase = runPhase(for: conv.id) {
+            return phase == .queued ? .queued : .processing
+        }
+        if conv.state == .running {
+            return .processing
+        }
+        if conv.state == .queued {
+            return .queued
+        }
+        if conv.state == .needsYou || conv.approvals.contains(where: { $0.status == .pending }) {
+            return .needsApproval
+        }
+        if conv.state == .failed || conv.messages.last?.isError == true {
+            return .failed
+        }
+        let unread = unreadCount(forConversation: conv.id)
+        if unread > 0 {
+            return .unread(unread)
+        }
+        return .idle
+    }
+
+    @discardableResult
+    public func scanLocalModelPlatforms() async -> [PipiLocalPlatformStatus] {
+        await localModelPlatformManager.scanInstalledPlatforms()
+    }
+
+    @discardableResult
+    public func launchAndUseLocalPlatformModel(
+        platform kind: PipiLocalModelPlatformKind,
+        modelId: String? = nil
+    ) async -> PipiLocalLaunchResult {
+        let result = await localModelPlatformManager.launchModel(platform: kind, modelId: modelId)
+        if result.succeeded {
+            let providerId = "local_\(kind.rawValue)"
+            let cfg = PipiLLMProviderConfig(
+                id: providerId,
+                name: kind.displayName,
+                kind: kind.providerKind,
+                baseURL: result.baseURL,
+                apiKey: kind == .ollama ? "" : "local-engine",
+                modelId: result.modelId,
+                isEnabled: true,
+                temperature: 0.7
+            )
+            upsertLLMProvider(cfg, setAsDefault: true)
+            setDefaultExecutionTarget(.llm(providerId: providerId))
+        }
+        return result
+    }
+
+    /// Immediately deploys a hardware-planned local model from the Unified Local Models workflow.
+    @discardableResult
+    public func deployPlannedLocalModel(
+        entry: PipiLocalModelCatalogEntry? = nil,
+        preferredPlatform: PipiLocalModelPlatformKind? = nil
+    ) async -> PipiLocalLaunchResult {
+        isDeployingLocalModel = true
+        defer { isDeployingLocalModel = false }
+
+        let targetEntry = entry ?? modelAutopilotPlan.primaryModel
+        applyAutopilotPlanToGatewayConfig()
+        var gwCfg = localGatewayConfig
+        gwCfg.selectedLocalModelId = targetEntry.id
+        updateLocalGatewayConfig(gwCfg)
+
+        localModelDeployStatus = strings.t(
+            "正在部署 \(targetEntry.displayName)...",
+            "Deploying \(targetEntry.displayName)..."
+        )
+
+        let result = await localModelPlatformManager.deployPlannedModel(
+            entry: targetEntry,
+            preferredPlatform: preferredPlatform
+        )
+        if result.succeeded {
+            let providerId = "local_\(result.platform.rawValue)"
+            let cfg = PipiLLMProviderConfig(
+                id: providerId,
+                name: result.platform.displayName,
+                kind: result.platform.providerKind,
+                baseURL: result.baseURL,
+                apiKey: result.platform == .ollama ? "" : "local-engine",
+                modelId: result.modelId,
+                isEnabled: true,
+                temperature: 0.7
+            )
+            upsertLLMProvider(cfg, setAsDefault: true)
+            setDefaultExecutionTarget(.llm(providerId: providerId))
+        }
+        localModelDeployStatus = result.message
+        return result
+    }
+
+    // MARK: - WeChat iLink Remote Access Channel
+
+    public func startWeChatILinkQRLogin() async {
+        if wechatILinkManager.primaryBotId.isEmpty || !personas.contains(where: { $0.id == wechatILinkManager.primaryBotId }) {
+            wechatILinkManager.primaryBotId = personas.first?.id ?? activePersona.id
+        }
+        if wechatILinkManager.groupMemberBotIds.isEmpty {
+            wechatILinkManager.groupMemberBotIds = Array(personas.prefix(3).map(\.id))
+        }
+        await wechatILinkManager.startQRLogin(bridge: makeWeChatMessageBridge())
+    }
+
+    public func reconnectWeChatILink() {
+        wechatILinkManager.reconnectSavedSession(bridge: makeWeChatMessageBridge())
+    }
+
+    public func disconnectWeChatILink(forgetBinding: Bool = false) {
+        wechatILinkManager.disconnect(forgetBinding: forgetBinding)
+    }
+
+    public func setWeChatRoutingMode(_ mode: PipiWeChatRoutingMode) {
+        wechatILinkManager.routingMode = mode
+    }
+
+    public func toggleWeChatGroupMember(_ botId: String) {
+        if let idx = wechatILinkManager.groupMemberBotIds.firstIndex(of: botId) {
+            if wechatILinkManager.groupMemberBotIds.count > 1 {
+                wechatILinkManager.groupMemberBotIds.remove(at: idx)
+            }
+        } else {
+            wechatILinkManager.groupMemberBotIds.append(botId)
+        }
+    }
+
+    public func makeWeChatMessageBridge() -> PipiWeChatMessageBridge {
+        PipiWeChatMessageBridge(
+            availableBots: { [weak self] in
+                await MainActor.run {
+                    guard let self else { return [] }
+                    let lang = self.resolvedLanguage
+                    return self.personas.map { bot in
+                        PipiWeChatBotCandidate(id: bot.id, name: bot.name(lang))
+                    }
+                }
+            },
+            executeTurn: { [weak self] botId, prompt, fromUserId in
+                guard let self else {
+                    return PipiWeChatOutboundReply(botName: "PiPiBot", text: "Mac 端服务未就绪。")
+                }
+                let (convId, botName, beforeMsgCount) = await MainActor.run { () -> (String, String, Int) in
+                    let lang = self.resolvedLanguage
+                    let bot = self.personas.first(where: { $0.id == botId }) ?? self.activePersona
+                    let titleTag = "微信 · \(bot.name(lang))"
+                    let conv: PipiConversation
+                    if let existing = self.conversations.first(where: { $0.personaId == bot.id && $0.title == titleTag && !$0.isArchived }) {
+                        conv = existing
+                    } else {
+                        conv = self.createConversation(for: bot.id, title: titleTag, activate: false)
+                    }
+                    return (conv.id, bot.name(lang), conv.messages.count)
+                }
+
+                await self.sendPersonalMessage(
+                    prompt,
+                    conversationId: convId,
+                    personaId: botId,
+                    activateTargetConversation: false
+                )
+
+                return await MainActor.run {
+                    let conv = self.conversations.first(where: { $0.id == convId })
+                    let newAssistantMsgs = (conv?.messages.dropFirst(beforeMsgCount) ?? []).filter { $0.role == .assistant }
+                    let latest = newAssistantMsgs.last
+                    let replyText = latest?.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? "已在 Mac 端完成处理。"
+                    let artifacts: [PipiDeliverableArtifact] = (latest?.attachments ?? []).compactMap { att in
+                        if let art = self.macOmnipotentEngine.artifact(id: att.id) {
+                            return art
+                        }
+                        if FileManager.default.fileExists(atPath: att.path) {
+                            let (kind, mime) = PipiDeliverableArtifact.inferKindAndMime(for: att.path)
+                            let art = PipiDeliverableArtifact(
+                                id: att.id,
+                                kind: kind,
+                                fileName: att.name,
+                                filePath: att.path,
+                                mimeType: mime,
+                                byteSize: Int64(att.sizeBytes)
+                            )
+                            self.macOmnipotentEngine.registerArtifact(art)
+                            return art
+                        }
+                        return nil
+                    }
+                    _ = fromUserId
+                    return PipiWeChatOutboundReply(botName: botName, text: replyText, artifacts: artifacts)
+                }
+            },
+            switchModeFromChat: { [weak self] mode in
+                await MainActor.run {
+                    self?.wechatILinkManager.routingMode = mode
+                }
+            }
         )
     }
 }

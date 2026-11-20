@@ -113,7 +113,7 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
 
     let colorSpace = CGColorSpaceCreateDeviceRGB()
 
-    // 1. Obsidian Titanium App Icon Field (#0A0C0F -> #141922)
+    // 1. Default Light Porcelain App Icon Field (#FCFAF6 -> #F3F0E8 -> #E8E3D8)
     let bgRect: CGRect = includeRoundedBackgroundMask
         ? CGRect(x: 56, y: 56, width: 912, height: 912)
         : CGRect(x: 0, y: 0, width: 1024, height: 1024)
@@ -127,7 +127,7 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
 
     let bgGradient = CGGradient(
         colorsSpace: colorSpace,
-        colors: [cgColor(18, 22, 29), cgColor(10, 12, 15), cgColor(5, 6, 8)] as CFArray,
+        colors: [cgColor(253, 252, 249), cgColor(245, 242, 236), cgColor(232, 227, 217)] as CFArray,
         locations: [0.0, 0.55, 1.0]
     )!
     ctx.drawLinearGradient(
@@ -137,10 +137,10 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
         options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
     )
 
-    // Subtle iris-cyan ambient floor glow behind chassis
+    // Soft sky-cyan daylight halo behind ceramic chassis
     let ambientHalo = CGGradient(
         colorsSpace: colorSpace,
-        colors: [cgColor(99, 245, 230, 0.20), cgColor(31, 184, 176, 0.08), cgColor(10, 12, 15, 0.0)] as CFArray,
+        colors: [cgColor(56, 189, 248, 0.14), cgColor(99, 245, 230, 0.06), cgColor(245, 242, 236, 0.0)] as CFArray,
         locations: [0.0, 0.52, 1.0]
     )!
     ctx.drawRadialGradient(
@@ -152,15 +152,15 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
         options: []
     )
 
-    // Restrained Liquid Glass top specular edge on macOS squircle
+    // Crisp hairline border on macOS light squircle
     if includeRoundedBackgroundMask {
         addSquirclePath(to: ctx, rect: bgRect.insetBy(dx: 3, dy: 3), radius: cornerRadius - 3)
-        ctx.setStrokeColor(cgColor(255, 255, 255, 0.14))
+        ctx.setStrokeColor(cgColor(23, 23, 23, 0.10))
         ctx.setLineWidth(6)
         ctx.strokePath()
     }
 
-    // 2. Signature "Pipi Halo" Portrait Machined Chassis (660 x 704 centered)
+    // 2. Signature "Pipi Halo" Portrait Ceramic Chassis (660 x 704 centered)
     let chassisW: CGFloat = 660
     let chassisH: CGFloat = 704
     let chassisRect = CGRect(
@@ -171,22 +171,22 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
     )
     let chassisPath = buildPipiChassisPath(in: chassisRect)
 
-    // Grounded soft shadow beneath chassis
+    // Grounded soft ambient shadow beneath porcelain chassis
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -26), blur: 58, color: cgColor(0, 0, 0, 0.72))
+    ctx.setShadow(offset: CGSize(width: 0, height: -22), blur: 48, color: cgColor(23, 37, 84, 0.18))
     ctx.addPath(chassisPath)
-    ctx.setFillColor(cgColor(26, 31, 38))
+    ctx.setFillColor(cgColor(244, 241, 234))
     ctx.fillPath()
     ctx.restoreGState()
 
-    // Machined Obsidian Titanium body fill (#2A3038 -> #1A1F26 -> #0E1217)
+    // Porcelain Ceramic body fill (#FFFFFF -> #F4F1EA -> #DCD6C9)
     ctx.saveGState()
     ctx.addPath(chassisPath)
     ctx.clip()
     let chassisGrad = CGGradient(
         colorsSpace: colorSpace,
-        colors: [cgColor(54, 62, 74), cgColor(28, 33, 41), cgColor(14, 18, 23)] as CFArray,
-        locations: [0.0, 0.54, 1.0]
+        colors: [cgColor(255, 255, 255), cgColor(244, 241, 234), cgColor(220, 214, 201)] as CFArray,
+        locations: [0.0, 0.56, 1.0]
     )!
     ctx.drawLinearGradient(
         chassisGrad,
@@ -195,20 +195,20 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
         options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
     )
 
-    // Subtle upper ceramic/titanium specular sweep
-    ctx.setFillColor(cgColor(255, 255, 255, 0.055))
+    // Subtle upper ceramic specular highlight
+    ctx.setFillColor(cgColor(255, 255, 255, 0.55))
     ctx.fillEllipse(in: CGRect(x: 240, y: 120, width: 544, height: 220))
     ctx.restoreGState()
 
-    // Machined Titanium Rim Bevel (#4A5560 with top catchlight)
+    // Machined Ceramic Rim Bevel (#FFFFFF top catchlight -> #C5BEB2 -> #A79F93)
     let rimGrad = CGGradient(
         colorsSpace: colorSpace,
-        colors: [cgColor(255, 255, 255, 0.34), cgColor(74, 85, 96, 0.90), cgColor(31, 184, 176, 0.52)] as CFArray,
+        colors: [cgColor(255, 255, 255, 0.92), cgColor(197, 190, 178, 0.85), cgColor(167, 159, 147, 0.78)] as CFArray,
         locations: [0.0, 0.5, 1.0]
     )!
     ctx.saveGState()
     ctx.addPath(chassisPath)
-    ctx.setLineWidth(12)
+    ctx.setLineWidth(11)
     ctx.replacePathWithStrokedPath()
     ctx.clip()
     ctx.drawLinearGradient(
@@ -219,7 +219,7 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
     )
     ctx.restoreGState()
 
-    // 3. Crown Precision Telemetry Indicator ("Pipi Twin-Pip": sleek machined capsule + subtle halo pip)
+    // 3. Crown Precision Telemetry Indicator ("Pipi Twin-Pip")
     if sizePx >= 48 {
         let sigilY = chassisRect.minY + chassisH * 0.195
         ctx.saveGState()
@@ -228,17 +228,17 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
         let barRect = CGRect(x: 512 - barW * 0.5, y: sigilY - barH * 0.5, width: barW, height: barH)
         let barPath = CGPath(roundedRect: barRect, cornerWidth: barH * 0.5, cornerHeight: barH * 0.5, transform: nil)
         ctx.addPath(barPath)
-        ctx.setFillColor(cgColor(74, 85, 96, 0.72))
+        ctx.setFillColor(cgColor(185, 178, 166, 0.82))
         ctx.fillPath()
         let pipRect = CGRect(x: 512 - 14, y: sigilY - 4, width: 28, height: 8)
         let pipPath = CGPath(roundedRect: pipRect, cornerWidth: 4, cornerHeight: 4, transform: nil)
         ctx.addPath(pipPath)
-        ctx.setFillColor(cgColor(99, 245, 230, 0.92))
+        ctx.setFillColor(cgColor(2, 132, 199, 0.95))
         ctx.fillPath()
         ctx.restoreGState()
     }
 
-    // 4. Recessed Smoked-Glass Visor Capsule (#081418 + #2E4A4E edge)
+    // 4. Recessed Deep Sapphire-Indigo Visor Capsule (#1E3A8A -> #172554 -> #0F172A)
     let visorW: CGFloat = chassisW * 0.81
     let visorH: CGFloat = chassisH * 0.37
     let visorRect = CGRect(
@@ -254,7 +254,7 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
     ctx.clip()
     let visorGrad = CGGradient(
         colorsSpace: colorSpace,
-        colors: [cgColor(12, 26, 32), cgColor(8, 20, 24), cgColor(5, 13, 17)] as CFArray,
+        colors: [cgColor(30, 58, 138), cgColor(23, 37, 84), cgColor(15, 23, 42)] as CFArray,
         locations: [0.0, 0.55, 1.0]
     )!
     ctx.drawLinearGradient(
@@ -265,7 +265,7 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
     )
 
     // Subtle top specular hairline on glass visor
-    ctx.setStrokeColor(cgColor(255, 255, 255, 0.24))
+    ctx.setStrokeColor(cgColor(255, 255, 255, 0.28))
     ctx.setLineWidth(6)
     ctx.setLineCap(.round)
     ctx.move(to: CGPoint(x: visorRect.minX + visorH * 0.48, y: visorRect.minY + 14))
@@ -273,13 +273,13 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
     ctx.strokePath()
     ctx.restoreGState()
 
-    // Visor machined edge rim
+    // Visor machined edge rim (#3B4A7A)
     ctx.addPath(visorPath)
-    ctx.setStrokeColor(cgColor(46, 74, 78, 0.95))
+    ctx.setStrokeColor(cgColor(59, 74, 122, 0.92))
     ctx.setLineWidth(8)
     ctx.strokePath()
 
-    // 5. Twin Luminous Precision Optical Lenses (#1FB8B0 ring / #63F5E6 iris / #D8FFFB core)
+    // 5. Twin Luminous Arctic-Cyan Optical Lenses (#F7FDFF core / #67E8F9 iris / #06B6D4 ring)
     let lensOffset: CGFloat = chassisW * 0.205
     let lensW: CGFloat = chassisW * 0.215
     let lensH: CGFloat = chassisW * 0.255
@@ -289,10 +289,9 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
     for center in lensPositions {
         let rx = lensW * 0.5
         let ry = lensH * 0.5
-        // Soft optical bloom inside smoked glass
         let aura = CGGradient(
             colorsSpace: colorSpace,
-            colors: [cgColor(99, 245, 230, 0.40), cgColor(31, 184, 176, 0.12), cgColor(8, 20, 24, 0.0)] as CFArray,
+            colors: [cgColor(103, 232, 249, 0.44), cgColor(56, 189, 248, 0.14), cgColor(23, 37, 84, 0.0)] as CFArray,
             locations: [0.0, 0.55, 1.0]
         )!
         ctx.drawRadialGradient(
@@ -308,7 +307,7 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
         let lensPath = CGPath(roundedRect: lensRect, cornerWidth: rx * 0.92, cornerHeight: rx * 0.92, transform: nil)
         let lensGrad = CGGradient(
             colorsSpace: colorSpace,
-            colors: [cgColor(216, 255, 251), cgColor(99, 245, 230), cgColor(26, 176, 172)] as CFArray,
+            colors: [cgColor(247, 253, 255), cgColor(103, 232, 249), cgColor(14, 165, 233)] as CFArray,
             locations: [0.0, 0.55, 1.0]
         )!
         ctx.saveGState()
@@ -322,13 +321,11 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
         )
         ctx.restoreGState()
 
-        // Outer crisp cyan bezel ring
         ctx.addPath(lensPath)
-        ctx.setStrokeColor(cgColor(216, 255, 251, 0.55))
+        ctx.setStrokeColor(cgColor(232, 255, 255, 0.72))
         ctx.setLineWidth(5)
         ctx.strokePath()
 
-        // Bright optical specular glint
         if sizePx >= 32 {
             let glintD = lensW * 0.21
             let glintRect = CGRect(
@@ -337,12 +334,12 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
                 width: glintD,
                 height: glintD
             )
-            ctx.setFillColor(cgColor(255, 255, 255, 0.94))
+            ctx.setFillColor(cgColor(255, 255, 255, 0.96))
             ctx.fillEllipse(in: glintRect)
         }
     }
 
-    // 6. Subtle Machined Chin Micro-Vent (precision hardware detail, not a cartoon mouth)
+    // 6. Subtle Machined Chin Micro-Vent
     if sizePx >= 48 {
         let slitW: CGFloat = 76
         let slitH: CGFloat = 9
@@ -354,7 +351,7 @@ func renderPipiBotIcon(sizePx: Int, includeRoundedBackgroundMask: Bool) -> NSBit
         )
         let slitPath = CGPath(roundedRect: slitRect, cornerWidth: slitH * 0.5, cornerHeight: slitH * 0.5, transform: nil)
         ctx.addPath(slitPath)
-        ctx.setFillColor(cgColor(148, 163, 184, 0.36))
+        ctx.setFillColor(cgColor(161, 155, 145, 0.58))
         ctx.fillPath()
     }
 

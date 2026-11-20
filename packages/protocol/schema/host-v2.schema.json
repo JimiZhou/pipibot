@@ -1,0 +1,414 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipibot.ai/schemas/host-v2.schema.json",
+  "title": "PiPiBot Host Protocol v2 Canonical Contract",
+  "description": "Single source of truth for shared TypeScript (@pipibot/protocol) and Swift (PipiBotKit) enums and structured payloads. Clean-room MIT implementation inspired by the architectural concepts of simplexai-labs/linger (see root NOTICE and LICENSE).",
+  "x-pipibot-license": "MIT",
+  "x-pipibot-upstream-inspiration": "simplexai-labs/linger (clean-room architectural inspiration; zero verbatim code copied)",
+  "type": "object",
+  "$defs": {
+    "SessionState": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "queued",
+        "running",
+        "needsYou",
+        "done",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "PermissionTier": {
+      "type": "string",
+      "enum": [
+        "readOnly",
+        "ask",
+        "autoEdit"
+      ]
+    },
+    "SchedulerPriority": {
+      "type": "string",
+      "description": "Strict 7-tier execution priority order (highest to lowest). Approval reviews and interactive foreground work take precedence over background work.",
+      "enum": [
+        "approval_review",
+        "voice_interactive",
+        "chat_interactive",
+        "delegated_task",
+        "proactive_routine",
+        "compaction",
+        "background_memory"
+      ]
+    },
+    "RiskLevel": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "UserAuthorizationLevel": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low",
+        "unknown"
+      ]
+    },
+    "GuardrailDecision": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "needs_approval",
+        "deny"
+      ]
+    },
+    "ApprovalGranularity": {
+      "type": "string",
+      "enum": [
+        "allow_once",
+        "allow_session",
+        "allow_project",
+        "allow_always",
+        "deny"
+      ]
+    },
+    "ActionKind": {
+      "type": "string",
+      "enum": [
+        "read_only",
+        "prepare_draft",
+        "local_write",
+        "shell_command",
+        "external_effect",
+        "credential_access",
+        "security_change",
+        "destructive"
+      ]
+    },
+    "ActionSourceTrust": {
+      "type": "string",
+      "enum": [
+        "trusted_user",
+        "trusted_user_routine",
+        "agent_generated_routine",
+        "untrusted_external"
+      ]
+    },
+    "OperationLedgerStatus": {
+      "type": "string",
+      "enum": [
+        "in_flight",
+        "completed",
+        "denied",
+        "unknown_outcome"
+      ]
+    },
+    "TeamCollaborationPattern": {
+      "type": "string",
+      "description": "Structured multi-bot collaboration patterns for Wave 3 team.md protocol.",
+      "enum": [
+        "classify-and-act",
+        "fan-out-and-synthesize",
+        "adversarial-verification",
+        "tournament",
+        "loop-until-done"
+      ]
+    },
+    "WikiEntityCategory": {
+      "type": "string",
+      "description": "Personal-oriented entity taxonomy for PiPiBot Personal Wiki (Wave 2 #01).",
+      "enum": [
+        "people",
+        "projects",
+        "topics",
+        "life",
+        "repos"
+      ]
+    },
+    "WikiSearchScope": {
+      "type": "string",
+      "description": "Dual-channel Personal Wiki search scope (originals chunks + facts vs wiki summaries).",
+      "enum": [
+        "all",
+        "originals",
+        "summaries"
+      ]
+    },
+    "BotMemoryLifecycleStage": {
+      "type": "string",
+      "description": "Per-Bot isolated experiential memory entry lifecycle (Wave 2 #02).",
+      "enum": [
+        "candidate",
+        "consolidated",
+        "archived"
+      ]
+    },
+    "ProactiveSourceKind": {
+      "type": "string",
+      "description": "Wave 2 (#03) first-batch macOS native signal sources for proactive awareness and Prepare.",
+      "enum": [
+        "calendar_eventkit",
+        "reminders_eventkit",
+        "git_workspace",
+        "device_telemetry",
+        "chat_pocket_note"
+      ]
+    },
+    "ProactiveActionDecision": {
+      "type": "string",
+      "description": "Structured proactive evaluation outcome including read-only Prepare pre-briefing.",
+      "enum": [
+        "remind_directly",
+        "prepare_briefing",
+        "track_for_follow_up",
+        "stay_silent"
+      ]
+    },
+    "ProactiveFeedbackSignal": {
+      "type": "string",
+      "description": "Explicit or implicit user response to a proactive nudge or prepared briefing used for Clue -> Rule dreaming.",
+      "enum": [
+        "acted",
+        "thanked",
+        "dismissed",
+        "snoozed",
+        "muted_topic",
+        "ignored"
+      ]
+    },
+    "DelegationTaskStatus": {
+      "type": "string",
+      "description": "Lifecycle state for Wave 3 (#05) Meta / AlterEgo in-chat background delegated tasks.",
+      "enum": [
+        "queued",
+        "running",
+        "paused",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "DynamicBotProposalAction": {
+      "type": "string",
+      "description": "Wave 3 (#06) action kind when an orchestrator dynamically proposes inviting or creating a missing role Bot.",
+      "enum": [
+        "invite_existing",
+        "create_and_invite"
+      ]
+    },
+    "DynamicBotProposalStatus": {
+      "type": "string",
+      "description": "Approval status of a Wave 3 (#06) dynamic Bot invitation or creation proposal.",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected"
+      ]
+    },
+    "TrackingItemStatus": {
+      "type": "string",
+      "description": "Wave 3 (#11) lifecycle status for daily Pocket Note extracted tracking items.",
+      "enum": [
+        "open",
+        "done",
+        "archived"
+      ]
+    },
+    "ArtifactDocumentKind": {
+      "type": "string",
+      "description": "Wave 3 (#11) editable artifact document taxonomy.",
+      "enum": [
+        "note",
+        "report",
+        "spec",
+        "plan",
+        "draft"
+      ]
+    },
+    "ModelSourceMode": {
+      "type": "string",
+      "description": "Wave 4 (#07) unified active model source mode for a computer.",
+      "enum": [
+        "local_model",
+        "subscription",
+        "byok"
+      ]
+    },
+    "LocalInferenceEngineKind": {
+      "type": "string",
+      "description": "Wave 4 (#07) supported local inference engine backends including MIT PolyStrata and Apple Silicon native fallbacks.",
+      "enum": [
+        "polystrata",
+        "llama_cpp",
+        "ollama",
+        "mlx"
+      ]
+    },
+    "ModelSelfTestStatus": {
+      "type": "string",
+      "description": "Wave 4 (#07) real QA verification status before a local model counts as ready.",
+      "enum": [
+        "untested",
+        "running",
+        "verified",
+        "failed"
+      ]
+    },
+    "VoiceInteractionMode": {
+      "type": "string",
+      "description": "Wave 4 (#10) personal daily voice interaction modes (non-meeting).",
+      "enum": [
+        "dictation",
+        "muse_hands_free",
+        "voice_to_task"
+      ]
+    },
+    "VoiceSessionState": {
+      "type": "string",
+      "description": "Wave 4 (#10) lifecycle state of an active daily voice session including echo-gated barge-in.",
+      "enum": [
+        "idle",
+        "listening",
+        "transcribing",
+        "thinking",
+        "speaking",
+        "interrupted",
+        "error"
+      ]
+    },
+    "VoiceEngineProvider": {
+      "type": "string",
+      "description": "Wave 4 (#10) on-device-first and optional BYOK cloud STT/TTS providers.",
+      "enum": [
+        "apple_on_device",
+        "whisper_kit",
+        "mlx_audio",
+        "openai_byok",
+        "deepgram_byok",
+        "elevenlabs_byok",
+        "custom_byok"
+      ]
+    },
+    "VoicePrivacyPolicy": {
+      "type": "string",
+      "description": "Wave 4 (#10) strict routing policy controlling whether voice audio may ever leave the device.",
+      "enum": [
+        "on_device_only",
+        "on_device_first",
+        "cloud_preferred"
+      ]
+    },
+    "ComputerUsePhase": {
+      "type": "string",
+      "description": "Wave 5 (#09) Computer Use dual-phase target surface: Phase A signed-in Chrome vs Phase B macOS Accessibility desktop.",
+      "enum": [
+        "chrome_browser",
+        "macos_desktop"
+      ]
+    },
+    "BrowserSeatMode": {
+      "type": "string",
+      "description": "Wave 5 (#09) Phase A Chrome profile isolation strategy (per-agent seat in signed-in Chrome or isolated profile).",
+      "enum": [
+        "signed_in_chrome_seat",
+        "isolated_profile"
+      ]
+    },
+    "ComputerUseActionType": {
+      "type": "string",
+      "description": "Wave 5 (#09) structured browser/desktop input primitive; arbitrary page-script execution is intentionally omitted.",
+      "enum": [
+        "snapshot",
+        "navigate",
+        "click",
+        "double_click",
+        "type_text",
+        "press_key",
+        "scroll",
+        "drag",
+        "submit_form",
+        "focus_window"
+      ]
+    },
+    "ComputerUseLaneKind": {
+      "type": "string",
+      "description": "Wave 5 (#09) concurrency lane taxonomy: one global desktop screen lane and independent per-agent browser lanes.",
+      "enum": [
+        "desktop_screen",
+        "agent_browser"
+      ]
+    },
+    "ComputerUseLaneState": {
+      "type": "string",
+      "description": "Wave 5 (#09) live state of a Computer Use concurrency lane including human-focus yield and unknown-outcome lock.",
+      "enum": [
+        "idle",
+        "active",
+        "yielded_to_human",
+        "blocked_unknown_outcome"
+      ]
+    },
+    "WriteAheadJournalStatus": {
+      "type": "string",
+      "description": "Wave 5 (#09) Write-Ahead Journal entry status preventing duplicate clicks and uncertain replays.",
+      "enum": [
+        "prepared",
+        "dispatched",
+        "committed",
+        "yielded_to_human",
+        "blocked_guardrail",
+        "unknown_outcome"
+      ]
+    },
+    "GuardrailVerdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "riskLevel",
+        "userAuthorization",
+        "decision",
+        "rationale",
+        "operationId"
+      ],
+      "properties": {
+        "riskLevel": { "$ref": "#/$defs/RiskLevel" },
+        "userAuthorization": { "$ref": "#/$defs/UserAuthorizationLevel" },
+        "decision": { "$ref": "#/$defs/GuardrailDecision" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "operationId": { "type": "string", "minLength": 1 },
+        "ruleId": { "type": "string" },
+        "usedLLMJudge": { "type": "boolean" },
+        "matchedWhitelistRuleId": { "type": "string" }
+      }
+    },
+    "ApprovalWhitelistRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "granularity",
+        "toolName",
+        "actionKind",
+        "createdAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "granularity": {
+          "type": "string",
+          "enum": ["allow_session", "allow_project", "allow_always"]
+        },
+        "toolName": { "type": "string", "minLength": 1 },
+        "actionKind": { "$ref": "#/$defs/ActionKind" },
+        "targetPattern": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    }
+  }
+}

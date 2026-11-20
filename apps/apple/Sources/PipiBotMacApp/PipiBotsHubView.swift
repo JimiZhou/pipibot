@@ -25,8 +25,10 @@ private enum PipiBotLiveState {
 public struct PipiBotsHubView: View {
     @Bindable public var store: PipiAppStore
     public var collaboratingBotIds: Set<String>
+    public var externalResetTrigger: Int
     public var onOpenBotChat: (PipiBotPersona) -> Void
     public var onQuickSendToBot: (PipiBotPersona, String) -> Void
+    public var onStartVoiceCall: (PipiBotPersona) -> Void
     public var onCreateBot: () -> Void
     public var onEditBot: (PipiBotPersona) -> Void
     public var onDeleteBot: (PipiBotPersona) -> Void
@@ -43,8 +45,10 @@ public struct PipiBotsHubView: View {
     public init(
         store: PipiAppStore,
         collaboratingBotIds: Set<String> = [],
+        externalResetTrigger: Int = 0,
         onOpenBotChat: @escaping (PipiBotPersona) -> Void = { _ in },
         onQuickSendToBot: @escaping (PipiBotPersona, String) -> Void = { _, _ in },
+        onStartVoiceCall: @escaping (PipiBotPersona) -> Void = { _ in },
         onCreateBot: @escaping () -> Void = {},
         onEditBot: @escaping (PipiBotPersona) -> Void = { _ in },
         onDeleteBot: @escaping (PipiBotPersona) -> Void = { _ in },
@@ -53,8 +57,10 @@ public struct PipiBotsHubView: View {
     ) {
         self.store = store
         self.collaboratingBotIds = collaboratingBotIds
+        self.externalResetTrigger = externalResetTrigger
         self.onOpenBotChat = onOpenBotChat
         self.onQuickSendToBot = onQuickSendToBot
+        self.onStartVoiceCall = onStartVoiceCall
         self.onCreateBot = onCreateBot
         self.onEditBot = onEditBot
         self.onDeleteBot = onDeleteBot
@@ -92,8 +98,10 @@ public struct PipiBotsHubView: View {
                     store: store,
                     collaboratingBotIds: collaboratingBotIds,
                     showTopHUD: false,
+                    externalResetTrigger: externalResetTrigger,
                     onOpenBotChat: onOpenBotChat,
                     onQuickSendToBot: onQuickSendToBot,
+                    onStartVoiceCall: onStartVoiceCall,
                     onCreateBot: onCreateBot,
                     onEditBot: onEditBot,
                     onCreateGroupChat: onCreateGroupChat
@@ -145,14 +153,12 @@ public struct PipiBotsHubView: View {
 
             Spacer(minLength: PipiTokens.spacing12)
 
-            Picker("", selection: $mode) {
-                ForEach(PipiBotsHubMode.allCases) { item in
-                    Text(item.label(s)).tag(item)
-                }
+            PipiSegmentedControl(
+                options: PipiBotsHubMode.allCases,
+                selection: $mode
+            ) { item in
+                item.label(s)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 156)
 
             PipiActionButton(
                 s.newGroupChat,
@@ -285,7 +291,7 @@ public struct PipiBotsHubView: View {
                     Button {
                         onCreateGroupChat(bot.id)
                     } label: {
-                        Label(s.t("拉入群聊", "Group Chat"), systemImage: "person.2")
+                        Label(s.t("发起群聊", "Group Chat"), systemImage: "person.2")
                     }
 
                     if store.personas.count > 1 {
@@ -538,20 +544,19 @@ public struct PipiBotDetailSheet: View {
                             .textCase(.uppercase)
 
                         VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                            Picker("", selection: Binding(
-                                get: { livePersona.permissionTier },
-                                set: { newTier in
-                                    var updated = livePersona
-                                    updated.permissionTier = newTier
-                                    store.upsertPersona(updated)
-                                }
-                            )) {
-                                ForEach(PipiPermissionTier.allCases) { tier in
-                                    Text(tier.label(lang)).tag(tier)
-                                }
+                            PipiSegmentedControl(
+                                options: PipiPermissionTier.allCases,
+                                selection: Binding(
+                                    get: { livePersona.permissionTier },
+                                    set: { newTier in
+                                        var updated = livePersona
+                                        updated.permissionTier = newTier
+                                        store.upsertPersona(updated)
+                                    }
+                                )
+                            ) { tier in
+                                tier.label(lang)
                             }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
 
                             Text(livePersona.permissionTier.description(lang))
                                 .font(PipiTokens.fontCaption)

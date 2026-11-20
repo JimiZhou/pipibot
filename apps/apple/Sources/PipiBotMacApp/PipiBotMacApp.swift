@@ -16,6 +16,7 @@ final class PipiMacAppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            PipiGlobalScrollbarSuppressor.shared.install()
             for window in NSApp.windows where window.canBecomeMain {
                 Self.configureNativeWindowChrome(window)
                 window.makeKeyAndOrderFront(nil)
@@ -50,6 +51,7 @@ struct PipiBotMacApp: App {
     @State private var store: PipiAppStore
     @State private var quickBarController = PipiQuickBarController()
     @State private var showSettingsSheet = false
+    @State private var showAboutSheet = false
     @State private var settingsInitialTab: PipiSettingsTab = .general
     @State private var menuBarDraft = ""
     @Environment(\.openWindow) private var openWindow
@@ -73,6 +75,10 @@ struct PipiBotMacApp: App {
             MainActor.assumeIsolated {
                 PipiGlobalHotkeyManager.shared.unregister()
                 residentStore.stopLiveSync()
+                residentStore.stopRemoteTunnel()
+                residentStore.disconnectWeChatILink(forgetBinding: false)
+                residentStore.localModelPlatformManager.stopAllManagedServers()
+                residentStore.telemetryMonitor.stopPolling()
                 residentStore.bridgeSupervisor.stopBridge()
                 residentStore.flush()
             }
@@ -87,6 +93,7 @@ struct PipiBotMacApp: App {
             mainRootView
                 .frame(minWidth: 960, minHeight: 660)
                 .onAppear {
+                    PipiGlobalScrollbarSuppressor.shared.install()
                     appDelegate.onGlobalQuickBarHotkey = {
                         toggleQuickBar()
                     }
@@ -98,6 +105,12 @@ struct PipiBotMacApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             SidebarCommands()
+
+            CommandGroup(replacing: .appInfo) {
+                Button(s.aboutTitle) {
+                    showAboutSheet = true
+                }
+            }
 
             CommandGroup(replacing: .newItem) {
                 Button(s.newChat) {
@@ -204,7 +217,7 @@ struct PipiBotMacApp: App {
         ZStack(alignment: .top) {
             ZStack {
                 if !store.hasCompletedOnboarding {
-                    PipiOnboardingView(store: store)
+                    PipiOnboardingView(store: store, initialStep: store.onboardingInitialStep)
                         .transition(.opacity)
                 } else {
                     PipiWorkspaceView(
@@ -250,6 +263,14 @@ struct PipiBotMacApp: App {
             )
             .environment(\.pipiTextScale, store.uiZoomScale)
             .frame(minWidth: 800, minHeight: 560)
+        }
+        .sheet(isPresented: $showAboutSheet) {
+            PipiAboutSheetView(
+                store: store,
+                onClose: { showAboutSheet = false }
+            )
+            .environment(\.pipiTextScale, store.uiZoomScale)
+            .frame(minWidth: 580, minHeight: 560)
         }
     }
 

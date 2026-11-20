@@ -511,6 +511,9 @@ public struct PipiGroupChat: Codable, Identifiable, Equatable, Sendable {
     public var deliverables: [PipiGroupDeliverable]
     public var skills: [PipiGroupSkill]
     public var sharedMemories: [PipiGroupMemoryItem]
+    /// Wave 3 (#06): Structured `team.md` collaboration protocol document & dynamic bot proposals.
+    public var teamProtocolMarkdown: String?
+    public var dynamicBotProposals: [PipiDynamicBotProposal]
     public var isPinned: Bool
     public var isArchived: Bool
     public let createdAt: String
@@ -519,6 +522,7 @@ public struct PipiGroupChat: Codable, Identifiable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, title, participantPersonaIds, leadPersonaId, swarmMode, projectId
         case messages, assignments, topics, activeTopicId, longTasks, deliverables, skills, sharedMemories
+        case teamProtocolMarkdown, dynamicBotProposals
         case isPinned, isArchived, createdAt, updatedAt
     }
 
@@ -537,6 +541,8 @@ public struct PipiGroupChat: Codable, Identifiable, Equatable, Sendable {
         deliverables: [PipiGroupDeliverable] = [],
         skills: [PipiGroupSkill] = PipiGroupSkill.defaultSkills,
         sharedMemories: [PipiGroupMemoryItem] = [],
+        teamProtocolMarkdown: String? = nil,
+        dynamicBotProposals: [PipiDynamicBotProposal] = [],
         isPinned: Bool = false,
         isArchived: Bool = false,
         createdAt: String = ISO8601DateFormatter().string(from: Date()),
@@ -560,6 +566,8 @@ public struct PipiGroupChat: Codable, Identifiable, Equatable, Sendable {
         self.deliverables = deliverables
         self.skills = skills
         self.sharedMemories = sharedMemories
+        self.teamProtocolMarkdown = teamProtocolMarkdown
+        self.dynamicBotProposals = dynamicBotProposals
         self.isPinned = isPinned
         self.isArchived = isArchived
         self.createdAt = createdAt
@@ -586,6 +594,8 @@ public struct PipiGroupChat: Codable, Identifiable, Equatable, Sendable {
         self.deliverables = try c.decodeIfPresent([PipiGroupDeliverable].self, forKey: .deliverables) ?? []
         self.skills = try c.decodeIfPresent([PipiGroupSkill].self, forKey: .skills) ?? PipiGroupSkill.defaultSkills
         self.sharedMemories = try c.decodeIfPresent([PipiGroupMemoryItem].self, forKey: .sharedMemories) ?? []
+        self.teamProtocolMarkdown = try c.decodeIfPresent(String.self, forKey: .teamProtocolMarkdown)
+        self.dynamicBotProposals = try c.decodeIfPresent([PipiDynamicBotProposal].self, forKey: .dynamicBotProposals) ?? []
         self.isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.isArchived = try c.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         self.createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""

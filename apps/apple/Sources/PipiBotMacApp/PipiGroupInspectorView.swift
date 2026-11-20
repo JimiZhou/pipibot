@@ -57,6 +57,13 @@ public struct PipiGroupInspectorView: View {
     @State private var memoryContentDraft = ""
     @State private var memoryPinnedDraft = true
 
+    // Wave 3 (#06) team.md Protocol Editor & Runner State
+    @State private var selectedTeamPattern: PipiTeamCollaborationPattern = .fanOutAndSynthesize
+    @State private var showTeamProtocolEditor = false
+    @State private var teamProtocolDraft = ""
+    @State private var teamProtocolPromptDraft = ""
+    @State private var isRunningTeamProtocol = false
+
     public init(
         store: PipiAppStore,
         groupId: String,
@@ -99,6 +106,8 @@ public struct PipiGroupInspectorView: View {
                             switch selectedTab {
                             case .membersTasks:
                                 membersSection(group: group, members: members)
+                                dynamicBotProposalsSection(group: group)
+                                teamProtocolSection(group: group)
                                 longTasksSection(group: group, members: members)
                                 topicAndContextSection(group: group, members: members)
                             case .deliverables:
@@ -114,6 +123,11 @@ public struct PipiGroupInspectorView: View {
                 }
                 .sheet(item: $previewDeliverable) { deliverable in
                     deliverablePreviewSheet(deliverable, group: group)
+                        .environment(\.pipiTextScale, store.uiZoomScale)
+                }
+                .sheet(isPresented: $showTeamProtocolEditor) {
+                    teamProtocolEditorSheet(group: group)
+                        .frame(minWidth: 540, minHeight: 500)
                         .environment(\.pipiTextScale, store.uiZoomScale)
                 }
             } else {
@@ -1257,6 +1271,218 @@ public struct PipiGroupInspectorView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Wave 3 (#06): Dynamic Bot Proposals & team.md Protocol
+
+    @ViewBuilder
+    private func dynamicBotProposalsSection(group: PipiGroupChat) -> some View {
+        let pending = group.dynamicBotProposals.filter { $0.status == .pending }
+        if !pending.isEmpty {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                sectionTitle("\(s.dynamicBotProposalsTitle) (\(pending.count))")
+
+                ForEach(pending) { prop in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.badge.plus")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(PipiTokens.stateWarning)
+                            Text(prop.proposedName)
+                                .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(prop.action.label(lang))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.stateWarning)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(PipiTokens.stateWarningBg, in: Capsule())
+                        }
+
+                        Text(prop.rationale)
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+
+                        HStack(spacing: PipiTokens.spacing8) {
+                            PipiActionButton(s.approveAndJoinAction, systemImage: "checkmark", tone: .primary, density: .desktopCompact) {
+                                _ = store.resolveDynamicBotProposal(groupId: group.id, proposalId: prop.id, approve: true)
+                            }
+                            PipiActionButton(s.reject, tone: .ghost, density: .desktopCompact) {
+                                _ = store.resolveDynamicBotProposal(groupId: group.id, proposalId: prop.id, approve: false)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(PipiTokens.bgElevated, in: RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                            .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+                    )
+                }
+            }
+        }
+    }
+
+    private func teamProtocolSection(group: PipiGroupChat) -> some View {
+        let validation = store.validateGroupTeamProtocol(groupId: group.id)
+
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+            HStack {
+                sectionTitle(s.teamProtocolTitle)
+                Spacer()
+                if let validation {
+                    Text(validation.valid ? s.t("协议有效", "Valid") : s.t("\(validation.issues.count) 处待修正", "\(validation.issues.count) issue(s)"))
+                        .font(PipiTokens.fontMicro)
+                        .foregroundStyle(validation.valid ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Menu {
+                    ForEach(PipiTeamCollaborationPattern.allCases, id: \.self) { pat in
+                        Button {
+                            selectedTeamPattern = pat
+                        } label: {
+                            if selectedTeamPattern == pat {
+                                Label(pat.label(lang), systemImage: "checkmark")
+                            } else {
+                                Text(pat.label(lang))
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Text(selectedTeamPattern.label(lang))
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                            .lineLimit(1)
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
+                    .background(PipiTokens.buttonSecondaryBg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                }
+                .pipiPlainMenu()
+
+                HStack(spacing: PipiTokens.spacing8) {
+                    PipiActionButton(s.teamProtocolGenerate, systemImage: "doc.badge.plus", tone: .secondary, density: .desktopCompact, fullWidth: true) {
+                        if let md = store.generateGroupTeamTemplate(groupId: group.id, pattern: selectedTeamPattern) {
+                            teamProtocolDraft = md
+                        }
+                    }
+                    PipiActionButton(s.t("编辑协议", "Edit"), systemImage: "pencil", tone: .secondary, density: .desktopCompact, fullWidth: true) {
+                        teamProtocolDraft = group.teamProtocolMarkdown ?? (store.generateGroupTeamTemplate(groupId: group.id, pattern: selectedTeamPattern) ?? "")
+                        showTeamProtocolEditor = true
+                    }
+                }
+
+                if let doc = validation?.document {
+                    Text("\(doc.pattern.label(lang)) · \(doc.members.count) members · \(validation?.executionWaves.count ?? 0) wave(s)")
+                        .font(PipiTokens.fontMonoSmall)
+                        .foregroundStyle(PipiTokens.textMuted)
+                }
+
+                if validation?.valid == true {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        TextField(s.t("输入本次协作指令...", "Protocol run prompt..."), text: $teamProtocolPromptDraft)
+                            .textFieldStyle(.plain)
+                            .font(PipiTokens.fontCaption)
+                            .padding(.horizontal, 8)
+                            .frame(height: 28)
+                            .background(PipiTokens.bgInset)
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+
+                        PipiActionButton(
+                            isRunningTeamProtocol ? s.t("执行中...", "Running...") : s.teamProtocolRun,
+                            systemImage: "play.fill",
+                            tone: .primary,
+                            density: .desktopCompact
+                        ) {
+                            guard !isRunningTeamProtocol else { return }
+                            let prompt = teamProtocolPromptDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? (validation?.document?.taskGoal ?? group.title)
+                                : teamProtocolPromptDraft
+                            isRunningTeamProtocol = true
+                            Task {
+                                _ = try? await store.runGroupTeamProtocol(groupId: group.id, userPrompt: prompt)
+                                teamProtocolPromptDraft = ""
+                                isRunningTeamProtocol = false
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            .background(PipiTokens.bgElevated, in: RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                    .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+            )
+        }
+    }
+
+    private func teamProtocolEditorSheet(group: PipiGroupChat) -> some View {
+        let previewValidation = PipiTeamProtocol.parseAndValidate(
+            teamProtocolDraft,
+            roomMemberActorIds: group.participantPersonaIds
+        )
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+            HStack {
+                Text("team.md · \(group.title)")
+                    .font(PipiTokens.fontTitle)
+                    .foregroundStyle(PipiTokens.textPrimary)
+                Spacer()
+                PipiGhostIconButton(systemImage: "xmark", size: 28, iconSize: 12, accessibilityLabel: s.close) {
+                    showTeamProtocolEditor = false
+                }
+            }
+
+            TextEditor(text: $teamProtocolDraft)
+                .font(PipiTokens.fontMono)
+                .scrollContentBackground(.hidden)
+                .padding(PipiTokens.spacing8)
+                .frame(minHeight: 260)
+                .background(PipiTokens.bgInset)
+                .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous).stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+
+            if !previewValidation.issues.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(previewValidation.issues.prefix(4)) { issue in
+                        Text("• [\(issue.code)] \(issue.message)")
+                            .font(PipiTokens.fontMicro)
+                            .foregroundStyle(PipiTokens.stateWarning)
+                    }
+                }
+            } else {
+                Text(s.t("校验通过 · DAG 执行波次：\(previewValidation.executionWaves.count) 波",
+                         "Valid team.md · DAG execution waves: \(previewValidation.executionWaves.count)"))
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.stateSuccess)
+            }
+
+            HStack {
+                PipiActionButton(s.cancel, tone: .secondary, density: .desktopCompact) {
+                    showTeamProtocolEditor = false
+                }
+                Spacer()
+                PipiActionButton(s.save, systemImage: "checkmark", tone: .primary, density: .desktopCompact) {
+                    _ = store.updateGroupTeamProtocol(groupId: group.id, markdown: teamProtocolDraft)
+                    showTeamProtocolEditor = false
+                }
+            }
+        }
+        .padding(PipiTokens.spacing24)
+        .background(PipiTokens.bgCanvas)
+        .preferredColorScheme(store.themeMode.colorSchemeOverride)
     }
 
     // MARK: - Helpers

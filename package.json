@@ -21,16 +21,20 @@
     "check:avatar": "node --check design-system/pipibot-avatar.js",
     "check:ios": "node --check apps/ios-web/app.js",
     "audit:design": "node scripts/audit-design-system.mjs",
+    "audit:protocol": "node scripts/audit-protocol-parity.mjs",
     "start:daemon": "node --experimental-strip-types packages/daemon/src/cli.ts",
+    "pipibot": "node --experimental-strip-types packages/core/src/pipibot-cli.ts",
+    "test:core": "node --experimental-strip-types --test packages/core/test/wave1.test.ts packages/core/test/wave2.test.ts packages/core/test/wave3.test.ts packages/core/test/wave4.test.ts packages/core/test/wave5.test.ts",
     "test:daemon": "node --experimental-strip-types --test packages/daemon/test/daemon.test.ts",
     "build:apple": "cd apps/apple && swift build",
     "test:apple": "cd apps/apple && swift test",
     "app:mac": "bash scripts/build-mac-app.sh",
+    "app:dmg": "bash scripts/build-mac-dmg.sh",
     "app:ios": "bash scripts/build-ios-app.sh",
     "check:workspaces": "npm run check --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "verify": "npm run check:avatar && npm run check:ios && npm run audit:design && npm run check:workspaces && npm run test:daemon && npm run typecheck"
+    "verify": "npm run check:avatar && npm run check:ios && npm run audit:design && npm run audit:protocol && npm run check:workspaces && npm run test:core && npm run test:daemon && npm run typecheck"
   },
   "keywords": [
     "ai-agent",

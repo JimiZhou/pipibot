@@ -13,6 +13,23 @@ public struct PipiBotCreatorSheet: View {
     @Environment(\.pipiTextScale) private var textScale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private enum EditorTab: String, CaseIterable, Identifiable {
+        case basic
+        case capabilities
+        case sharing
+
+        var id: String { rawValue }
+
+        func label(_ s: PipiStrings) -> String {
+            switch self {
+            case .basic: return s.t("基础人设", "Persona")
+            case .capabilities: return s.t("音色与能力", "Voice & Skills")
+            case .sharing: return s.t("共享与升级", "Sharing")
+            }
+        }
+    }
+
+    @State private var editorTab: EditorTab = .basic
     @State private var selectedCategory: PipiBotPersonaTemplate.Category? = nil
     @State private var selectedTemplateId: String = PipiBotPersonaTemplate.catalog.first?.id ?? "tpl_general"
     @State private var name: String = ""
@@ -23,6 +40,11 @@ public struct PipiBotCreatorSheet: View {
     @State private var idleState: AvatarState53 = .ambientBreathe
     @State private var preferredTarget: PipiExecutionTarget = .auto
     @State private var permissionTier: PipiPermissionTier = .ask
+    @State private var voiceProfileId: String = ""
+    @State private var assignedSkillSlugs: Set<String> = []
+    @State private var enabledTools: Set<String> = [PipiBotToolKind.personalWiki.rawValue, PipiBotToolKind.voiceCall.rawValue]
+    @State private var enabledConnectors: Set<String> = []
+    @State private var sharingPolicy: PipiBotSharingPolicy = .default
     @State private var previewEngine = PipiProceduralAvatarEngine(initialState: .ambientBreathe)
 
     public init(
@@ -110,6 +132,11 @@ public struct PipiBotCreatorSheet: View {
                 idleState = existing.idleAvatarState
                 preferredTarget = existing.preferredTarget
                 permissionTier = existing.permissionTier
+                voiceProfileId = existing.voiceProfileId ?? ""
+                assignedSkillSlugs = Set(existing.assignedSkillSlugs)
+                enabledTools = Set(existing.enabledTools)
+                enabledConnectors = Set(existing.enabledConnectors)
+                sharingPolicy = existing.sharingPolicy
                 previewEngine.setState(existing.idleAvatarState)
             } else if let first = PipiBotPersonaTemplate.catalog.first {
                 applyTemplate(first)
@@ -283,151 +310,440 @@ public struct PipiBotCreatorSheet: View {
             VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
                 livePreviewCard
 
-                VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                    Text(s.personaName)
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-                    TextField(s.t("例如：架构师 / 英语口语教练", "e.g., Systems Architect / Language Coach"), text: $name)
-                        .textFieldStyle(.plain)
-                        .font(PipiTokens.fontBody)
-                        .padding(.horizontal, PipiTokens.spacing12)
-                        .frame(height: 36)
-                        .background(PipiTokens.bgSurface)
-                        .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusSM).stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM))
+                PipiSegmentedControl(options: EditorTab.allCases, selection: $editorTab) { tab in
+                    tab.label(s)
                 }
 
-                VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                    Text(s.personaRole)
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-                    TextField(s.t("一句话描述这个智能体擅长做什么", "One-line summary of what this agent helps with"), text: $role)
-                        .textFieldStyle(.plain)
-                        .font(PipiTokens.fontBody)
-                        .padding(.horizontal, PipiTokens.spacing12)
-                        .frame(height: 36)
-                        .background(PipiTokens.bgSurface)
-                        .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusSM).stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM))
-                }
-
-                VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                    Text(s.personaSystemPrompt)
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-                    TextEditor(text: $systemPrompt)
-                        .font(PipiTokens.fontBody)
-                        .scrollContentBackground(.hidden)
-                        .padding(PipiTokens.spacing8)
-                        .frame(height: 108)
-                        .background(PipiTokens.bgSurface)
-                        .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusSM).stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM))
-                }
-
-                HStack(alignment: .top, spacing: PipiTokens.spacing16) {
-                    VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                        Text(s.personaAccent)
-                            .font(PipiTokens.fontCaption.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textSecondary)
-                        HStack(spacing: PipiTokens.spacing8) {
-                            ForEach(PipiPersonaAccent.allCases) { item in
-                                let itemColor = PipiTokens.color(for: item)
-                                Button {
-                                    accent = item
-                                } label: {
-                                    Circle()
-                                        .fill(itemColor)
-                                        .frame(width: 24, height: 24)
-                                        .overlay(
-                                            Circle()
-                                                .stroke(PipiTokens.textPrimary, lineWidth: accent == item ? 2 : 0)
-                                                .padding(-3)
-                                        )
-                                }
-                                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.90))
-                                .accessibilityLabel(item.label(lang))
-                                .accessibilityAddTraits(accent == item ? [.isSelected] : [])
-                            }
-                        }
-                    }
-
-                    Spacer()
-
-                    VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                        Text(s.personaDefaultEngine)
-                            .font(PipiTokens.fontCaption.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textSecondary)
-                        Picker("", selection: $preferredTarget) {
-                            Text(s.autoRouteEngine).tag(PipiExecutionTarget.auto)
-                            ForEach(store.readyLLMProviders) { cfg in
-                                Text("\(cfg.name) · \(cfg.modelId)").tag(PipiExecutionTarget.llm(providerId: cfg.id))
-                            }
-                            ForEach(store.usableLocalAgents) { ag in
-                                Text(ag.kind.displayName).tag(PipiExecutionTarget.localAgent(ag.kind))
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 210)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                    Text(s.personaShape)
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-
-                    HStack(spacing: PipiTokens.spacing8) {
-                        ForEach(AvatarShape.allCases) { candidate in
-                            let isChosen = shape == candidate
-                            Button {
-                                shape = candidate
-                            } label: {
-                                VStack(spacing: 3) {
-                                    Image(systemName: iconForAvatarShape(candidate))
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(isChosen ? activeAccentColor : PipiTokens.textSecondary)
-                                    Text(labelForAvatarShape(candidate))
-                                        .font(PipiTokens.fontMicro)
-                                        .foregroundStyle(isChosen ? PipiTokens.textPrimary : PipiTokens.textMuted)
-                                        .lineLimit(1)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
-                                .background(isChosen ? activeAccentColor.opacity(0.14) : PipiTokens.bgSurface)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
-                                        .stroke(isChosen ? activeAccentColor.opacity(0.70) : PipiTokens.borderSubtle, lineWidth: 1)
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-                            }
-                            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.95))
-                            .accessibilityLabel(labelForAvatarShape(candidate))
-                            .accessibilityAddTraits(isChosen ? [.isSelected] : [])
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
-                    Text(s.permissionTierTitle)
-                        .font(PipiTokens.fontCaption.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-
-                    Picker("", selection: $permissionTier) {
-                        ForEach(PipiPermissionTier.allCases) { tier in
-                            Text(tier.label(lang)).tag(tier)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-
-                    Text(permissionTier.description(lang))
-                        .font(PipiTokens.fontMicro)
-                        .foregroundStyle(PipiTokens.textMuted)
+                switch editorTab {
+                case .basic:
+                    basicPersonaFields
+                case .capabilities:
+                    capabilitiesFields
+                case .sharing:
+                    sharingAndUpgradesFields
                 }
             }
             .padding(PipiTokens.spacing24)
         }
+        .pipiHideScrollbars()
+    }
+
+    private var preferredTargetLabel: String {
+        switch preferredTarget {
+        case .auto: return s.autoRouteEngine
+        case .llm(let pid):
+            if let cfg = store.readyLLMProviders.first(where: { $0.id == pid }) {
+                return "\(cfg.name) · \(cfg.modelId)"
+            }
+            return s.autoRouteEngine
+        case .localAgent(let kind):
+            return kind.displayName
+        }
+    }
+
+    private var basicPersonaFields: some View {
+        VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
+                Text(s.personaName)
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textSecondary)
+                PipiTextField(s.t("例如：架构师 / 英语口语教练", "e.g., Systems Architect / Language Coach"), text: $name, height: 34)
+            }
+
+            VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
+                Text(s.personaRole)
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textSecondary)
+                PipiTextField(s.t("一句话描述该助手的职责", "One-line summary of this assistant's role"), text: $role, height: 34)
+            }
+
+            VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
+                Text(s.personaSystemPrompt)
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textSecondary)
+                TextEditor(text: $systemPrompt)
+                    .font(PipiTokens.fontBody)
+                    .scrollContentBackground(.hidden)
+                    .pipiHideScrollbars()
+                    .padding(PipiTokens.spacing8)
+                    .frame(height: 100)
+                    .background(PipiTokens.composerSurface)
+                    .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous).strokeBorder(PipiTokens.composerBorder, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+            }
+
+            HStack(alignment: .top, spacing: PipiTokens.spacing16) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                    Text(s.personaAccent)
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    HStack(spacing: PipiTokens.spacing8) {
+                        ForEach(PipiPersonaAccent.allCases) { item in
+                            let itemColor = PipiTokens.color(for: item)
+                            Button {
+                                accent = item
+                            } label: {
+                                Circle()
+                                    .fill(itemColor)
+                                    .frame(width: 24, height: 24)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(PipiTokens.textPrimary, lineWidth: accent == item ? 2 : 0)
+                                            .padding(-3)
+                                    )
+                            }
+                            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.90))
+                            .accessibilityLabel(item.label(lang))
+                            .accessibilityAddTraits(accent == item ? [.isSelected] : [])
+                        }
+                    }
+                }
+
+                Spacer()
+
+                VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
+                    Text(s.personaDefaultEngine)
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Menu {
+                        Button {
+                            preferredTarget = .auto
+                        } label: {
+                            if preferredTarget == .auto {
+                                Label(s.autoRouteEngine, systemImage: "checkmark")
+                            } else {
+                                Text(s.autoRouteEngine)
+                            }
+                        }
+                        if !store.readyLLMProviders.isEmpty {
+                            Divider()
+                            ForEach(store.readyLLMProviders) { cfg in
+                                let t = PipiExecutionTarget.llm(providerId: cfg.id)
+                                Button {
+                                    preferredTarget = t
+                                } label: {
+                                    if preferredTarget == t {
+                                        Label("\(cfg.name) · \(cfg.modelId)", systemImage: "checkmark")
+                                    } else {
+                                        Text("\(cfg.name) · \(cfg.modelId)")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Text(preferredTargetLabel)
+                                .font(PipiTokens.fontCaption.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(width: 210, height: 32)
+                        .background(PipiTokens.buttonSecondaryBg)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                    }
+                    .pipiPlainMenu()
+                }
+            }
+
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                Text(s.personaShape)
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textSecondary)
+
+                HStack(spacing: PipiTokens.spacing8) {
+                    ForEach(AvatarShape.allCases) { candidate in
+                        let isChosen = shape == candidate
+                        Button {
+                            shape = candidate
+                        } label: {
+                            VStack(spacing: 3) {
+                                Image(systemName: iconForAvatarShape(candidate))
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(isChosen ? activeAccentColor : PipiTokens.textSecondary)
+                                Text(labelForAvatarShape(candidate))
+                                    .font(PipiTokens.fontMicro)
+                                    .foregroundStyle(isChosen ? PipiTokens.textPrimary : PipiTokens.textMuted)
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .background(isChosen ? activeAccentColor.opacity(0.14) : PipiTokens.bgSurface)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                    .stroke(isChosen ? activeAccentColor.opacity(0.70) : PipiTokens.borderSubtle, lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                        }
+                        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.95))
+                        .accessibilityLabel(labelForAvatarShape(candidate))
+                        .accessibilityAddTraits(isChosen ? [.isSelected] : [])
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
+                HStack(spacing: 6) {
+                    Text(s.permissionTierTitle)
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    PipiInfoHelpButton(
+                        title: s.permissionTierTitle,
+                        message: permissionTier.description(lang)
+                    )
+                }
+
+                PipiSegmentedControl(
+                    options: PipiPermissionTier.allCases,
+                    selection: $permissionTier
+                ) { tier in
+                    tier.label(lang)
+                }
+            }
+        }
+    }
+
+    private var capabilitiesFields: some View {
+        let timbres = PipiDailyVoiceEngine.availableVoiceTimbres()
+        let currentVoiceLabel: String = {
+            if voiceProfileId.isEmpty {
+                return s.t("跟随全局默认音色", "Follow Global Voice")
+            }
+            return PipiDailyVoiceEngine.resolveTimbre(id: voiceProfileId).displayName(lang)
+        }()
+
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+            // 1. Dedicated Voice Timbre
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                Text(s.t("专属音色", "Dedicated Voice Timbre"))
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textSecondary)
+                HStack(spacing: PipiTokens.spacing8) {
+                    Menu {
+                        Button {
+                            voiceProfileId = ""
+                        } label: {
+                            if voiceProfileId.isEmpty {
+                                Label(s.t("跟随全局默认音色", "Follow Global Voice"), systemImage: "checkmark")
+                            } else {
+                                Text(s.t("跟随全局默认音色", "Follow Global Voice"))
+                            }
+                        }
+                        Divider()
+                        ForEach(timbres) { option in
+                            Button {
+                                voiceProfileId = option.id
+                            } label: {
+                                if voiceProfileId == option.id {
+                                    Label(option.displayName(lang), systemImage: "checkmark")
+                                } else {
+                                    Text(option.displayName(lang))
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundStyle(PipiTokens.textMuted)
+                            Text(currentVoiceLabel)
+                                .font(PipiTokens.fontCaption.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 32)
+                        .background(PipiTokens.buttonSecondaryBg)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                    }
+                    .pipiPlainMenu()
+
+                    PipiActionButton(s.t("试听", "Preview"), systemImage: "play.fill", tone: .secondary, density: .desktopCompact) {
+                        let resolved = voiceProfileId.isEmpty ? store.voiceConfig.selectedVoiceProfileId : voiceProfileId
+                        store.previewVoiceProfile(resolved)
+                    }
+                }
+            }
+
+            // 2. Skills
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                Text(s.t("专属技能 (\(assignedSkillSlugs.count))", "Skills (\(assignedSkillSlugs.count))"))
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textSecondary)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
+                    ForEach(PipiBuiltinSkillsRegistry.allPacks) { skill in
+                        let isOn = assignedSkillSlugs.contains(skill.slug)
+                        capabilityChip(title: skill.title(lang), icon: "sparkles", isSelected: isOn) {
+                            if isOn {
+                                assignedSkillSlugs.remove(skill.slug)
+                            } else {
+                                assignedSkillSlugs.insert(skill.slug)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Tools
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                Text(s.t("可用工具 (\(enabledTools.count))", "Tools (\(enabledTools.count))"))
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textSecondary)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
+                    ForEach(PipiBotToolKind.allCases) { tool in
+                        let isOn = enabledTools.contains(tool.rawValue)
+                        capabilityChip(title: tool.label(lang), icon: tool.iconName, isSelected: isOn) {
+                            if isOn {
+                                enabledTools.remove(tool.rawValue)
+                            } else {
+                                enabledTools.insert(tool.rawValue)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. Connectors
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                Text(s.t("连接器 (\(enabledConnectors.count))", "Connectors (\(enabledConnectors.count))"))
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textSecondary)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
+                    ForEach(PipiBotConnectorKind.allCases) { conn in
+                        let isOn = enabledConnectors.contains(conn.rawValue)
+                        capabilityChip(title: conn.label(lang), icon: conn.iconName, isSelected: isOn) {
+                            if isOn {
+                                enabledConnectors.remove(conn.rawValue)
+                            } else {
+                                enabledConnectors.insert(conn.rawValue)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var sharingAndUpgradesFields: some View {
+        VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+            VStack(alignment: .leading, spacing: 0) {
+                policyToggleRow(
+                    title: s.t("继承全局共享池能力", "Inherit Global Shared Pool"),
+                    isOn: $sharingPolicy.inheritGlobalPool
+                )
+                Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                policyToggleRow(
+                    title: s.t("允许按需向同伴学习升级", "Learn & Upgrade from Peers"),
+                    isOn: $sharingPolicy.allowPeerUpgrade
+                )
+                Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                policyToggleRow(
+                    title: s.t("向同伴共享技能", "Share Skills with Peers"),
+                    isOn: $sharingPolicy.shareSkills
+                )
+                Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                policyToggleRow(
+                    title: s.t("向同伴共享工具", "Share Tools with Peers"),
+                    isOn: $sharingPolicy.shareTools
+                )
+                Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                policyToggleRow(
+                    title: s.t("向同伴共享连接器", "Share Connectors with Peers"),
+                    isOn: $sharingPolicy.shareConnectors
+                )
+                Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                policyToggleRow(
+                    title: s.t("向同伴共享记忆摘要", "Share Memory Summary"),
+                    isOn: $sharingPolicy.shareMemory
+                )
+            }
+            .background(PipiTokens.bgSurface)
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                    .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+
+            if let existing, !existing.learnedUpgrades.isEmpty {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                    Text(s.t("已习得的同伴升级记录 (\(existing.learnedUpgrades.count))", "Learned Peer Upgrades (\(existing.learnedUpgrades.count))"))
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+
+                    ForEach(existing.learnedUpgrades.prefix(6)) { rec in
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Text(rec.kind.label(lang))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(PipiTokens.bgInset, in: Capsule())
+                            Text(rec.summary)
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textPrimary)
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func capabilityChip(title: String, icon: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 10.5, weight: .semibold))
+                Text(title)
+                    .font(PipiTokens.fontCaption.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .background(isSelected ? activeAccentColor.opacity(0.14) : PipiTokens.bgSurface)
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .strokeBorder(isSelected ? activeAccentColor.opacity(0.65) : PipiTokens.borderSubtle, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+        }
+        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.97))
+    }
+
+    private func policyToggleRow(title: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            Text(title)
+                .font(PipiTokens.fontCaption.weight(.medium))
+                .foregroundStyle(PipiTokens.textPrimary)
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     private var livePreviewCard: some View {
@@ -519,6 +835,11 @@ public struct PipiBotCreatorSheet: View {
             ex.avatarShape = shape
             ex.preferredTarget = preferredTarget
             ex.permissionTier = permissionTier
+            ex.voiceProfileId = voiceProfileId.isEmpty ? nil : voiceProfileId
+            ex.assignedSkillSlugs = Array(assignedSkillSlugs).sorted()
+            ex.enabledTools = Array(enabledTools).sorted()
+            ex.enabledConnectors = Array(enabledConnectors).sorted()
+            ex.sharingPolicy = sharingPolicy
             savedPersona = ex
         } else {
             var created = selectedTemplate.instantiate(
@@ -533,8 +854,13 @@ public struct PipiBotCreatorSheet: View {
                 created.roleZh = cleanRole
                 created.roleEn = cleanRole
             }
-            created.greetingZh = "你好，我是 \(cleanName)。有什么我可以帮你的？"
-            created.greetingEn = "Hi, I'm \(cleanName). How can I help you today?"
+            created.greetingZh = "你好，我是 \(cleanName)。请问有什么可以协助？"
+            created.greetingEn = "Hi, I'm \(cleanName). How can I assist you?"
+            created.voiceProfileId = voiceProfileId.isEmpty ? nil : voiceProfileId
+            created.assignedSkillSlugs = Array(assignedSkillSlugs).sorted()
+            created.enabledTools = Array(enabledTools).sorted()
+            created.enabledConnectors = Array(enabledConnectors).sorted()
+            created.sharingPolicy = sharingPolicy
             savedPersona = created
         }
 

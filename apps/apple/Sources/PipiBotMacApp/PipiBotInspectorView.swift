@@ -10,6 +10,7 @@ public struct PipiBotInspectorView: View {
     public var onEditBot: (PipiBotPersona) -> Void
     public var onOpenBotRoutines: (PipiBotPersona) -> Void
     public var onClose: () -> Void
+    public var showHeader: Bool
 
     @Environment(\.pipiTextScale) private var textScale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -19,11 +20,13 @@ public struct PipiBotInspectorView: View {
 
     public init(
         store: PipiAppStore,
+        showHeader: Bool = true,
         onEditBot: @escaping (PipiBotPersona) -> Void = { _ in },
         onOpenBotRoutines: @escaping (PipiBotPersona) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.store = store
+        self.showHeader = showHeader
         self.onEditBot = onEditBot
         self.onOpenBotRoutines = onOpenBotRoutines
         self.onClose = onClose
@@ -36,24 +39,26 @@ public struct PipiBotInspectorView: View {
     public var body: some View {
         let _ = textScale
         VStack(spacing: 0) {
-            // Inspector Header (No duplicate [✕] close button; top-right [◫] toolbar button controls visibility)
-            HStack(spacing: PipiTokens.spacing8) {
-                Text(s.inspectorTitle)
-                    .font(PipiTokens.fontHeadline)
-                    .tracking(PipiTokens.trackingHeadline)
-                    .foregroundStyle(PipiTokens.textPrimary)
-                    .lineLimit(1)
-                Spacer()
-            }
-            .padding(.horizontal, PipiTokens.spacing16)
-            .padding(.top, 12)
-            .padding(.bottom, PipiTokens.spacing12)
+            if showHeader {
+                HStack(spacing: PipiTokens.spacing8) {
+                    Text(s.inspectorTitle)
+                        .font(PipiTokens.fontHeadline)
+                        .tracking(PipiTokens.trackingHeadline)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .padding(.horizontal, PipiTokens.spacing16)
+                .padding(.top, 12)
+                .padding(.bottom, PipiTokens.spacing12)
 
-            Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+            }
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
                     botDetailSection
+                    capabilitiesAndPeerUpgradeSection
                     executionRoutingSection
                     contextUsageSection
                     runtimeEnvironmentSection
@@ -148,6 +153,82 @@ public struct PipiBotInspectorView: View {
                 .stroke(PipiTokens.borderSubtle, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+    }
+
+    // MARK: - 1.5 Per-Agent Capabilities, Voice Timbre & Autonomous Peer Upgrade
+
+    private var capabilitiesAndPeerUpgradeSection: some View {
+        let bot = store.activePersona
+        let eff = store.effectiveCapabilities(for: bot.id)
+        let timbre = PipiDailyVoiceEngine.resolveTimbre(id: eff.resolvedVoiceProfileId)
+
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+            HStack {
+                Text(s.t("音色、能力与协作升级", "Voice, Capabilities & Upgrade"))
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textSecondary)
+                Spacer()
+                PipiGhostIconButton(
+                    systemImage: "play.circle",
+                    size: 22,
+                    iconSize: 12,
+                    accessibilityLabel: s.t("试听音色", "Preview Voice")
+                ) {
+                    store.previewVoiceProfile(timbre.id)
+                }
+                .help(s.t("试听当前助手音色", "Preview Assistant Voice"))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                PipiKeyValueRow(key: s.t("专属音色", "Voice"), value: timbre.displayName(lang))
+                PipiKeyValueRow(key: s.t("可用技能", "Skills"), value: "\(eff.skills.count)", monospaced: true)
+                PipiKeyValueRow(key: s.t("可用工具", "Tools"), value: "\(eff.tools.count)", monospaced: true)
+                PipiKeyValueRow(key: s.t("连接器", "Connectors"), value: "\(eff.connectors.count)", monospaced: true)
+                PipiKeyValueRow(
+                    key: s.t("自主互相升级", "Peer Upgrade"),
+                    value: bot.sharingPolicy.allowPeerUpgrade ? s.enabled : s.disabled,
+                    valueColor: bot.sharingPolicy.allowPeerUpgrade ? PipiTokens.stateSuccess : PipiTokens.textMuted
+                )
+
+                Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+
+                PipiActionButton(
+                    s.t("向同伴学习并升级能力", "Learn & Upgrade from Peers"),
+                    systemImage: "arrow.triangle.2.circlepath",
+                    tone: .secondary,
+                    density: .desktopCompact,
+                    fullWidth: true
+                ) {
+                    _ = store.syncPeerUpgrades(for: bot.id)
+                }
+
+                if let notice = store.lastPeerUpgradeNotice, !notice.isEmpty {
+                    Text(notice)
+                        .font(PipiTokens.fontMicro)
+                        .foregroundStyle(PipiTokens.stateSuccess)
+                        .lineLimit(2)
+                }
+
+                if !bot.learnedUpgrades.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(bot.learnedUpgrades.prefix(3)) { rec in
+                            Text("• \(rec.summary)")
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PipiTokens.bgElevated)
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                    .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+        }
     }
 
     @ViewBuilder
@@ -463,6 +544,28 @@ public struct PipiBotInspectorView: View {
                             .font(PipiTokens.fontCaption.weight(.medium))
                             .foregroundStyle(usage.isMemoryEnabled ? PipiTokens.textPrimary : PipiTokens.textMuted)
                         }
+                    }
+                    HStack {
+                        Text(s.t("Bot 隔离记忆", "Bot Memory"))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Spacer()
+                        let memState = store.botMemoryState(for: store.activePersona.id)
+                        Text("rev \(memState.revision) · \(s.botMemoryCacheSafeBadge)")
+                            .font(PipiTokens.fontMicro)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                    }
+                }
+
+                if let activeConv = store.activeConversation, activeConv.messages.count >= 2 {
+                    PipiActionButton(
+                        s.compactContextAction,
+                        systemImage: "arrow.down.right.and.arrow.up.left",
+                        tone: .secondary,
+                        density: .desktopCompact,
+                        fullWidth: true
+                    ) {
+                        Task { _ = await store.compactConversation(id: activeConv.id) }
                     }
                 }
 

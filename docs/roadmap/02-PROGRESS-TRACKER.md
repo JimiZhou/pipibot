@@ -1,9 +1,9 @@
 # PipiBot 工程进度看板与架构决策记录 (Progress Tracker & ADRs)
 
-> **当前基线版本**: `v0.2.0-beta` (Wave 2 V1 全栈 + Wave 3 All-in-One `PipiBot.app` + Wave 4 Native `PipiBotIOS.app` & PWA 双形态)
-> **最近更新**: `2026-11-19`
+> **当前基线版本**: `v0.2.0-beta` (+ Linger 对标升级 Wave 1 / Wave 2 / Wave 3 `100% Verified`)
+> **最近更新**: `2026-11-20`
 > **开源仓库**: `https://github.com/JimiZhou/pipibot` (`main`)
-> **关联计划**: [全阶段工程开发计划 (`01-DEVELOPMENT-PLAN.md`)](./01-DEVELOPMENT-PLAN.md) · [Mac/iOS V1 实现规范 (`05-MAC-AND-IOS-V1-IMPLEMENTATION.md`)](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) · [Mac 原生应用指南 (`06-MAC-NATIVE-APP-GUIDE.md`)](../architecture/06-MAC-NATIVE-APP-GUIDE.md) · [iOS 原生与 PWA 指南 (`07-IOS-APP-AND-PWA-GUIDE.md`)](../architecture/07-IOS-APP-AND-PWA-GUIDE.md)
+> **关联计划**: [全阶段工程开发计划 (`01-DEVELOPMENT-PLAN.md`)](./01-DEVELOPMENT-PLAN.md) · [Linger 对标提升主计划 (`03-LINGER-UPGRADE-PLAN.md`)](./03-LINGER-UPGRADE-PLAN.md) · [Mac/iOS V1 实现规范 (`05-MAC-AND-IOS-V1-IMPLEMENTATION.md`)](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) · [Mac 原生应用指南 (`06-MAC-NATIVE-APP-GUIDE.md`)](../architecture/06-MAC-NATIVE-APP-GUIDE.md) · [iOS 原生与 PWA 指南 (`07-IOS-APP-AND-PWA-GUIDE.md`)](../architecture/07-IOS-APP-AND-PWA-GUIDE.md)
 
 ---
 
@@ -90,6 +90,74 @@
 - **Epic W4.2 — iOS `.app` Bundle 打包与双形态指南**
   - [x] [`scripts/build-ios-app.sh`](../../scripts/build-ios-app.sh) & [`package.json`](../../package.json) — 新增 `npm run app:ios`，经由 `xcodebuild` 编译 iOS Simulator `arm64` 二进制并生成 `dist/PipiBotIOS.app`（`NSSupportsLiveActivities`、`pipibot://` URL Scheme、`plutil` + `codesign` 校验）
   - [x] [`docs/architecture/07-IOS-APP-AND-PWA-GUIDE.md`](../architecture/07-IOS-APP-AND-PWA-GUIDE.md) & [`05-MAC-AND-IOS-V1-IMPLEMENTATION.md`](../architecture/05-MAC-AND-IOS-V1-IMPLEMENTATION.md) — 详述 Native `PipiBotIOS.app` 与 Zero-Install PWA 双形态架构、系统集成及运行指南
+
+### Linger 对标提升 Wave 1（`2026-11-20` — ✅ 100% Verified）：调度、双层风控与跨端契约地基（`#04` + `#08` + `#12`）
+
+- **Epic L1.1 — 洁净室开源合规与跨端契约单源校验 (`#12`)**
+  - [x] [`NOTICE`](../../NOTICE) & [`docs/roadmap/03-LINGER-UPGRADE-PLAN.md`](./03-LINGER-UPGRADE-PLAN.md) — 明确 MIT 协议边界与 `simplexai-labs/linger` / `PolyStrata` 洁净室架构灵感署名（零源码/素材复制）
+  - [x] [`packages/protocol/schema/host-v2.schema.json`](../../packages/protocol/schema/host-v2.schema.json) & [`scripts/audit-protocol-parity.mjs`](../../scripts/audit-protocol-parity.mjs) — 11 项 Host v2 规范枚举实现 JSON Schema ↔ TypeScript ↔ Swift 1:1 自动校验并纳入 `npm run verify`
+- **Epic L1.2 — 优先级可抢占模型调度器与 AIMD 自适应并发 (`#04`)**
+  - [x] [`packages/core/src/model-scheduler.ts`](../../packages/core/src/model-scheduler.ts) & [`apps/apple/Sources/PipiBotKit/Runtime/PipiModelScheduler.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiModelScheduler.swift) — 7 级优先级排队、交互保留槽位 `soft = max(1, hard - 1)`、AIMD 429/延迟退避、统一 JSON Schema 自纠重试与可恢复 CLI Session 抢占自动 `--resume` 续跑
+  - [x] [`apps/apple/Sources/PipiBotKit/State/PipiAppStore.swift`](../../apps/apple/Sources/PipiBotKit/State/PipiAppStore.swift) — 替换旧 FIFO 队列接入 `PipiModelScheduler`，后台 Routine 支持让渡给前台交互并无缝续跑
+- **Epic L1.3 — 规则 + 独立 LLM 双层风控裁判、多粒度审批与写幂等 (`#08`)**
+  - [x] [`packages/core/src/permission-guardrail.ts`](../../packages/core/src/permission-guardrail.ts) & [`apps/apple/Sources/PipiBotKit/Runtime/PipiPermissionGuardrail.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiPermissionGuardrail.swift) — 静态规则 + `critical` 硬熔断（密钥外发、破坏审批规则、毁灭性删除强制 `deny`）+ Prompt Injection 可信/不可信隔离 + 独立 LLM Risk×Authorization 裁判（故障默认安全阻断）+ `operation_id` 写幂等账本
+  - [x] [`packages/core/src/harness-router.ts`](../../packages/core/src/harness-router.ts), [`apps/apple/Sources/PipiBotMacApp/PipiSessionTimelineCards.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiSessionTimelineCards.swift) & [`PipiSettingsView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiSettingsView.swift) — 接入 `RoutedMcpBridge`、时间线多粒度审批卡（本次/本会话/本项目或长期/拒绝 + 风险徽章与理由）及设置页白名单审计撤销
+- **Wave 1 质量门禁验证记录 (`2026-11-20`)**:
+  - [x] `npm run verify` 退出码 `0`：`audit:design`（39 个 Swift 文件 0 原始 hex）、`audit:protocol`（11/11 枚举三端精确一致 + `NOTICE` + 4/4 模块洁净室署名头）、`test:core` **8/8 通过**、`test:daemon` **11/11 通过**。
+  - [x] `cd apps/apple && swift build && swift test` 退出码 `0`：**53/53 通过**（含 `PipiBotWave1Tests` 6/6 全绿，零编译警告）；`xcodebuild -scheme PipiBotIOSUI -destination 'generic/platform=iOS Simulator' build` 输出 `** BUILD SUCCEEDED **`。
+
+### Linger 对标提升 Wave 2（`2026-11-20` — ✅ 100% Verified）：个人知识 Wiki、Per-Bot 独立记忆与 macOS 原生主动性（`#01` + `#02` + `#03`）
+
+- **Epic L2.1 — 个人向实体 Wiki + SQLite WAL/FTS5 双通道零向量检索 (`#01`)**
+  - [x] [`packages/protocol/schema/host-v2.schema.json`](../../packages/protocol/schema/host-v2.schema.json) & [`scripts/audit-protocol-parity.mjs`](../../scripts/audit-protocol-parity.mjs) — Host v2 跨端单一事实来源枚举扩展至 **17/17**（新增 `WikiEntityCategory`、`WikiSearchScope`、`BotMemoryLifecycleStage`、`ProactiveSourceKind`、`ProactiveActionDecision`、`ProactiveFeedbackSignal`）并校验 12/12 Wave 1+2 模块洁净室 MIT 署名头
+  - [x] [`apps/apple/Sources/PipiBotKit/Runtime/PipiPersonalWikiStore.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiPersonalWikiStore.swift) & [`packages/core/src/personal-wiki.ts`](../../packages/core/src/personal-wiki.ts) — 原生 SQLite3 WAL + FTS5（Node 端支持 `node:sqlite` WAL 自动探测 FTS5 / SQLite BM25 倒排兜底）、个人向分类（`people/projects/topics/life/repos`）、CJK bigram、最多 6 改写词、独立 `chunks`/`facts`/`summaries` 通道、软时间窗 RRF 与脱敏原子 Markdown 投影
+- **Epic L2.2 — Per-Bot 独立经验记忆与 Prompt-Cache 安全召回 (`#02`)**
+  - [x] [`apps/apple/Sources/PipiBotKit/Runtime/PipiBotMemoryEngine.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiBotMemoryEngine.swift) & [`packages/core/src/bot-memory.ts`](../../packages/core/src/bot-memory.ts) — 严格按 Bot 目录隔离、每 5 次成功运行提炼候选、空闲 6 小时/会话压缩/>64KB/>=30 会话自动去重合并；首条或压缩后通过出站隐藏附注注入，**零改动 System Prompt**
+  - [x] [`apps/apple/Sources/PipiBotKit/State/PipiAppStore.swift`](../../apps/apple/Sources/PipiBotKit/State/PipiAppStore.swift) & [`PersonalBotModels.swift`](../../apps/apple/Sources/PipiBotKit/Models/PersonalBotModels.swift) — 接入 `compactionGeneration`、`compactConversation(id:)`、后台 6h 空闲自动合并与 Prompt-Cache 安全注入链路
+- **Epic L2.3 — macOS 原生主动感知、Prepare 备料与 `Clue → Rule` 夜间自学习 (`#03`)**
+  - [x] [`apps/apple/Sources/PipiBotKit/Runtime/PipiProactiveEngine.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiProactiveEngine.swift), [`PipiMacNativeSignalCollector.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiMacNativeSignalCollector.swift) & [`packages/core/src/proactive-engine.ts`](../../packages/core/src/proactive-engine.ts) — 首批 macOS 原生事件源（`EventKit` 日历/提醒事项、本地 Git/FS、Mac 遥测、笔记）+ 22:00–08:00 静音窗/每日限额/3 分钟对话退让/SHA-256 日级去重 + 只读 `Prepare` Wiki 关联备料 + 14 天 `seen>=2` 升格规则（上限 20 条、快照一键回滚）
+  - [x] [`apps/apple/Sources/PipiBotMacApp/PipiKnowledgeHubView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiKnowledgeHubView.swift), [`PipiWorkspaceView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiWorkspaceView.swift), [`PipiBotInspectorView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiBotInspectorView.swift) & [`PipiSettingsView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiSettingsView.swift) — 新增「知识与简报」三合一原生界面（个人 Wiki / 主动简报 / Bot 记忆）、`/wiki` 与 `/compact` 斜杠命令、右侧 Inspector 压缩入口及设置页自学习规则审计回滚面板（100% `PipiTokens`，0 原始色值）
+- **Wave 2 质量门禁验证记录 (`2026-11-20`)**:
+  - [x] `npm run verify` 退出码 `0`：`audit:design`（44 个 Swift 文件 0 原始 hex）、`audit:protocol`（17/17 枚举三端精确一致 + `NOTICE` + 12/12 模块洁净室署名头）、`test:core` **11/11 通过**（含 `wave2.test.ts`）、`test:daemon` **11/11 通过**、`typecheck` 通过。
+  - [x] `cd apps/apple && swift build && swift test` 退出码 `0`：**57/57 通过**（含 `PipiBotWave2Tests` 4/4 全绿，零编译警告）；`xcodebuild -scheme PipiBotIOSUI -destination 'generic/platform=iOS Simulator' build` 输出 `** BUILD SUCCEEDED **`。
+
+### Linger 对标提升 Wave 3（`2026-11-20` — ✅ 100% Verified）：高阶协同（AlterEgo + `team.md`）与工具生态（CLI / 技能 / 随手记）（`#05` + `#06` + `#11`）
+
+- **Epic L3.1 — Meta / AlterEgo 会话内自主后台分身委派 (`#05`)**
+  - [x] [`packages/core/src/alter-ego.ts`](../../packages/core/src/alter-ego.ts) & [`apps/apple/Sources/PipiBotKit/Runtime/PipiAlterEgoCoordinator.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiAlterEgoCoordinator.swift) — 自主 `<pipibot_delegate>` 指令解析 + `/delegate` 命令、独立可写 `playground/<taskId>/` + 同会话兄弟只读共享（严格拒绝跨会话读取与路径穿越）、中途 Steer、实时步骤展开、取消与保留产物恢复，走 `PipiModelScheduler`（`.delegatedTask`）
+  - [x] [`apps/apple/Sources/PipiBotMacApp/PipiAlterEgoBarView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiAlterEgoBarView.swift) & [`PipiWorkspaceView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiWorkspaceView.swift) — 会话顶部按需展示分身进度条（零空闲占位）
+- **Epic L3.2 — 结构化 `team.md` 全量 5 模式多 Bot 协作与动态成员审批 (`#06`)**
+  - [x] [`packages/core/src/team-protocol.ts`](../../packages/core/src/team-protocol.ts) & [`apps/apple/Sources/PipiBotKit/Runtime/PipiTeamProtocol.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiTeamProtocol.swift) — 纯函数解析与多问题报告、Kahn DAG 环路与并行波次校验、全量 5 种协作拓扑（`classify-and-act` / `fan-out-and-synthesize` / `adversarial-verification` / `tournament` / `loop-until-done`）及动态拉入/新建角色 Bot 审批（`PipiDynamicBotProposal`）
+  - [x] [`apps/apple/Sources/PipiBotMacApp/PipiGroupInspectorView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiGroupInspectorView.swift) & [`PipiShellSubViews.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiShellSubViews.swift) — 群工作区集成 `team.md` 5 模式模板生成/DAG 校验编辑器/一键执行，并在群面板与 `Needs You` 收件箱同步承载动态成员审批卡
+- **Epic L3.3 — 统一 `pipibot` CLI + 版本化只读技能包 + 每日随手记与可编辑文档 (`#11`)**
+  - [x] [`packages/core/src/pipibot-cli.ts`](../../packages/core/src/pipibot-cli.ts) & [`package.json`](../../package.json) — 新增 `npm run pipibot`，单点注册表同源生成 `--help` / `--schema` / `--permissions` 并支持 `--operation-id` 幂等回放
+  - [x] [`packages/core/src/builtin-skills.ts`](../../packages/core/src/builtin-skills.ts) & [`apps/apple/Sources/PipiBotKit/Runtime/PipiBuiltinSkillsRegistry.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiBuiltinSkillsRegistry.swift) — 8 套内置办公/日常技能（`docx`/`pdf`/`pptx`/`xlsx`/`slide-deck`/`humanlike-browse`/`personal-profile`/`proactive-response`）`0444` 只读投影 + SHA-256 校验防篡改自愈
+  - [x] [`packages/core/src/pocket-notes.ts`](../../packages/core/src/pocket-notes.ts), [`apps/apple/Sources/PipiBotKit/Runtime/PipiPocketNotesEngine.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiPocketNotesEngine.swift) & [`PipiKnowledgeHubView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiKnowledgeHubView.swift) — 每日随手记静默 5 分钟自动提炼/对账 Tracking Items + 可编辑产物文档（修订号/SHA-256/一键同步 Wiki）与内置技能检视 Tab
+- **Wave 3 质量门禁验证记录 (`2026-11-20`)**:
+  - [x] `npm run verify` 退出码 `0`：`audit:design`（49 个 Swift 文件 0 原始 hex）、`audit:protocol`（22/22 枚举三端精确一致 + `NOTICE` + 22/22 Wave 1–3 模块洁净室署名头）、`test:core` **14/14 通过**（含 `wave3.test.ts`）、`test:daemon` **11/11 通过**、`typecheck` 通过。
+  - [x] `cd apps/apple && swift build && swift test` 退出码 `0`：**60/60 通过**（含 `PipiBotWave3Tests` 3/3 全绿，零编译警告）；`xcodebuild -scheme PipiBotIOSUI -destination 'generic/platform=iOS Simulator' build` 输出 `** BUILD SUCCEEDED **`。
+
+### Linger 对标提升 Wave 4（`2026-11-20` — ✅ 100% Verified）：本地模型栈（PolyStrata + Gateway）与个人日常语音（`#07` + `#10`）
+
+- **Epic L4.1 — 硬件 Model Autopilot、PolyStrata (MIT) 集成与真实问答自测 (`#07`)**
+  - [x] [`packages/core/src/model-autopilot.ts`](../../packages/core/src/model-autopilot.ts) & [`apps/apple/Sources/PipiBotKit/Runtime/PipiModelAutopilot.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiModelAutopilot.swift) — 真实本机硬件探测 + 5 层确定性规划器（64K/128K KV 池、16 模型含 12+ `PolyStrata` MIT MoE 目录、Apple Silicon Metal+SSD beta 与 `PipiFleet` Linux/Win CUDA+RAM/SSD 分页、`llama.cpp`/Ollama/MLX 兜底）+ 强制真实问答自测门禁（`PIPI_QA_42` 校验 + TTFT/tok/s 统计）
+- **Epic L4.2 — 本地统一回环 LLM Gateway 与 CLI 隔离环境反向注入 (`#07`)**
+  - [x] [`packages/core/src/local-llm-gateway.ts`](../../packages/core/src/local-llm-gateway.ts), [`apps/apple/Sources/PipiBotKit/Runtime/PipiLocalLLMGateway.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiLocalLLMGateway.swift) & [`PipiInferenceEngine.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiInferenceEngine.swift) — 仅监听 `127.0.0.1` 的双协议本地 Gateway（OpenAI `/v1/chat/completions` ↔ Anthropic `/anthropic/v1/messages` JSON/SSE 互转 + 常量时间 Token 鉴权），并生成 `0700`/`0600` 隔离环境叠加层（`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `PI_CODING_AGENT_DIR` / `OPENCODE_CONFIG_DIR`）透传给 CLI 子进程，绝不污染 `~/.claude` 或 `~/.codex`
+- **Epic L4.3 — 个人日常语音交互（端侧优先 + BYOK 云端语音 + 本地 VAD 防回声打断）(`#10`)**
+  - [x] [`packages/core/src/voice-engine.ts`](../../packages/core/src/voice-engine.ts), [`apps/apple/Sources/PipiBotKit/Runtime/PipiDailyVoiceEngine.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiDailyVoiceEngine.swift), [`PipiMuseVoiceBarView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiMuseVoiceBarView.swift), [`PipiQuickBarPanel.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiQuickBarPanel.swift) & [`PipiSettingsView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiSettingsView.swift) — 聚焦个人日常（口述 Dictation、Muse 免提对话、一句话派活 Voice-to-Task，走 `.voiceInteractive` 优先级）；实现本地 RMS+ZCR 回声门控打断（`PipiEchoGatedVAD`）、`on_device_only` 零外发硬隐私墙及 Keychain 托管的 BYOK 云端语音 API（OpenAI/Deepgram/ElevenLabs/Custom）
+- **Wave 4 质量门禁验证记录 (`2026-11-20`)**:
+  - [x] `npm run verify` 退出码 `0`：`audit:design`（53 个 Swift 文件 0 原始 hex）、`audit:protocol`（29/29 枚举三端精确一致 + `NOTICE` + 29/29 Wave 1–4 模块洁净室署名头）、`test:core` **17/17 通过**（含 `wave4.test.ts`）、`test:daemon` **11/11 通过**、`typecheck` 通过。
+  - [x] `cd apps/apple && swift build && swift test` 退出码 `0`：**63/63 通过**（60 XCTest + `PipiBotWave4Tests` 3/3 Swift Testing 全绿，零编译警告）；`xcodebuild -scheme PipiBotIOSUI -destination 'generic/platform=iOS Simulator' build` 输出 `** BUILD SUCCEEDED **`。
+
+### Linger 对标提升 Wave 5（`2026-11-20` — ✅ 100% Verified · 12/12 全部收官）：双阶段 Computer Use（`#09`）
+
+- **Epic L5.1 — Phase A 本机已登录 Chrome 协同与 Phase B macOS Accessibility / Cua 双车道运行底座 (`#09`)**
+  - [x] [`packages/core/src/computer-use.ts`](../../packages/core/src/computer-use.ts) & [`apps/apple/Sources/PipiBotKit/Runtime/PipiComputerUseEngine.swift`](../../apps/apple/Sources/PipiBotKit/Runtime/PipiComputerUseEngine.swift) — Phase A 每 Agent 独立 Chrome Seat/Tab（`signed_in_chrome_seat` / `isolated_profile`，密钥仅留本机、禁止 `javascript:` 页面脚本注入）+ Phase B 原生 `AXUIElement` 元素树与 `NSWorkspace` 焦点监控；实现桌面全局单车道（自动等待在途浏览器调用）+ 每 Agent 并行浏览器车道、人类切窗即时礼让（`yielded_to_human`）、Write-Ahead Journal（`0600` 原子落盘防重复点击 + `unknown_outcome` 自动锁车道直至人工核查解锁）及与 `#08` `PipiPermissionGuardrail` 的 `<browser_state>` / `<desktop_state>` 深度联动
+- **Epic L5.2 — 原生桌面监控条、设置面板与 CLI 工具集成 (`#09`)**
+  - [x] [`apps/apple/Sources/PipiBotMacApp/PipiComputerUseBarView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiComputerUseBarView.swift), [`PipiWorkspaceView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiWorkspaceView.swift), [`PipiSettingsView.swift`](../../apps/apple/Sources/PipiBotMacApp/PipiSettingsView.swift) & [`packages/core/src/pipibot-cli.ts`](../../packages/core/src/pipibot-cli.ts) — 工作区按需展示 Computer Use 状态条（一键「人工接管 / 恢复 / 解锁车道」与 WAL 展开审计）、`/computer` 斜杠命令、设置页 Chrome Seat & macOS 辅助功能权限直达面板，以及 `pipibot computer journal / unlock-lane` CLI 子命令
+- **Wave 5 质量门禁验证记录 (`2026-11-20`)**:
+  - [x] `npm run verify` 退出码 `0`：`audit:design`（55 个 Swift 文件 0 原始 hex）、`audit:protocol`（35/35 枚举三端精确一致 + `NOTICE` + 32/32 Wave 1–5 模块洁净室署名头）、`test:core` **20/20 通过**（含 `wave5.test.ts`）、`test:daemon` **11/11 通过**、`typecheck` 通过。
+  - [x] `cd apps/apple && swift build && swift test` 退出码 `0`：**66/66 通过**（60 XCTest + Wave 4/5 共 6/6 Swift Testing 全绿，零编译警告）；`xcodebuild -scheme PipiBotIOSUI -destination 'generic/platform=iOS Simulator' build` 输出 `** BUILD SUCCEEDED **`。
 
 ### Phase 1–5: Remaining Backlog
 
@@ -184,6 +252,102 @@
 - **Consequences**:
   - (+) 彻底消灭 Web/Swift 双端样式漂移与 `#000000` 变量回退色错配，每次提交均可机审。
   - (-) 新增视觉元素时需先注册至 Token 与规范积木，不可即兴硬编码样式。
+
+### ADR-010: 借鉴上游开源项目的洁净室 MIT 实现与透明署名规范
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 对标学习 `simplexai-labs/linger`（Linger Open Source License：Apache 2.0 附加托管服务与前端 Logo 条款）等优秀项目时，必须确保 PiPiBot 保持 100% MIT 协议纯净，避免任何许可证传染或版权争议。
+- **Decision**: 严格遵守洁净室原则——零复制上游源码、Prompt、前端组件与素材，全部在 Swift 6 / TypeScript 中独立从零实现；并在根目录 `NOTICE`、中英文 `README`、`03-LINGER-UPGRADE-PLAN.md` 及对应源文件头部透明标注架构灵感来源，同时将合规检查纳入 `scripts/audit-protocol-parity.mjs`。
+- **Consequences**:
+  - (+) 兼具开源透明署名与 MIT 协议法律纯净度，对社区用户与商业自用零额外限制。
+  - (-) 需在每次新增受启发模块时保持署名头与 `NOTICE` 同步。
+
+### ADR-011: 采用 7 级优先级可抢占模型调度器与 AIMD 自适应并发替代静态 FIFO 队列
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 随着定时 Routine、夜间记忆/Wiki 刷新与本地模型单并发场景引入，原有静态 FIFO 队列会导致后台任务阻塞用户前台对话，且对云端 429 限流无自适应退避能力。
+- **Decision**: 构建跨端一致的 `PipiModelScheduler`（7 级优先级、交互保留槽位 `soft = max(1, hard - 1)`、AIMD 429/延迟退避、统一 JSON Schema 纠错重试），并为支持 `cliSessionId` 的后台 CLI 会话提供安全让渡与自动 `--resume` 续跑闭环。
+- **Consequences**:
+  - (+) 前台交互与高危审批永远优先响应，本地单卡/单并发模型体验不卡顿。
+  - (-) 后台可抢占任务需严格校验可恢复会话条件（如 Codex 确认已落盘输出/工具事件且无待决审批卡）后方可让渡。
+
+### ADR-012: 采用规则 + 独立 LLM 双层风控裁判、多粒度审批与写操作幂等账本
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 原有 `ask` 权限档位仅在整轮只读后弹出宽泛审批，缺少防 Prompt Injection 隔离、窃密硬熔断、细粒度范围授权以及重试防重复写保护。
+- **Decision**: 引入 `PipiPermissionGuardrail`（Layer 1 静态策略 + `critical` 硬熔断 `deny` + `operation_id` 写幂等账本；Layer 2 高危动作独立 LLM Risk×Authorization 裁判，严格分离可信授权与不可信上下文并采用故障安全阻断）及多粒度审批选项（`allow_once` / `allow_session` / `allow_project` / `allow_always` / `deny`），白名单规则可在设置页透明审计与一键撤销。
+- **Consequences**:
+  - (+) 显著提升对 Prompt Injection、凭据外泄与重复副作用的防御力，同时减少重复审批疲劳。
+  - (-) 规则匹配仍不可绕过 `critical` 熔断与最近的用户撤回信号。
+
+### ADR-013: 采用原生 SQLite3 WAL + FTS5 CJK Bigram 双通道零向量个人实体 Wiki
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 个人日常知识库若强依赖外部向量模型或 Docker/PostgreSQL，会破坏 PiPiBot 的零配置本地体验并增加检索成本与延迟。
+- **Decision**: 在 Swift 端直接复用系统 `SQLite3`（开启 WAL 与内置 FTS5 `bm25()`），在 Node 端复用 `node:sqlite` WAL（自动探测 FTS5 并在无 `ENABLE_FTS5` 的二进制上回退到 SQLite 倒排 BM25 表）；面向个人场景固定 5 大实体分类（`people` / `projects` / `topics` / `life` / `repos`），通过 CJK Bigram 扩展 + 最多 6 改写词 + 独立 `chunks`/`facts`/`summaries` 通道 + 软时间窗 RRF 实现零向量秒级召回，并同步投影脱敏 Markdown 文件。
+- **Consequences**:
+  - (+) 零外部依赖、零向量费用、双端行为一致，且支持人类直接用编辑器阅读个人知识文件。
+  - (-) 可选本地/云端向量检索保留为扩展通道（默认关闭），避免额外推理开销。
+
+### ADR-014: 采用 Per-Bot 严格隔离记忆与 Prompt-Cache 安全隐藏附注注入策略
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 若将动态演化的个人/Bot 记忆不断拼接到 System Prompt 中，会导致每轮 Prompt 前缀失效、Anthropic/OpenAI/本地 KV Cache 命中率骤降；同时不同角色 Bot 混用同一份经验记忆会引发角色串味。
+- **Decision**: 为每个 Bot 分配独立隔离目录 `bots/<botId>/memory/{summary.md, candidates.json, state.json}`，按「每 5 次成功运行提炼候选 → 6h 空闲 / 会话压缩 / >64KB / >=30 会话自动合并去重」节奏维护；召回时**严禁修改 System Prompt**，仅在会话首条消息或会话压缩（`compactionGeneration` 递增）后的首条出站用户消息中注入隐藏 `<pipibot_bot_memory>` 附注，且不污染界面可见气泡。
+- **Consequences**:
+  - (+) 长会话期间 System Prompt 字节完全不变，最大化 KV Prompt Cache 命中率与响应速度；各 Bot 经验互不干扰。
+  - (-) 需通过 `compactConversation` 或新开会话主动刷新长对话中更新的记忆版本。
+
+### ADR-015: 采用 macOS 原生事件源优先的主动防打扰护栏、只读 Prepare 备料与可回滚 `Clue → Rule` 自学习
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 主动式 AI 若缺乏静音窗、每日限额与对话退让机制，极易沦为高频骚扰通知；而未经授权自动执行外部写操作则会带来安全风险。
+- **Decision**: 第一批主动源严格聚焦 macOS 原生信号（`EventKit` 日历/提醒事项、本地 Git/FS、Mac 遥测、笔记），设置 22:00–08:00 静音窗、每日提醒上限、3 分钟活跃对话静默退让与日级 SHA-256 去重；对临近日程与活跃代码库提供只读 `Prepare` 提前备料（自动关联个人 Wiki 上下文，零外部副作用）；所有用户反馈进入 14 天滑动线索池，`seen >= 2` 自动升格为规则（上限 20 条）并保存版本快照支持一键回滚。
+- **Consequences**:
+  - (+) 主动性克制可信、越用越懂用户打扰边界，且无需额外第三方 SaaS 连接器即可发挥 Mac 本机优势。
+  - (-) `EventKit` 日历/提醒事项需由用户在界面显式触发系统权限授权，后台扫描绝不静默弹窗阻塞。
+
+### ADR-016: 采用 Meta / AlterEgo 会话内自主后台分身委派与同会话只读互通 `playground/`
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 当用户在单聊中抛出耗时调研或批量分析任务时，同步等待会阻塞对话；而允许后台任务肆意读写工作区又会导致并发冲突或跨会话数据串味。
+- **Decision**: 实现 `PipiAlterEgoCoordinator`：支持 Meta 通过 `<pipibot_delegate>` 自主派生（或用户 `/delegate` 触发）后台分身，按 `sessions/<sessionId>/playground/<taskId>/` 分配独立可写目录并开放同会话兄弟任务只读互通，严格拦截路径穿越与跨会话读取；提供中途 Steer、取消与保留产物恢复，并经 `PipiModelScheduler`（`.delegatedTask`）礼让前台聊天。
+- **Consequences**:
+  - (+) 前台聊天零卡顿，多后台分身可流水线协作复用中间产物且互不覆盖。
+  - (-) 分身产物默认留在 `playground/`，合入正式代码仓库仍受既有权限档位与 Guardrail 约束。
+
+### ADR-017: 采用结构化 `team.md` 全量 5 模式协作协议与动态成员审批
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 自由群聊模式难以表达“对抗评审”“锦标赛择优”“有界循环迭代”或严格 DAG 依赖顺序，且当群内缺少特定专家角色时缺少安全受控的扩编机制。
+- **Decision**: 引入纯函数 `PipiTeamProtocol` 解析校验器与执行引擎，支持全部 5 种协作拓扑（`classify-and-act`、`fan-out-and-synthesize`、`adversarial-verification`、`tournament`、`loop-until-done`）及 Kahn DAG 环路检测（仅对抗/循环模式允许有界 `max_rounds` 回环）；当协议指定了不在群内的角色/Bot 时自动生成 `PipiDynamicBotProposal` 审批卡，经用户批准后拉入现有 Bot 或动态新建角色 Bot 入群。
+- **Consequences**:
+  - (+) 多 Bot 协作可审计、可复现、不死循环，且支持按需动态扩展团队角色。
+  - (-) 新建角色 Bot 需经人类显式审批，杜绝 Agent 擅自无界增殖。
+
+### ADR-018: 采用单源 `pipibot` CLI、SHA-256 只读技能投影与静默 5 分钟每日随手记
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 工具说明、JSON Schema 与权限清单分处维护容易漂移；本地技能文件若可被 Agent 随手篡改则存在持久化投毒风险；个人灵感随手记需要无感沉淀为待办而不打断书写。
+- **Decision**: 在 `packages/core/src/pipibot-cli.ts` 以单一 `PIPIBOT_CLI_COMMANDS` 注册表同源生成 `--help` / `--schema` / `--permissions` 并接入 `PipiOperationLedger`（`--operation-id`）；内置 8 套版本化办公/日常技能以 `0444` 只读权限投影并执行 SHA-256 完整性防篡改自愈；每日随手记编辑静默 5 分钟后自动提炼并对账 `TrackingItem`，配套可编辑产物文档支持修订号、SHA-256 与一键同步个人 Wiki。
+- **Consequences**:
+  - (+) CLI 文档/Schema/权限零漂移，内置技能防篡改，个人日常记录平滑闭环至 Wiki 与待办。
+  - (-) 后续新增本地 CLI 命令均需在 `PIPIBOT_CLI_COMMANDS` 单点注册。
+
+### ADR-019: 采用本地回环双协议 LLM Gateway 与隔离环境叠加层反向注入 CLI Agent
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 用户希望将本机 PolyStrata / llama.cpp / Ollama / MLX 本地模型或 BYOK API 复用到已安装的 `claude` / `codex` / `pi` / `opencode` CLI Agent 上，但直接改写 `~/.claude` 或 `~/.codex` 会破坏用户原有的个人订阅登录与终端配置，且 Claude Code 仅讲 Anthropic Messages 协议而本地推理后端多提供 OpenAI Chat Completions 接口。
+- **Decision**: 在 TypeScript Core (`PipiLocalLLMGateway`) 与 Swift 6 (`Network.framework` `NWListener`) 双端实现仅监听 `127.0.0.1` 的统一回环 Gateway，内置 OpenAI ↔ Anthropic 双向 JSON/SSE 协议互转与常量时间鉴权；启动 CLI 子进程时按会话在 PiPiBot 私有数据目录生成 `0700`/`0600` 隔离配置并通过 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `PI_CODING_AGENT_DIR` / `OPENCODE_CONFIG_DIR` 环境变量反向注入。
+- **Consequences**:
+  - (+) 本地与 BYOK 模型可零修改无缝驱动任意 CLI Agent，用户个人 `~/.claude` 与 `~/.codex` 100% 洁净无污染。
+  - (-) 本地模型必须先通过确定性真实问答自测门禁（`PipiModelAutopilot.verifyModelWithQA`）方可标记为 `verified`。
+
+### ADR-020: 个人日常语音坚持端侧优先、回声门控打断与 `on_device_only` 零外发隐私墙
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 个人日常口述、Muse 免提对话与一句话派活高度敏感且高频，直接把全部麦克风音频上传云端既产生费用又泄露隐私；而在免提对话中若不做回声门控，Bot 自身的 TTS 播音会反复误触发自打断。
+- **Decision**: 构建 `PipiDailyVoiceEngine` 与 `PipiEchoGatedVAD`：默认采用 Apple 原生端侧 `SFSpeechRecognizer(requiresOnDeviceRecognition)` + `AVSpeechSynthesizer`（并预留 WhisperKit / MLX Audio 端侧路由），同时支持 Keychain 托管的 BYOK 云端语音 API；在 `on_device_only` 策略下强制硬阻断任何云端传输；播音期间按 `echoGateMultiplier` 抬高能量门槛并要求连续人声帧后即时触发 Barge-In 打断，所有语音交互经 `.voiceInteractive` 高优先级调度。
+- **Consequences**:
+  - (+) 零门槛、零额外月费的个人日常语音闭环，同时允许高要求用户按需接入 OpenAI / Deepgram / ElevenLabs BYOK API。
+  - (-) 聚焦个人日常轻量交互（口述 / Muse / 派活），刻意保持非会议录音定位以维持端侧轻量性。
+
+### ADR-021: Computer Use 采用「桌面全局单车道 + 每 Agent 独立浏览器车道 + 人类切窗礼让 + 写前日志 (WAL)」安全模型
+- **Status**: `Accepted` (2026-11-20)
+- **Context**: 多 Agent 并发操作浏览器和桌面时极易争抢鼠键焦点、与人类正在使用的前景窗口打架，或在超时/崩溃重试时重复点击“发送/付款”等不可逆按钮；同时直接将浏览器 Cookie/密钥同步到云端或开放页面脚本注入会带来极大安全隐患。
+- **Decision**: 在 TS Core (`PipiComputerUseCoordinator`) 与 Swift 6 (`PipiComputerUseEngine`) 双端实现 Phase A（本机已登录 Chrome 每 Agent 独立 Seat/Tab + 禁止 `javascript:` 页面脚本注入）与 Phase B（macOS Accessibility 元素树单车道）：桌面输入自动等待在途浏览器前景调用并串行执行，监听 `NSWorkspace` 前景切换一旦检测到人类切窗即刻进入 `yielded_to_human` 停手礼让；所有输入动作先写 `0600` Write-Ahead Journal 再派发，结果未知（`unknown_outcome`）立即锁定车道严禁自动重放，且全部提交/外发与系统隐私开关操作均经 `#08` `PipiPermissionGuardrail` 审查。
+- **Consequences**:
+  - (+) 多 Agent 浏览器并行高效、桌面不与人类抢焦点、杜绝误点/重放点击，且凭据始终留在本机。
+  - (-) 当车道因崩溃/超时进入 `blocked_unknown_outcome` 时需人类核查画面后一键点击解锁，换取确定性安全。
 
 ---
 

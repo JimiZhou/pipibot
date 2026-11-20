@@ -91,6 +91,7 @@ public struct PipiNeedsYouInboxView: View {
         let _ = textScale
         let approvals = store.pendingApprovals
         let decisions = store.pendingDecisions
+        let botProposals = store.pendingDynamicBotProposals
 
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: PipiTokens.spacing12) {
@@ -103,28 +104,27 @@ public struct PipiNeedsYouInboxView: View {
                             .foregroundStyle(PipiTokens.stateWarning)
                     )
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: PipiTokens.spacing8) {
-                        Text(s.needsYouInboxTitle)
-                            .font(PipiTokens.fontTitle)
-                            .tracking(PipiTokens.trackingTitle)
-                            .foregroundStyle(PipiTokens.textPrimary)
+                HStack(spacing: PipiTokens.spacing8) {
+                    Text(s.needsYouInboxTitle)
+                        .font(PipiTokens.fontTitle)
+                        .tracking(PipiTokens.trackingTitle)
+                        .foregroundStyle(PipiTokens.textPrimary)
 
-                        if store.totalNeedsYouCount > 0 {
-                            Text("\(store.totalNeedsYouCount)")
-                                .font(PipiTokens.fontMicro)
-                                .monospacedDigit()
-                                .foregroundStyle(PipiTokens.textInverse)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 2)
-                                .background(PipiTokens.stateWarning)
-                                .clipShape(Capsule())
-                        }
+                    if store.totalNeedsYouCount > 0 {
+                        Text("\(store.totalNeedsYouCount)")
+                            .font(PipiTokens.fontMicro)
+                            .monospacedDigit()
+                            .foregroundStyle(PipiTokens.textInverse)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(PipiTokens.stateWarning)
+                            .clipShape(Capsule())
                     }
 
-                    Text(s.needsYouInboxSubtitle)
-                        .font(PipiTokens.fontCaption)
-                        .foregroundStyle(PipiTokens.textSecondary)
+                    PipiInfoHelpButton(
+                        title: s.needsYouInboxTitle,
+                        message: s.needsYouInboxSubtitle
+                    )
                 }
 
                 Spacer()
@@ -136,7 +136,7 @@ public struct PipiNeedsYouInboxView: View {
                 .fill(PipiTokens.borderSubtle)
                 .frame(height: 1)
 
-            if approvals.isEmpty && decisions.isEmpty {
+            if approvals.isEmpty && decisions.isEmpty && botProposals.isEmpty {
                 PipiEmptyState(
                     systemImage: "checkmark.seal.fill",
                     title: s.approvalsEmptyTitle,
@@ -145,6 +145,25 @@ public struct PipiNeedsYouInboxView: View {
             } else {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+                        ForEach(botProposals) { proposal in
+                            PipiListCard(
+                                title: "\(proposal.action.label(lang)): \(proposal.proposedName)",
+                                subtitle: proposal.rationale,
+                                badgeText: s.dynamicBotProposalsTitle,
+                                badgeColor: PipiTokens.stateWarning,
+                                footer: {
+                                    HStack(spacing: PipiTokens.spacing8) {
+                                        PipiActionButton(s.approveAndJoinAction, systemImage: "person.badge.plus", tone: .primary, density: .desktopCompact) {
+                                            _ = store.resolveDynamicBotProposal(groupId: proposal.groupId, proposalId: proposal.id, approve: true)
+                                        }
+                                        PipiActionButton(s.reject, tone: .secondary, density: .desktopCompact) {
+                                            _ = store.resolveDynamicBotProposal(groupId: proposal.groupId, proposalId: proposal.id, approve: false)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
                         ForEach(approvals) { approval in
                             let session = store.conversations.first(where: { $0.id == approval.sessionId })
                             let persona = session.flatMap { conv in
@@ -453,7 +472,7 @@ public struct PipiCommandPaletteView: View {
                         .padding(.vertical, PipiTokens.spacing32)
                 } else {
                     ScrollViewReader { proxy in
-                        ScrollView(showsIndicators: true) {
+                        ScrollView(showsIndicators: false) {
                             LazyVStack(alignment: .leading, spacing: 2) {
                                 ForEach(Array(currentEntries.enumerated()), id: \.element.id) { idx, entry in
                                     if idx == 0 || currentEntries[idx - 1].section != entry.section {
@@ -476,6 +495,7 @@ public struct PipiCommandPaletteView: View {
                             .padding(.horizontal, PipiTokens.spacing8)
                             .padding(.bottom, PipiTokens.spacing8)
                         }
+                        .pipiHideScrollbars()
                         .frame(maxHeight: 360)
                         .onChange(of: selectedIndex) { _, newIdx in
                             if currentEntries.indices.contains(newIdx) {

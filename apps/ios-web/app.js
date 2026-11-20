@@ -15,6 +15,7 @@ function createSeedState() {
     apiBase: '',
     theme: 'dark',
     activeTab: 'outcomes',
+    activeDecisionId: null,
     selectedHarness: 'pi',
     avatarState: 'ambient-breathe',
     avatarExpression: 'happy',
@@ -32,9 +33,9 @@ function createSeedState() {
     outcomes: [
       {
         id: 'out-layout',
-        title: 'Layout Guardian Bot',
+        title: '布局守护 Bot',
         domain: 'dev',
-        goal: 'Keep checkout CLS <= 0.02 across mobile & desktop via 3h Playwright audits.',
+        goal: '通过每 3 小时 Playwright 审计，将移动端与桌面端结账页 CLS 保持在 0.02 以下。',
         preferredHarness: 'claude-code',
         status: 'needs_you',
         dailyBudgetUsd: 3.0,
@@ -42,9 +43,9 @@ function createSeedState() {
       },
       {
         id: 'out-vps',
-        title: 'HK VPS Zero-Downtime Watch',
+        title: '香港 VPS 零停机监控',
         domain: 'infra',
-        goal: 'Monitor nginx upstream 502 rate, TLS expiry, and Docker container memory.',
+        goal: '监控 nginx 上游 502 率、TLS 到期时间与 Docker 容器内存。',
         preferredHarness: 'codex',
         status: 'active',
         dailyBudgetUsd: 2.0,
@@ -52,13 +53,23 @@ function createSeedState() {
       },
       {
         id: 'out-travel',
-        title: 'Tokyo NH962 Travel & Calendar Sync',
+        title: '东京 NH962 行程与日历同步',
         domain: 'daily_life',
-        goal: 'Extract boarding passes, calendar holds, and evening gym blocks automatically.',
+        goal: '自动提取登机牌、日历占位与晚间健身安排。',
         preferredHarness: 'pi',
         status: 'active',
         dailyBudgetUsd: 1.0,
         spentTodayUsd: 0.05,
+      },
+      {
+        id: 'out-digest',
+        title: '每周研究摘要',
+        domain: 'research',
+        goal: '汇总收藏论文，并在周一生成带引用的简报。',
+        preferredHarness: 'pi',
+        status: 'active',
+        dailyBudgetUsd: 1.5,
+        spentTodayUsd: 0.12,
       },
     ],
     decisions: [
@@ -66,20 +77,20 @@ function createSeedState() {
         id: 'dec-pr42',
         severity: 'warning',
         category: 'code_merge_or_push',
-        title: 'Approve PR #42 — Checkout CLS Regression Fix',
-        summary: 'Child session patched skeleton container height and verified 14/14 assertions.',
+        title: '批准 PR #42 — 结账页 CLS 回归修复',
+        summary: '子会话修复了骨架屏容器高度，并验证 14/14 条断言通过。',
         recommendedOptionId: 'approve',
         options: [
-          { id: 'approve', label: 'Approve & Merge', style: 'primary' },
-          { id: 'steer', label: 'Steer', style: 'secondary' },
-          { id: 'reject', label: 'Defer', style: 'destructive' },
+          { id: 'approve', label: '批准并合并', style: 'primary' },
+          { id: 'steer', label: '调整', style: 'secondary' },
+          { id: 'reject', label: '稍后', style: 'destructive' },
         ],
         evidence: [
           {
             artifactId: 'art-cls-42',
             r2Key: 'r2://pipibot-artifacts/pr-42-diff.mp4',
             kind: 'video',
-            caption: 'Before CLS 0.34 -> After CLS 0.01 (1080p Playwright capture)',
+            caption: 'CLS 0.34 -> 0.01（1080p Playwright 录屏）',
           },
         ],
         status: 'pending',
@@ -88,19 +99,19 @@ function createSeedState() {
         id: 'dec-nginx',
         severity: 'critical',
         category: 'infra_mutation',
-        title: 'Reload HK VPS Nginx Keepalive Pool',
-        summary: 'Codex isolated 1.8% 502 spikes to upstream keepalive=15s timeout.',
+        title: '重载香港 VPS Nginx Keepalive 池',
+        summary: 'Codex 将 1.8% 的 502 峰值定位到上游 keepalive=15s 超时。',
         recommendedOptionId: 'approve',
         options: [
-          { id: 'approve', label: 'Reload Safely', style: 'primary' },
-          { id: 'reject', label: 'Hold', style: 'destructive' },
+          { id: 'approve', label: '安全重载', style: 'primary' },
+          { id: 'reject', label: '暂缓', style: 'destructive' },
         ],
         evidence: [
           {
             artifactId: 'art-vps-trace',
             r2Key: 'r2://pipibot-artifacts/nginx-diff.patch',
             kind: 'diff_patch',
-            caption: 'keepalive_timeout 15s -> 65s · nginx -t passed',
+            caption: 'keepalive_timeout 15s -> 65s · nginx -t 通过',
           },
         ],
         status: 'pending',
@@ -109,19 +120,19 @@ function createSeedState() {
         id: 'dec-dream',
         severity: 'info',
         category: 'memory_evolution_review',
-        title: 'Merge Nightly Dream Diff (+2 Facts, +1 Skill)',
-        summary: 'Learned strict zero-runtime-dep TypeScript preference and cf-tunnel-heal skill.',
+        title: '合并夜间记忆整理 (+2 条事实, +1 个技能)',
+        summary: '学习到 TypeScript 零运行时依赖偏好，以及 cf-tunnel-heal 技能。',
         recommendedOptionId: 'approve',
         options: [
-          { id: 'approve', label: 'Merge Diff', style: 'primary' },
-          { id: 'reject', label: 'Discard', style: 'destructive' },
+          { id: 'approve', label: '合并变更', style: 'primary' },
+          { id: 'reject', label: '丢弃', style: 'destructive' },
         ],
         evidence: [
           {
             artifactId: 'art-mem-diff',
             r2Key: 'local://~/.pipibot/evolution/nightly.diff',
             kind: 'log_excerpt',
-            caption: 'Understanding Score 92.8% -> 94.2%',
+            caption: '理解度 92.8% -> 94.2%',
           },
         ],
         status: 'pending',
@@ -131,9 +142,9 @@ function createSeedState() {
       id: 'cue-demo-1',
       activeAppName: 'Xcode',
       windowTitle: 'PipiHost.swift',
-      detectedIntent: 'SwiftUI snapshot tests untouched since last edit; run Pi + Xcode MCP suite.',
+      detectedIntent: 'SwiftUI 快照测试待运行',
       actions: [
-        { id: 'run-tests', label: 'Run Tests', harness: 'pi', promptTemplate: 'Run SwiftUI regression suite' },
+        { id: 'run-tests', label: '运行测试', harness: 'pi', promptTemplate: 'Run SwiftUI regression suite' },
       ],
     },
     nodes: [
@@ -144,15 +155,15 @@ function createSeedState() {
       { nodeId: 'esp32-home', displayName: 'Home ESP32 MQTT', kind: 'embedded', vitality: 'alive', cpuLoadPct: 6, memoryUsedPct: 29, tunnelRttMs: 9 },
     ],
     chatMessages: [
-      { role: 'assistant', provider: 'pi', text: 'PipiCore ready with 4 core tools + 4-Tier Memory recall. Switch harnesses anytime via the header or sheet.' },
+      { role: 'assistant', provider: 'pi', text: 'PipiCore 已就绪，内置 4 个核心工具与四层记忆召回。可随时在顶部或面板切换引擎。' },
     ],
     memory: {
       facts: [
-        { id: 'fact-1', subject: 'user', predicate: 'prefers_runtime', objectValue: 'Zero external deps in TypeScript core & protocol', confidence: 0.96 },
-        { id: 'fact-2', subject: 'user', predicate: 'gym_schedule', objectValue: 'Tue/Thu 19:30-21:00 DND for non-urgent alerts', confidence: 0.91 },
+        { id: 'fact-1', subject: 'user', predicate: 'prefers_runtime', objectValue: 'TypeScript 核心与协议零外部依赖', confidence: 0.96 },
+        { id: 'fact-2', subject: 'user', predicate: 'gym_schedule', objectValue: '周二/周四 19:30-21:00 非紧急提醒免打扰', confidence: 0.91 },
       ],
       skills: [
-        { slug: 'cf-tunnel-heal', name: 'Cloudflare Tunnel Auto-Heal', successRate: 0.98, occurrences: 6 },
+        { slug: 'cf-tunnel-heal', name: 'Cloudflare Tunnel 自动修复', successRate: 0.98, occurrences: 6 },
       ],
       lastDigest: {
         digestId: 'dig-demo',
@@ -161,13 +172,13 @@ function createSeedState() {
             diffId: 'diff-1',
             operation: 'add',
             targetFile: 'USER.md',
-            title: 'Zero raw hex in UI components',
-            proposedValue: 'Always bind CSS/SwiftUI views to 3-tier design tokens.',
+            title: 'UI 组件零裸色值',
+            proposedValue: 'CSS/SwiftUI 视图始终绑定三层设计令牌。',
             reviewStatus: 'pending',
           },
         ],
       },
-      soulPreview: '# SOUL.md\nAmbient Soul & Outcome Studio: calm until decisive, evidence over raw logs.',
+      soulPreview: '# SOUL.md\n环境灵魂与任务工作室：平时安静，关键时刻果断，以证据代替原始日志。',
     },
   };
 }
@@ -181,11 +192,11 @@ function escapeHtml(str) {
 }
 
 const HARNESS_META = [
-  { id: 'pi', label: 'Pi Core Native', desc: '4-tool minimalist SDK + RPC stream' },
-  { id: 'claude-code', label: 'Claude Code CLI', desc: 'Local authenticated claude + --mcp-config' },
-  { id: 'codex', label: 'Codex Harness', desc: 'Local ~/.codex + Routed MCP Bridge' },
-  { id: 'opencode', label: 'OpenCode ACP', desc: 'OpenCode ACP / HTTP server bridge' },
-  { id: 'byok', label: 'BYOK pi-ai Router', desc: 'Direct OpenAI / Anthropic / Gemini / OpenRouter' },
+  { id: 'pi', label: 'Pi Core Native', desc: '4 工具极简 SDK + RPC 流' },
+  { id: 'claude-code', label: 'Claude Code CLI', desc: '本地已登录 claude + --mcp-config' },
+  { id: 'codex', label: 'Codex Harness', desc: '本地 ~/.codex + 路由 MCP 桥' },
+  { id: 'opencode', label: 'OpenCode ACP', desc: 'OpenCode ACP / HTTP 服务桥' },
+  { id: 'byok', label: 'BYOK pi-ai Router', desc: '直连 OpenAI / Anthropic / Gemini / OpenRouter' },
 ];
 
 export async function initApp() {
@@ -194,22 +205,206 @@ export async function initApp() {
   const { PipiAvatar } = await import(avatarModuleUrl);
   const state = createSeedState();
   const $ = (sel) => document.querySelector(sel);
+  const params = new URLSearchParams(window.location.search);
+  const tabParam = params.get('tab');
+  if (['outcomes', 'needs-you', 'muse', 'fleet', 'soul'].includes(tabParam)) {
+    state.activeTab = tabParam;
+  }
+  const themeParam = params.get('theme');
+  if (themeParam === 'light' || themeParam === 'dark') {
+    state.theme = themeParam;
+    document.documentElement.setAttribute('data-theme', themeParam);
+  }
+  if (params.get('pwa') === '1') {
+    document.body.classList.add('is-pwa-only');
+  }
 
-  const isZh = typeof navigator !== 'undefined' && String(navigator.language || '').toLowerCase().startsWith('zh');
-  const i18n = {
-    brandTitle: isZh ? 'PipiBot · 个人 AI 助手' : 'PipiBot · Personal AI',
-    quickAction: isZh ? '快捷' : 'Quick',
-    tabTasks: isZh ? '任务' : 'Tasks',
-    tabApprovals: isZh ? '待确认' : 'Approvals',
-    tabChat: isZh ? '对话' : 'Chat',
-    tabDevices: isZh ? '设备' : 'Devices',
-    tabMemory: isZh ? '记忆' : 'Memory',
+  const copy = {
+    brandTitle: 'PipiBot · 个人 AI 助手',
+    quickAction: '运行',
+    tabTasks: '任务',
+    tabApprovals: '待确认',
+    tabChat: '对话',
+    tabDevices: '设备',
+    tabMemory: '记忆',
+    themeObsidian: '主题：黑曜石',
+    themeVellum: '主题：羊皮纸',
+    pwaFocus: '手机视图',
+    harness: '引擎',
+    connecting: '正在连接 PipiBot ...',
+    offlineDemo: '离线演示 · 使用示例数据',
+    offlineDemoTitle: '运行 npm run start:daemon 连接本地 Daemon',
+    liveConnected: (version) => `已连接 · pipibot-daemon v${version}`,
+    offlineMode: '离线演示',
+    liveMode: '实时连接',
+    demoData: '演示数据',
+    local: '本地',
+    sampleData: '示例数据',
+    outcomes: (count) => `任务 (${count})`,
+    new: '新建',
+    evaluateNeedsYou: '处理',
+    evaluateActive: '查看',
+    statusNeedsYou: '待确认',
+    statusActive: '运行中',
+    statusDone: '已完成',
+    statusFailed: '失败',
+    statusPaused: '已暂停',
+    domainDev: '开发',
+    domainInfra: '基础设施',
+    domainDailyLife: '生活',
+    domainResearch: '研究',
+    harnessPi: 'Pi',
+    harnessClaudeCode: 'Claude Code',
+    harnessCodex: 'Codex',
+    harnessOpenCode: 'OpenCode',
+    harnessByok: 'BYOK',
+    cue: '提示',
+    needsYou: (count) => `待确认 (${count})`,
+    steerNote: '补充说明（可选）',
+    steerPlaceholder: '在批准前补充说明...',
+    defer: '稍后',
+    approve: '批准',
+    r2Evidence: 'R2 证据',
+    chatTitle: 'PipiBot 对话',
+    voice: '语音输入',
+    stopVoice: '停止语音',
+    send: '发送',
+    life: '生活',
+    work: '工作',
+    messageVia: (harness) => `通过 ${harness} 发送消息...`,
+    connectedDevices: (count) => `已连接设备 (${count})`,
+    soulMemory: (score) => `灵魂与记忆 (${score}%)`,
+    dream: '整理记忆',
+    learnedFacts: '已学习的事实与技能',
+    factsSkills: (facts, skills) => `${facts} 条事实 · ${skills} 个技能`,
+    revert: '撤销',
+    adopt: '采纳',
+    selectHarness: '选择引擎',
+    close: '关闭',
+    current: '当前',
+    newOutcome: '新建任务',
+    cancel: '取消',
+    outcomeTitle: '任务名称',
+    outcomeTitlePlaceholder: '例如：夜间 E2E 结账守护',
+    domain: '领域',
+    goal: '目标与验收标准',
+    goalPlaceholder: '验证零视觉回归，并上传 R2 视频证据。',
+    launchOutcome: '创建任务',
+    allCaughtUp: '全部处理完了',
+    allCaughtUpDesc: 'Mac 主机与 VPS 正在自动运行，没有待确认事项。',
+    assignOutcome: '新建任务',
+    allClear: '全部完成',
+    pending: '待处理',
+    nodesOnline: (count) => `${count} 台设备在线`,
+    activeOutcomes: (count) => `${count} 个任务运行中`,
+    reviewNeedsYou: '查看待确认',
+    openOutcomes: '查看任务',
+    avatarStates: {
+      'ambient-breathe': '待命',
+      thinking: '思考中',
+      'plan-structuring': '规划中',
+      synthesizing: '整理中',
+      'evolution-proud': '已完成',
+      'dreaming-consolidating': '整理记忆中',
+      'persona-updating': '更新中',
+      'manus-cue': '提示中',
+      'voice-interrupted': '聆听中',
+      idle: '空闲',
+      'pi-coding': '编码中',
+      'claude-routing': '路由中',
+      'codex-routing': '路由中',
+      'opencode-routing': '路由中',
+      'byok-streaming': '流式生成中',
+      'memory-pruning': '清理记忆中',
+    },
+    expressions: {
+      happy: '愉快',
+      focused: '专注',
+      curious: '好奇',
+      proud: '自豪',
+      neutral: '平静',
+      listening: '聆听',
+      sleepy: '困倦',
+      evolving: '进化中',
+    },
   };
-  document.documentElement.lang = isZh ? 'zh-CN' : 'en';
+
+  const statusLabel = (status) => ({
+    needs_you: copy.statusNeedsYou,
+    active: copy.statusActive,
+    done: copy.statusDone,
+    failed: copy.statusFailed,
+    paused: copy.statusPaused,
+  }[status] || status);
+
+  const statusPillClass = (status) => {
+    if (status === 'needs_you' || status === 'failed') return 'is-warn';
+    if (status === 'paused') return 'is-soul';
+    return 'is-ok';
+  };
+
+  const severityLabel = (severity) => ({
+    warning: '警告',
+    critical: '严重',
+    info: '提示',
+  }[severity] || severity);
+
+  const categoryLabel = (category) => ({
+    code_merge_or_push: '代码合并 / 推送',
+    infra_mutation: '基础设施变更',
+    memory_evolution_review: '记忆更新',
+  }[category] || category);
+
+  const domainLabel = (domain) => ({
+    dev: copy.domainDev,
+    infra: copy.domainInfra,
+    daily_life: copy.domainDailyLife,
+    research: copy.domainResearch,
+  }[domain] || domain);
+
+  const harnessLabel = (harness) => ({
+    pi: copy.harnessPi,
+    'claude-code': copy.harnessClaudeCode,
+    codex: copy.harnessCodex,
+    opencode: copy.harnessOpenCode,
+    byok: copy.harnessByok,
+  }[harness] || harness);
+
+  const nodeKindLabel = (kind) => ({
+    mac: 'Mac',
+    ios: 'iPhone',
+    vps: 'VPS',
+    windows: 'Windows',
+    embedded: '嵌入式',
+  }[kind] || kind);
+
+  const operationLabel = (operation) => ({
+    add: '新增',
+    update: '更新',
+    remove: '删除',
+  }[operation] || operation);
+
+  const reviewStatusLabel = (status) => ({
+    pending: '待审阅',
+    approved: '已采纳',
+    reverted: '已撤销',
+  }[status] || status);
+
+  const evidenceKindLabel = (kind) => ({
+    video: '视频',
+    diff_patch: '补丁',
+    log_excerpt: '日志',
+  }[kind] || kind);
+
+  const avatarStateLabel = (state) => copy.avatarStates[state] || state;
+  const expressionLabel = (expression) => copy.expressions[expression] || expression;
+
+  document.documentElement.lang = 'zh-CN';
   document.querySelectorAll('[data-i18n]').forEach((el) => {
     const key = el.getAttribute('data-i18n');
-    if (key && i18n[key]) el.textContent = i18n[key];
+    if (key && copy[key]) el.textContent = copy[key];
   });
+  $('#btn-toggle-theme span').textContent = state.theme === 'light' ? copy.themeVellum : copy.themeObsidian;
 
   // Mount live 120Hz PipiAvatars
   const toolbarAvatar = new PipiAvatar($('#toolbar-avatar-mount'), { size: 32, initialState: state.avatarState, interactive: false, cursorTrack: false });
@@ -221,8 +416,8 @@ export async function initApp() {
     if (nextExpr) state.avatarExpression = nextExpr;
     toolbarAvatar.setState(state.avatarState);
     islandAvatar.setState(state.avatarState);
-    $('#mac-avatar-state-label').textContent = state.avatarState;
-    $('#mac-avatar-expr-label').textContent = state.avatarExpression || islandAvatar.expressionId;
+    $('#mac-avatar-state-label').textContent = avatarStateLabel(state.avatarState);
+    $('#mac-avatar-expr-label').textContent = expressionLabel(state.avatarExpression || islandAvatar.expressionId);
   }
 
   async function apiFetch(path, options = {}) {
@@ -267,9 +462,10 @@ export async function initApp() {
     }
 
     state.liveDaemon = false;
-    $('#daemon-conn-banner').textContent = 'Offline Demo Mode · Start daemon via npm run start:daemon';
-    $('#ios-mode-chip').textContent = 'Offline Demo';
-    $('#mac-sse-pill').textContent = 'Demo Fallback';
+    $('#daemon-conn-banner').textContent = copy.offlineDemo;
+    $('#daemon-conn-banner').title = copy.offlineDemoTitle;
+    $('#ios-mode-chip').textContent = copy.offlineMode;
+    $('#mac-sse-pill').textContent = copy.demoData;
     $('#mac-sse-pill').classList.remove('is-ok');
     $('#mac-sse-pill').classList.add('is-warn');
     renderAll();
@@ -280,9 +476,10 @@ export async function initApp() {
     if (data.cloudflare) state.cloudflare = data.cloudflare;
     if (data.understandingScore) state.understandingScore = data.understandingScore;
     if (data.avatarState) syncAvatarState(data.avatarState, data.avatarExpression);
-    $('#daemon-conn-banner').textContent = `Connected Live · pipibot-daemon v${data.version || '0.2.0-beta'}`;
-    $('#ios-mode-chip').textContent = 'Live Daemon';
-    $('#mac-sse-pill').textContent = 'SSE Live';
+    $('#daemon-conn-banner').textContent = copy.liveConnected(data.version || '0.2.0-beta');
+    $('#daemon-conn-banner').title = '';
+    $('#ios-mode-chip').textContent = copy.liveMode;
+    $('#mac-sse-pill').textContent = copy.liveMode;
     $('#mac-sse-pill').classList.add('is-ok');
     $('#mac-sse-pill').classList.remove('is-warn');
   }
@@ -355,36 +552,45 @@ export async function initApp() {
     const pending = state.decisions.filter((d) => d.status === 'pending');
     const rtt = state.cloudflare?.tunnelRttMs ?? 18;
     const score = Number(state.understandingScore?.overall ?? 94.2).toFixed(1);
+    const shortTitle = pending[0]?.title?.split('—')[0].trim();
+    const firstOutcome = state.outcomes[0];
 
     $('#badge-needs-you').textContent = String(pending.length);
     $('#badge-needs-you').style.display = pending.length > 0 ? 'grid' : 'none';
-    $('#mac-tunnel-rtt').textContent = `CF ${rtt}ms`;
-    $('#ios-tunnel-chip').textContent = `CF Tunnel · ${rtt}ms`;
+    const focalStatus = $('#mac-focal-status');
+    focalStatus.textContent = firstOutcome ? statusLabel(firstOutcome.status) : copy.local;
+    focalStatus.className = `pipi-pill ${firstOutcome ? statusPillClass(firstOutcome.status) : 'is-ok'} mono`;
+    $('#ios-tunnel-chip').textContent = state.liveDaemon ? `CF 隧道 · ${rtt}ms` : copy.sampleData;
     $('#mac-understanding-score').textContent = `${score}%`;
-    $('#toolbar-harness-label').textContent = `Harness: ${state.selectedHarness}`;
+    $('#toolbar-harness-label').textContent = `${copy.harness}：${harnessLabel(state.selectedHarness)}`;
 
     if (pending.length > 0) {
-      $('#di-compact-title').textContent = pending[0].title.slice(0, 22);
-      $('#di-compact-badge').textContent = `${pending.length} Needs You`;
-      $('#di-expanded-subtitle').textContent = `${pending.length} pending · ${state.nodes.length} nodes online`;
-      $('#di-quick-action-label').textContent = 'Review Needs You';
+      $('#di-compact-title').textContent = shortTitle;
+      $('#di-compact-title').title = pending[0].title;
+      $('#di-compact-badge').textContent = `${pending.length} 项${copy.statusNeedsYou}`;
+      $('#di-expanded-subtitle').textContent = `${pending.length} 项${copy.pending} · ${copy.nodesOnline(state.nodes.length)}`;
+      $('#di-quick-action-label').textContent = copy.reviewNeedsYou;
+      $('#mac-needs-you-title').textContent = pending[0].title;
+      $('#mac-needs-you-count').textContent = `${pending.length} 项`;
     } else {
-      $('#di-compact-title').textContent = 'PipiBot · All Clear';
-      $('#di-compact-badge').textContent = state.selectedHarness;
-      $('#di-expanded-subtitle').textContent = `${state.outcomes.length} active outcomes · $0/mo CF`;
-      $('#di-quick-action-label').textContent = 'Open Outcomes';
+      $('#di-compact-title').textContent = `PipiBot · ${copy.allClear}`;
+      $('#di-compact-title').title = '';
+      $('#di-compact-badge').textContent = harnessLabel(state.selectedHarness);
+      $('#di-expanded-subtitle').textContent = `${copy.activeOutcomes(state.outcomes.length)} · ${state.liveDaemon ? '$0/mo CF' : copy.local}`;
+      $('#di-quick-action-label').textContent = copy.openOutcomes;
+      $('#mac-needs-you-title').textContent = '没有待确认事项';
+      $('#mac-needs-you-count').textContent = '0 项';
     }
-    $('#di-expanded-metric').textContent = `${rtt}ms`;
+    $('#di-expanded-metric').textContent = state.liveDaemon ? `${rtt}ms` : copy.local;
 
-    if (state.outcomes.length > 0) {
-      const first = state.outcomes[0];
-      $('#mac-focal-outcome').textContent = first.title;
-      $('#mac-focal-outcome-sub').textContent = first.goal;
+    if (firstOutcome) {
+      $('#mac-focal-outcome').textContent = firstOutcome.title;
+      $('#mac-focal-outcome-sub').textContent = firstOutcome.goal;
     }
 
     if (state.cue) {
-      $('#dock-cue-title').textContent = `Cue · ${state.cue.activeAppName || 'Workspace'}`;
-      $('#dock-cue-sub').textContent = state.cue.detectedIntent || state.cue.windowTitle || 'Context ready';
+      $('#dock-cue-title').textContent = `${copy.cue} · ${state.cue.activeAppName || 'Workspace'}`;
+      $('#dock-cue-sub').textContent = state.cue.detectedIntent || state.cue.windowTitle || '上下文已就绪';
     }
   }
 
@@ -410,13 +616,13 @@ export async function initApp() {
   function renderOutcomesTab(container) {
     container.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="font-size:16px;">Outcomes (${state.outcomes.length})</strong>
+        <strong style="font-size:16px;">${copy.outcomes(state.outcomes.length)}</strong>
         <button class="pipi-btn pipi-btn-primary" id="btn-new-outcome" type="button">
           <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
-          <span>New</span>
+          <span>${copy.new}</span>
         </button>
       </div>
       ${state.outcomes.map((out) => `
@@ -426,13 +632,13 @@ export async function initApp() {
               <div class="pipi-list-card-title">${escapeHtml(out.title)}</div>
               <div class="pipi-list-card-sub">${escapeHtml(out.goal)}</div>
             </div>
-            <span class="pipi-pill ${out.status === 'needs_you' ? 'is-warn' : 'is-ok'} mono">${escapeHtml(out.status)}</span>
+            <span class="pipi-pill ${statusPillClass(out.status)} mono">${escapeHtml(statusLabel(out.status))}</span>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
             <span class="mono" style="font-size:11px;color:var(--pipi-text-muted);">
-              ${escapeHtml(out.domain)} · ${escapeHtml(out.preferredHarness)} · $${Number(out.spentTodayUsd || 0).toFixed(2)}/$${Number(out.dailyBudgetUsd || 2).toFixed(0)}
+              ${escapeHtml(domainLabel(out.domain))} · ${escapeHtml(harnessLabel(out.preferredHarness))} · $${Number(out.spentTodayUsd || 0).toFixed(2)}/$${Number(out.dailyBudgetUsd || 2).toFixed(0)}
             </span>
-            <button class="pipi-btn pipi-btn-desktop" data-eval-id="${escapeHtml(out.id)}" type="button">Evaluate</button>
+            <button class="pipi-btn pipi-btn-desktop ${out.status === 'needs_you' ? 'pipi-btn-primary' : ''}" data-eval-id="${escapeHtml(out.id)}" type="button">${out.status === 'needs_you' ? copy.evaluateNeedsYou : copy.evaluateActive}</button>
           </div>
         </article>
       `).join('')}
@@ -453,14 +659,14 @@ export async function initApp() {
           <svg class="pipi-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="20 6 9 17 4 12"></polyline>
           </svg>
-          <h3 class="pipi-empty-title">All Caught Up</h3>
-          <p class="pipi-empty-desc">Your Mac resident and VPS fleet are running autonomously without pending sign-offs.</p>
+          <h3 class="pipi-empty-title">${copy.allCaughtUp}</h3>
+          <p class="pipi-empty-desc">${copy.allCaughtUpDesc}</p>
           <button class="pipi-btn pipi-btn-primary" id="btn-empty-new-outcome" type="button">
             <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            <span>Assign Outcome</span>
+            <span>${copy.assignOutcome}</span>
           </button>
         </div>
       `;
@@ -468,29 +674,30 @@ export async function initApp() {
       return;
     }
 
-    const card = pending[0];
+    const card = pending.find((d) => d.id === state.activeDecisionId) || pending[0];
+    const rest = pending.filter((d) => d.id !== card.id);
     const ev = card.evidence?.[0];
     container.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="font-size:16px;">Needs You (${pending.length})</strong>
-        <span class="pipi-pill is-warn mono">${escapeHtml(card.severity)}</span>
+        <strong style="font-size:16px;">${copy.needsYou(pending.length)}</strong>
+        <span class="pipi-pill is-warn mono">${escapeHtml(severityLabel(card.severity))}</span>
       </div>
       <article class="pipi-list-card swipe-card-anim" id="needs-you-active-card">
         <div class="pipi-list-card-head">
           <div class="pipi-list-card-title">${escapeHtml(card.title)}</div>
-          <span class="pipi-pill mono">${escapeHtml(card.category)}</span>
+          <span class="pipi-pill mono">${escapeHtml(categoryLabel(card.category))}</span>
         </div>
         <div class="pipi-list-card-sub">${escapeHtml(card.summary)}</div>
         ${ev ? `
           <div class="pipi-evidence-box">
-            <span class="mono" style="font-size:11px;color:var(--pipi-soul-secondary);">R2 EVIDENCE · ${escapeHtml(ev.kind)}</span>
+            <span class="mono" style="font-size:11px;color:var(--pipi-soul-secondary);">${copy.r2Evidence} · ${escapeHtml(evidenceKindLabel(ev.kind))}</span>
             <div style="font-size:12px;font-weight:600;">${escapeHtml(ev.caption)}</div>
             <div class="mono" style="font-size:10px;color:var(--pipi-text-muted);word-break:break-all;">${escapeHtml(ev.r2Key)}</div>
           </div>
         ` : ''}
         <div class="pipi-field-group">
-          <label class="pipi-field-label" for="ny-steer-note">Steer Note (Optional)</label>
-          <input class="pipi-input" id="ny-steer-note" placeholder="Add guidance before shipping..." />
+          <label class="pipi-field-label" for="ny-steer-note">${copy.steerNote}</label>
+          <input class="pipi-input" id="ny-steer-note" placeholder="${copy.steerPlaceholder}" />
         </div>
         <div class="pipi-btn-row">
           <button class="pipi-btn pipi-btn-danger" id="btn-ny-reject" type="button">
@@ -498,59 +705,79 @@ export async function initApp() {
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
-            <span>Defer</span>
+            <span>${copy.defer}</span>
           </button>
           <button class="pipi-btn pipi-btn-primary" id="btn-ny-approve" type="button">
             <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
-            <span>Approve</span>
+            <span>${copy.approve}</span>
           </button>
         </div>
       </article>
+      ${rest.length > 0 ? `
+        <div class="pipi-section-label">接下来</div>
+        ${rest.map((d) => `
+          <button class="pipi-list-card pipi-decision-row" data-decision-id="${escapeHtml(d.id)}" type="button">
+            <div class="pipi-list-card-head">
+              <div>
+                <div class="pipi-list-card-title">${escapeHtml(d.title)}</div>
+                <div class="pipi-list-card-sub">${escapeHtml(d.summary)}</div>
+              </div>
+              <span class="pipi-pill ${d.severity === 'critical' ? 'is-warn' : 'is-soul'} mono">${escapeHtml(severityLabel(d.severity))}</span>
+            </div>
+          </button>
+        `).join('')}
+      ` : ''}
     `;
 
     $('#btn-ny-approve')?.addEventListener('click', () => handleResolveDecision(card, true));
     $('#btn-ny-reject')?.addEventListener('click', () => handleResolveDecision(card, false));
+    container.querySelectorAll('[data-decision-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.activeDecisionId = btn.dataset.decisionId;
+        renderActiveTab();
+      });
+    });
   }
 
   function renderMuseTab(container) {
     container.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="font-size:16px;">${isZh ? 'PipiBot 对话' : 'PipiBot Chat'}</strong>
+        <strong style="font-size:16px;">${copy.chatTitle}</strong>
         <button class="pipi-btn pipi-btn-desktop" id="btn-voice-toggle" type="button">
-          <span>${state.voiceListening ? (isZh ? '停止语音' : 'Stop Voice') : (isZh ? '语音输入' : 'Voice')}</span>
+          <span>${state.voiceListening ? copy.stopVoice : copy.voice}</span>
         </button>
       </div>
       <div class="muse-grid">
         <div class="pipi-list-card">
-          <span class="mono" style="font-size:10px;color:var(--pipi-status-ok);">LIFE</span>
-          <div class="pipi-list-card-title">NH962 Check-in</div>
-          <div class="pipi-list-card-sub">Synced to Apple Calendar</div>
+          <span class="mono" style="font-size:10px;color:var(--pipi-status-ok);">${copy.life}</span>
+          <div class="pipi-list-card-title">NH962 值机</div>
+          <div class="pipi-list-card-sub">已同步到 Apple 日历</div>
         </div>
         <div class="pipi-list-card">
-          <span class="mono" style="font-size:10px;color:var(--pipi-soul-secondary);">WORK</span>
-          <div class="pipi-list-card-title">PR #42 CLS Fix</div>
-          <div class="pipi-list-card-sub">R2 clip verified</div>
+          <span class="mono" style="font-size:10px;color:var(--pipi-soul-secondary);">${copy.work}</span>
+          <div class="pipi-list-card-title">PR #42 CLS 修复</div>
+          <div class="pipi-list-card-sub">R2 录屏已验证</div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;">
         ${state.chatMessages.slice(-4).map((m) => `
           <div class="chat-bubble ${m.role === 'user' ? 'is-user' : ''}">
-            <div class="mono" style="font-size:10px;color:var(--pipi-text-muted);margin-bottom:3px;">${escapeHtml(m.role)} · ${escapeHtml(m.provider || state.selectedHarness)}</div>
+            <div class="mono" style="font-size:10px;color:var(--pipi-text-muted);margin-bottom:3px;">${m.role === 'user' ? '你' : '助手'} · ${escapeHtml(harnessLabel(m.provider || state.selectedHarness))}</div>
             <div style="white-space:pre-wrap;">${escapeHtml(m.text)}</div>
           </div>
         `).join('')}
       </div>
       <form id="muse-chat-form" class="pipi-field-group">
         <div style="display:flex;gap:8px;">
-          <input class="pipi-input" id="muse-chat-input" placeholder="Message via ${escapeHtml(state.selectedHarness)}..." required />
+          <input class="pipi-input" id="muse-chat-input" placeholder="${copy.messageVia(harnessLabel(state.selectedHarness))}" required />
           <button class="pipi-btn pipi-btn-primary" type="submit">
             <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <line x1="22" y1="2" x2="11" y2="13"></line>
               <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
             </svg>
-            <span>Send</span>
+            <span>${copy.send}</span>
           </button>
         </div>
       </form>
@@ -576,8 +803,8 @@ export async function initApp() {
     const rtt = state.cloudflare?.tunnelRttMs ?? 18;
     container.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="font-size:16px;">${isZh ? '已连接设备' : 'Connected Devices'} (${state.nodes.length})</strong>
-        <span class="pipi-pill is-ok mono">${rtt}ms</span>
+        <strong style="font-size:16px;">${copy.connectedDevices(state.nodes.length)}</strong>
+        <span class="pipi-pill is-ok mono">${state.liveDaemon ? `${rtt}ms` : copy.local}</span>
       </div>
       ${state.nodes.map((node) => `
         <article class="pipi-list-card">
@@ -586,7 +813,7 @@ export async function initApp() {
               <span class="dot-pulse is-${escapeHtml(node.vitality || 'alive')}"></span>
               <div>
                 <div class="pipi-list-card-title">${escapeHtml(node.displayName)}</div>
-                <div class="pipi-list-card-sub mono">${escapeHtml(node.kind)} · CPU ${Math.round(node.cpuLoadPct || 0)}% · RAM ${Math.round(node.memoryUsedPct || 0)}%</div>
+                <div class="pipi-list-card-sub mono">${escapeHtml(nodeKindLabel(node.kind))} · CPU ${Math.round(node.cpuLoadPct || 0)}% · RAM ${Math.round(node.memoryUsedPct || 0)}%</div>
               </div>
             </div>
             <span class="pipi-pill mono">${node.tunnelRttMs ?? 12}ms</span>
@@ -601,12 +828,12 @@ export async function initApp() {
     const diffs = state.memory?.lastDigest?.diffs || [];
     container.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="font-size:16px;">Soul &amp; Memory (${score}%)</strong>
+        <strong style="font-size:16px;">${copy.soulMemory(score)}</strong>
         <button class="pipi-btn pipi-btn-primary" id="btn-run-dream" type="button">
           <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
           </svg>
-          <span>Dream</span>
+          <span>${copy.dream}</span>
         </button>
       </div>
       ${diffs.map((d) => `
@@ -614,22 +841,22 @@ export async function initApp() {
           <div class="pipi-list-card-head">
             <div>
               <div class="pipi-list-card-title">${escapeHtml(d.title)}</div>
-              <div class="pipi-list-card-sub mono">${escapeHtml(d.targetFile)} · ${escapeHtml(d.operation)}</div>
+              <div class="pipi-list-card-sub mono">${escapeHtml(d.targetFile)} · ${escapeHtml(operationLabel(d.operation))}</div>
             </div>
-            <span class="pipi-pill ${d.reviewStatus === 'approved' ? 'is-ok' : 'is-soul'} mono">${escapeHtml(d.reviewStatus)}</span>
+            <span class="pipi-pill ${d.reviewStatus === 'approved' ? 'is-ok' : 'is-soul'} mono">${escapeHtml(reviewStatusLabel(d.reviewStatus))}</span>
           </div>
           <div class="pipi-list-card-sub">${escapeHtml(d.proposedValue)}</div>
           ${d.reviewStatus === 'pending' ? `
             <div class="pipi-btn-row">
-              <button class="pipi-btn" data-diff-revert="${escapeHtml(d.diffId)}" type="button">Revert</button>
-              <button class="pipi-btn pipi-btn-primary" data-diff-approve="${escapeHtml(d.diffId)}" type="button">Approve</button>
+              <button class="pipi-btn" data-diff-revert="${escapeHtml(d.diffId)}" type="button">${copy.revert}</button>
+              <button class="pipi-btn pipi-btn-primary" data-diff-approve="${escapeHtml(d.diffId)}" type="button">${copy.adopt}</button>
             </div>
           ` : ''}
         </article>
       `).join('')}
       <article class="pipi-list-card">
-        <div class="pipi-list-card-title">Learned Facts &amp; Skills</div>
-        <div class="pipi-list-card-sub mono">${state.memory.facts.length} active facts · ${state.memory.skills.length} Pi skills</div>
+        <div class="pipi-list-card-title">${copy.learnedFacts}</div>
+        <div class="pipi-list-card-sub mono">${copy.factsSkills(state.memory.facts.length, state.memory.skills.length)}</div>
         ${state.memory.facts.slice(0, 3).map((f) => `
           <div class="pipi-list-card-sub">• ${escapeHtml(f.objectValue)}</div>
         `).join('')}
@@ -658,14 +885,14 @@ export async function initApp() {
     sheet.innerHTML = `
       <div class="pipi-sheet-grabber"></div>
       <div class="pipi-sheet-head">
-        <strong style="font-size:17px;">Select Harness Route</strong>
-        <button class="pipi-btn pipi-btn-desktop" id="sheet-close-btn" type="button">Close</button>
+        <strong style="font-size:17px;">${copy.selectHarness}</strong>
+        <button class="pipi-btn pipi-btn-desktop" id="sheet-close-btn" type="button">${copy.close}</button>
       </div>
       ${HARNESS_META.map((h) => `
         <button class="pipi-list-card" data-pick-harness="${h.id}" type="button" style="text-align:left;cursor:pointer;">
           <div class="pipi-list-card-head">
             <div class="pipi-list-card-title">${escapeHtml(h.label)}</div>
-            ${state.selectedHarness === h.id ? '<span class="pipi-pill is-ok mono">active</span>' : ''}
+            ${state.selectedHarness === h.id ? `<span class="pipi-pill is-ok mono">${copy.current}</span>` : ''}
           </div>
           <div class="pipi-list-card-sub">${escapeHtml(h.desc)}</div>
         </button>
@@ -690,32 +917,32 @@ export async function initApp() {
     sheet.innerHTML = `
       <div class="pipi-sheet-grabber"></div>
       <div class="pipi-sheet-head">
-        <strong style="font-size:17px;">New Outcome Responsibility</strong>
-        <button class="pipi-btn pipi-btn-desktop" id="sheet-close-btn" type="button">Cancel</button>
+        <strong style="font-size:17px;">${copy.newOutcome}</strong>
+        <button class="pipi-btn pipi-btn-desktop" id="sheet-close-btn" type="button">${copy.cancel}</button>
       </div>
       <form id="create-outcome-form" style="display:flex;flex-direction:column;gap:12px;">
         <div class="pipi-field-group">
-          <label class="pipi-field-label" for="out-title">Outcome Title</label>
-          <input class="pipi-input" id="out-title" placeholder="e.g. Nightly E2E Checkout Guard" required />
+          <label class="pipi-field-label" for="out-title">${copy.outcomeTitle}</label>
+          <input class="pipi-input" id="out-title" placeholder="${copy.outcomeTitlePlaceholder}" required />
         </div>
         <div class="pipi-field-group">
-          <label class="pipi-field-label" for="out-domain">Domain</label>
+          <label class="pipi-field-label" for="out-domain">${copy.domain}</label>
           <select class="pipi-select" id="out-domain">
-            <option value="dev">dev</option>
-            <option value="work">work</option>
-            <option value="daily_life">daily_life</option>
-            <option value="infra">infra</option>
+            <option value="dev">${copy.domainDev}</option>
+            <option value="work">${copy.work}</option>
+            <option value="daily_life">${copy.domainDailyLife}</option>
+            <option value="infra">${copy.domainInfra}</option>
           </select>
         </div>
         <div class="pipi-field-group">
-          <label class="pipi-field-label" for="out-goal">Goal &amp; Success Metrics</label>
-          <textarea class="pipi-textarea" id="out-goal" rows="3" placeholder="Verify zero visual regressions and upload R2 video evidence." required></textarea>
+          <label class="pipi-field-label" for="out-goal">${copy.goal}</label>
+          <textarea class="pipi-textarea" id="out-goal" rows="3" placeholder="${copy.goalPlaceholder}" required></textarea>
         </div>
         <button class="pipi-btn pipi-btn-primary pipi-btn-full" type="submit">
           <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="20 6 9 17 4 12"></polyline>
           </svg>
-          <span>Launch Outcome</span>
+          <span>${copy.launchOutcome}</span>
         </button>
       </form>
     `;
@@ -910,7 +1137,7 @@ export async function initApp() {
     const isLight = html.getAttribute('data-theme') === 'light';
     html.setAttribute('data-theme', isLight ? 'dark' : 'light');
     state.theme = isLight ? 'dark' : 'light';
-    $('#btn-toggle-theme span').textContent = `Theme: ${isLight ? 'Obsidian' : 'Vellum'}`;
+    $('#btn-toggle-theme span').textContent = isLight ? copy.themeObsidian : copy.themeVellum;
   });
 
   $('#btn-toggle-pwa').addEventListener('click', () => {

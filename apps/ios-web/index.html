@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>PipiBot · Personal AI Companion</title>
+  <title>PipiBot · 个人 AI 助手</title>
   <script>
     if (/^\/ios$/.test(window.location.pathname)) {
       window.location.replace('/ios/' + window.location.search + window.location.hash);
@@ -13,8 +13,8 @@
   </script>
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="../../design-system/tokens.css" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="../../design-system/tokens.css?v=20261119d" />
+  <link rel="stylesheet" href="./styles.css?v=20261119d" />
 </head>
 <body>
   <div class="stage-shell">
@@ -24,7 +24,7 @@
         <div id="toolbar-avatar-mount" style="width: 32px; height: 32px;"></div>
         <div>
           <div class="stage-title" data-i18n="brandTitle">PipiBot</div>
-          <div class="stage-sub mono" id="daemon-conn-banner">Connecting to PipiBot ...</div>
+          <div class="stage-sub mono" id="daemon-conn-banner">正在连接 PipiBot ...</div>
         </div>
       </div>
 
@@ -34,21 +34,21 @@
             <circle cx="12" cy="12" r="4"></circle>
             <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"></path>
           </svg>
-          <span>Theme: Obsidian</span>
+          <span>主题：黑曜石</span>
         </button>
         <button class="pipi-btn pipi-btn-desktop" id="btn-toggle-pwa" type="button">
           <svg class="pipi-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="7" y="2" width="10" height="20" rx="2"></rect>
             <path d="M11 18h2"></path>
           </svg>
-          <span>PWA Focus</span>
+          <span>手机视图</span>
         </button>
         <button class="pipi-btn pipi-btn-desktop pipi-btn-primary" id="btn-open-harness-sheet" type="button">
           <svg class="pipi-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 17l6-6-6-6"></path>
             <path d="M12 19h8"></path>
           </svg>
-          <span id="toolbar-harness-label">Harness: pi</span>
+          <span id="toolbar-harness-label">引擎：pi</span>
         </button>
       </div>
     </header>
@@ -64,51 +64,104 @@
             <span class="mac-dot is-max"></span>
           </div>
           <div class="mac-url-pill mono" id="mac-url-pill">pipibot-daemon · 127.0.0.1:4242</div>
-          <span class="pipi-pill is-ok mono" id="mac-sse-pill">SSE Live</span>
+          <span class="pipi-pill is-ok mono" id="mac-sse-pill">演示数据</span>
         </div>
 
         <div class="mac-host-body">
           <!-- Quiet Structural Filler Sidebar (Stageshow restraint: 3-7 focal strings) -->
           <aside class="mac-sidebar" aria-hidden="true">
-            <div class="quiet-bar w-58"></div>
-            <div class="quiet-bar w-86"></div>
-            <div class="quiet-bar w-72"></div>
-            <div class="quiet-bar w-40"></div>
-            <div class="quiet-bar w-86"></div>
-            <div class="quiet-bar w-58"></div>
+            <div class="mac-sidebar-brand">
+              <span class="mac-sidebar-wordmark">PipiBot</span>
+            </div>
+            <div class="mac-sidebar-group">
+              <div class="quiet-bar w-86"></div>
+              <div class="quiet-bar w-72"></div>
+              <div class="quiet-bar w-58"></div>
+            </div>
+            <div class="mac-sidebar-group">
+              <div class="quiet-bar w-40"></div>
+              <div class="quiet-bar w-86"></div>
+              <div class="quiet-bar w-72"></div>
+              <div class="quiet-bar w-58"></div>
+            </div>
+            <div class="mac-sidebar-footer">
+              <div class="quiet-bar w-58"></div>
+            </div>
           </aside>
 
           <div class="mac-focal-panel">
             <div>
-              <div class="stage-sub mono">ACTIVE AVATAR STATE · 120 HZ</div>
+              <div class="stage-sub mono">当前状态 · 120 Hz</div>
               <div class="mac-kpi-row">
-                <span class="mac-kpi-figure mono" id="mac-avatar-state-label">ambient-breathe</span>
-                <span class="pipi-pill is-soul mono" id="mac-avatar-expr-label">happy</span>
+                <span class="mac-kpi-figure mono" id="mac-avatar-state-label">待命</span>
+                <span class="pipi-pill is-soul mono" id="mac-avatar-expr-label">愉快</span>
               </div>
             </div>
 
             <div class="pipi-list-card">
               <div class="pipi-list-card-head">
                 <div>
-                  <div class="pipi-list-card-title" id="mac-focal-outcome">Layout Guardian Bot</div>
-                  <div class="pipi-list-card-sub" id="mac-focal-outcome-sub">CLS 0.34 -&gt; 0.01 · R2 evidence verified</div>
+                  <div class="pipi-list-card-title" id="mac-focal-outcome">布局守护 Bot</div>
+                  <div class="pipi-list-card-sub" id="mac-focal-outcome-sub">CLS 0.34 -&gt; 0.01 · R2 证据已验证</div>
                 </div>
-                <span class="pipi-pill is-ok mono" id="mac-tunnel-rtt">CF 18ms</span>
+                <span class="pipi-pill is-warn mono" id="mac-focal-status">待确认</span>
               </div>
             </div>
 
             <div class="pipi-list-card">
               <div class="pipi-list-card-head">
                 <div>
-                  <div class="pipi-list-card-title">Understanding Score</div>
-                  <div class="pipi-list-card-sub" id="mac-understanding-sub">4-Tier Memory &amp; Nightly Dream Sync</div>
+                  <div class="pipi-list-card-title">理解度</div>
+                  <div class="pipi-list-card-sub" id="mac-understanding-sub">四层记忆与夜间整理</div>
                 </div>
                 <span class="mac-kpi-figure mono" id="mac-understanding-score">94.2%</span>
               </div>
             </div>
 
-            <div class="quiet-bar w-86" aria-hidden="true"></div>
-            <div class="quiet-bar w-58" aria-hidden="true"></div>
+            <div class="pipi-list-card">
+              <div class="pipi-list-card-head">
+                <div>
+                  <div class="pipi-list-card-title">待确认</div>
+                  <div class="pipi-list-card-sub" id="mac-needs-you-title">批准 PR #42 — 结账页 CLS 回归修复</div>
+                </div>
+                <span class="pipi-pill is-warn mono" id="mac-needs-you-count">3 项</span>
+              </div>
+            </div>
+
+            <div class="pipi-list-card">
+              <div class="pipi-list-card-head">
+                <div>
+                  <div class="pipi-list-card-title">今日简报</div>
+                  <div class="pipi-list-card-sub">2 个任务完成 · 1 个待确认 · 5 台设备在线</div>
+                </div>
+                <span class="pipi-pill is-ok mono">正常</span>
+              </div>
+            </div>
+
+            <div class="mac-recent">
+              <div class="stage-sub mono">最近会话</div>
+              <div class="mac-recent-row">
+                <span class="dot-pulse is-alive"></span>
+                <div>
+                  <div class="pipi-list-card-title">修复登录页 CLS 抖动</div>
+                  <div class="pipi-list-card-sub">Coder · 运行中 3 分钟</div>
+                </div>
+              </div>
+              <div class="mac-recent-row">
+                <span class="dot-pulse is-busy"></span>
+                <div>
+                  <div class="pipi-list-card-title">周报草稿</div>
+                  <div class="pipi-list-card-sub">Writer · 等待确认</div>
+                </div>
+              </div>
+              <div class="mac-recent-row">
+                <span class="dot-pulse is-alive"></span>
+                <div>
+                  <div class="pipi-list-card-title">旅行清单</div>
+                  <div class="pipi-list-card-sub">Pi · 已完成</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -122,22 +175,22 @@
               <div class="di-compact-row">
                 <div class="di-leading">
                   <div id="island-avatar-mount" style="width: 22px; height: 22px;"></div>
-                  <span id="di-compact-title">PipiBot · Ready</span>
+                  <span id="di-compact-title">PipiBot · 就绪</span>
                 </div>
                 <span class="mono" id="di-compact-badge">pi</span>
               </div>
 
               <div class="di-expanded-panel">
                 <div class="di-compact-row">
-                  <span class="stage-sub" id="di-expanded-subtitle">0 pending decisions · 5 nodes alive</span>
-                  <span class="mono" id="di-expanded-metric">18ms</span>
+                  <span class="stage-sub" id="di-expanded-subtitle">0 项待处理 · 5 台设备在线</span>
+                  <span class="mono" id="di-expanded-metric">本地</span>
                 </div>
                 <div class="pipi-btn-row">
                   <button class="pipi-btn pipi-btn-desktop pipi-btn-primary" id="di-quick-action-btn" type="button">
                     <svg class="pipi-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <polyline points="20 6 9 17 4 12"></polyline>
                     </svg>
-                    <span id="di-quick-action-label">Open Needs You</span>
+                    <span id="di-quick-action-label">查看待确认</span>
                   </button>
                 </div>
               </div>
@@ -146,8 +199,8 @@
         </div>
 
         <div class="ios-status-strip">
-          <span class="mono" id="ios-mode-chip">Demo Fallback</span>
-          <span class="mono" id="ios-tunnel-chip">CF Tunnel · 18ms</span>
+          <span class="mono" id="ios-mode-chip">离线演示</span>
+          <span class="mono" id="ios-tunnel-chip">示例数据</span>
         </div>
 
         <!-- Scrollable Active Tab Content -->
@@ -158,15 +211,15 @@
           <div class="pipi-dock-left">
             <div id="dock-avatar-mount" style="width: 34px; height: 34px; flex-shrink: 0;"></div>
             <div class="pipi-dock-meta">
-              <div class="pipi-dock-title" id="dock-cue-title">PipiBot Quick Bar</div>
-              <div class="pipi-dock-sub" id="dock-cue-sub">Ready to assist</div>
+              <div class="pipi-dock-title" id="dock-cue-title">提示 · Xcode</div>
+              <div class="pipi-dock-sub" id="dock-cue-sub">SwiftUI 快照测试待运行</div>
             </div>
           </div>
           <button class="pipi-btn pipi-btn-primary" id="dock-cue-btn" type="button">
             <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polygon points="5 3 19 12 5 21 5 3"></polygon>
             </svg>
-            <span data-i18n="quickAction">Quick</span>
+            <span data-i18n="quickAction">运行</span>
           </button>
         </div>
 
@@ -221,6 +274,6 @@
     </main>
   </div>
 
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=20261119d"></script>
 </body>
 </html>

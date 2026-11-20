@@ -105,9 +105,9 @@ cat > "$APP_BUNDLE/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.8.0</string>
+  <string>0.9.0</string>
   <key>CFBundleVersion</key>
-  <string>8</string>
+  <string>9</string>
   <key>CFBundleSupportedPlatforms</key>
   <array>
     <string>iPhoneSimulator</string>
@@ -138,6 +138,10 @@ cat > "$APP_BUNDLE/Info.plist" <<'PLIST'
       </array>
     </dict>
   </array>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>PiPiBot uses your microphone for on-device-first daily voice dictation and Muse hands-free voice chat.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>PiPiBot uses Apple on-device Speech Recognition for private daily voice transcription.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key>

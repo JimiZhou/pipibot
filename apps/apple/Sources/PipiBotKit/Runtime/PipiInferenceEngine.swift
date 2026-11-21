@@ -230,10 +230,13 @@ public struct PipiInferenceEngine: Sendable {
         for kind: PipiLocalAgentKind,
         prompt: String,
         permissionTier: PipiPermissionTier = .ask,
-        cliSessionId: String? = nil
+        cliSessionId: String? = nil,
+        modelOverride: String? = nil
     ) -> [String] {
         let resumeId = cliSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasResume = (resumeId?.isEmpty == false)
+        let trimmedModel = modelOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasModel = (trimmedModel?.isEmpty == false)
 
         switch kind {
         case .claudeCode:
@@ -249,6 +252,9 @@ public struct PipiInferenceEngine: Sendable {
                 "--verbose",
                 "--permission-mode", mode
             ]
+            if hasModel, let trimmedModel {
+                args.append(contentsOf: ["--model", trimmedModel])
+            }
             if hasResume, let resumeId {
                 args.append(contentsOf: ["--resume", resumeId])
             }
@@ -261,28 +267,40 @@ public struct PipiInferenceEngine: Sendable {
             case .autoEdit: sandboxMode = "workspace-write"
             }
             if hasResume, let resumeId {
-                return [
+                var args = [
                     "exec", "resume",
                     "--json",
                     "--skip-git-repo-check",
-                    "-c", "sandbox_mode=\"\(sandboxMode)\"",
-                    resumeId,
-                    prompt
+                    "-c", "sandbox_mode=\"\(sandboxMode)\""
                 ]
+                if hasModel, let trimmedModel {
+                    args.append(contentsOf: ["-m", trimmedModel])
+                }
+                args.append(contentsOf: [resumeId, prompt])
+                return args
             } else {
                 // `--skip-git-repo-check` lets Codex run smoothly in personal non-git directories (e.g. `~`).
-                return [
+                var args = [
                     "exec",
                     "--json",
                     "--skip-git-repo-check",
                     "--color", "never",
-                    "--sandbox", sandboxMode,
-                    prompt
+                    "--sandbox", sandboxMode
                 ]
+                if hasModel, let trimmedModel {
+                    args.append(contentsOf: ["-m", trimmedModel])
+                }
+                args.append(prompt)
+                return args
             }
 
         case .opencode:
-            return ["run", prompt]
+            var args = ["run"]
+            if hasModel, let trimmedModel {
+                args.append(contentsOf: ["-m", trimmedModel])
+            }
+            args.append(prompt)
+            return args
         }
     }
 
@@ -416,6 +434,7 @@ public struct PipiInferenceEngine: Sendable {
         workingDirectory: String,
         permissionTier: PipiPermissionTier = .ask,
         cliSessionId: String? = nil,
+        modelOverride: String? = nil,
         extraEnvironment: [String: String] = [:],
         onDelta: (@Sendable (String) -> Void)? = nil,
         onEvent: (@Sendable (PipiParsedCLIEvent) -> Void)? = nil
@@ -435,7 +454,8 @@ public struct PipiInferenceEngine: Sendable {
             for: kind,
             prompt: compiledPrompt,
             permissionTier: permissionTier,
-            cliSessionId: cliSessionId
+            cliSessionId: cliSessionId,
+            modelOverride: modelOverride
         )
 
         let cwd = FileManager.default.fileExists(atPath: workingDirectory)
@@ -1378,4 +1398,57 @@ public struct PipiInferenceEngine: Sendable {
         }
     }
     #endif
+
+    // MARK: - Model Discovery (for Per-Agent Model Selection)
+
+    public static func fetchAvailableModels(for config: PipiLLMProviderConfig) async -> [String] {
+        var candidates: [String] = []
+        let primary = config.modelId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !primary.isEmpty {
+            candidates.append(primary)
+        }
+        for suggested in config.kind.suggestedModels where !candidates.contains(suggested) {
+            candidates.append(suggested)
+        }
+
+        let base = config.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        switch config.kind {
+        case .ollama:
+            if let url = URL(string: "\(base)/api/tags") {
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 4
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let models = root["models"] as? [[String: Any]] {
+                    for m in models {
+                        if let name = m["name"] as? String, !name.isEmpty, !candidates.contains(name) {
+                            candidates.append(name)
+                        }
+                    }
+                }
+            }
+        case .openai, .deepseek, .openrouter, .customOpenAI:
+            let modelsURLString = base.hasSuffix("/models") ? base : "\(base)/models"
+            if let url = URL(string: modelsURLString),
+               !config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 5
+                req.setValue("Bearer \(config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let items = root["data"] as? [[String: Any]] {
+                    for item in items.prefix(40) {
+                        if let id = item["id"] as? String, !id.isEmpty, !candidates.contains(id) {
+                            candidates.append(id)
+                        }
+                    }
+                }
+            }
+        case .anthropic, .gemini:
+            break
+        }
+        return candidates
+    }
 }

@@ -63,6 +63,15 @@ public struct PipiResidentPersistedState: Codable, Sendable {
     // 3D Home Space Preset & Multi-Room Agent Assignments
     public var homeScenePresetRaw: String?
     public var botRoomAssignments: [String: String]?
+    // Auto-Updater, Proactive CLI Delegation, Security Auditor & WeChat Settings
+    public var autoCheckUpdatesEnabled: Bool?
+    public var proactiveCLIDelegationEnabled: Bool?
+    public var securityAuditorBotId: String?
+    public var wechatAutoConnectEnabled: Bool?
+    public var wechatTypingIndicatorEnabled: Bool?
+    public var wechatPrimaryBotId: String?
+    public var wechatRoutingModeRaw: String?
+    public var wechatGroupMemberBotIds: [String]?
 
     private enum CodingKeys: String, CodingKey {
         case outcomes, decisions, museCards, activeHarness, themeModeRaw, keepAwakeEnabled, updatedAt
@@ -79,6 +88,9 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         case computerUseConfig
         case globalCapabilityPool
         case homeScenePresetRaw, botRoomAssignments
+        case autoCheckUpdatesEnabled, proactiveCLIDelegationEnabled, securityAuditorBotId
+        case wechatAutoConnectEnabled, wechatTypingIndicatorEnabled, wechatPrimaryBotId
+        case wechatRoutingModeRaw, wechatGroupMemberBotIds
     }
 
     public init(
@@ -120,7 +132,15 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         computerUseConfig: PipiComputerUseConfig? = nil,
         globalCapabilityPool: PipiGlobalCapabilityPool? = nil,
         homeScenePresetRaw: String? = nil,
-        botRoomAssignments: [String: String]? = nil
+        botRoomAssignments: [String: String]? = nil,
+        autoCheckUpdatesEnabled: Bool? = nil,
+        proactiveCLIDelegationEnabled: Bool? = nil,
+        securityAuditorBotId: String? = nil,
+        wechatAutoConnectEnabled: Bool? = nil,
+        wechatTypingIndicatorEnabled: Bool? = nil,
+        wechatPrimaryBotId: String? = nil,
+        wechatRoutingModeRaw: String? = nil,
+        wechatGroupMemberBotIds: [String]? = nil
     ) {
         self.outcomes = outcomes
         self.decisions = decisions
@@ -161,6 +181,14 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         self.globalCapabilityPool = globalCapabilityPool
         self.homeScenePresetRaw = homeScenePresetRaw
         self.botRoomAssignments = botRoomAssignments
+        self.autoCheckUpdatesEnabled = autoCheckUpdatesEnabled
+        self.proactiveCLIDelegationEnabled = proactiveCLIDelegationEnabled
+        self.securityAuditorBotId = securityAuditorBotId
+        self.wechatAutoConnectEnabled = wechatAutoConnectEnabled
+        self.wechatTypingIndicatorEnabled = wechatTypingIndicatorEnabled
+        self.wechatPrimaryBotId = wechatPrimaryBotId
+        self.wechatRoutingModeRaw = wechatRoutingModeRaw
+        self.wechatGroupMemberBotIds = wechatGroupMemberBotIds
     }
 
     public init(from decoder: Decoder) throws {
@@ -205,6 +233,14 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         self.globalCapabilityPool = try c.decodeIfPresent(PipiGlobalCapabilityPool.self, forKey: .globalCapabilityPool)
         self.homeScenePresetRaw = try c.decodeIfPresent(String.self, forKey: .homeScenePresetRaw)
         self.botRoomAssignments = try c.decodeIfPresent([String: String].self, forKey: .botRoomAssignments)
+        self.autoCheckUpdatesEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoCheckUpdatesEnabled)
+        self.proactiveCLIDelegationEnabled = try c.decodeIfPresent(Bool.self, forKey: .proactiveCLIDelegationEnabled)
+        self.securityAuditorBotId = try c.decodeIfPresent(String.self, forKey: .securityAuditorBotId)
+        self.wechatAutoConnectEnabled = try c.decodeIfPresent(Bool.self, forKey: .wechatAutoConnectEnabled)
+        self.wechatTypingIndicatorEnabled = try c.decodeIfPresent(Bool.self, forKey: .wechatTypingIndicatorEnabled)
+        self.wechatPrimaryBotId = try c.decodeIfPresent(String.self, forKey: .wechatPrimaryBotId)
+        self.wechatRoutingModeRaw = try c.decodeIfPresent(String.self, forKey: .wechatRoutingModeRaw)
+        self.wechatGroupMemberBotIds = try c.decodeIfPresent([String].self, forKey: .wechatGroupMemberBotIds)
     }
 }
 

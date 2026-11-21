@@ -874,7 +874,7 @@ public actor PipiRemotePWAServer {
             }
             document.getElementById('host-title').textContent = (data.hostName || 'Mac') + ' · PiPiBot';
             document.getElementById('conn-dot').classList.remove('off');
-            document.getElementById('conn-label').textContent = (data.activeModelLabel || '已连接') + ' · v' + (data.appVersion || '0.9.0');
+            document.getElementById('conn-label').textContent = (data.activeModelLabel || '已连接') + ' · v' + (data.appVersion || '0.10.0');
             const pCount = (data.pendingItems || []).length;
             document.getElementById('tab-pending-label').textContent = pCount > 0 ? ('待确认 (' + pCount + ')') : '待确认';
             render();

@@ -39,6 +39,7 @@ public struct PipiBotCreatorSheet: View {
     @State private var shape: AvatarShape = .orb
     @State private var idleState: AvatarState53 = .ambientBreathe
     @State private var preferredTarget: PipiExecutionTarget = .auto
+    @State private var preferredModelId: String = ""
     @State private var permissionTier: PipiPermissionTier = .ask
     @State private var voiceProfileId: String = ""
     @State private var assignedSkillSlugs: Set<String> = []
@@ -131,6 +132,7 @@ public struct PipiBotCreatorSheet: View {
                 shape = existing.avatarShape
                 idleState = existing.idleAvatarState
                 preferredTarget = existing.preferredTarget
+                preferredModelId = existing.preferredModelId ?? ""
                 permissionTier = existing.permissionTier
                 voiceProfileId = existing.voiceProfileId ?? ""
                 assignedSkillSlugs = Set(existing.assignedSkillSlugs)
@@ -341,6 +343,27 @@ public struct PipiBotCreatorSheet: View {
         }
     }
 
+    private var suggestedModelChoicesForForm: [String] {
+        var list: [String] = []
+        let targetProvider: PipiLLMProviderConfig? = {
+            if case .llm(let pid) = preferredTarget {
+                return store.readyLLMProviders.first(where: { $0.id == pid })
+            }
+            if let defId = store.defaultLLMProviderId {
+                return store.readyLLMProviders.first(where: { $0.id == defId }) ?? store.readyLLMProviders.first
+            }
+            return store.readyLLMProviders.first
+        }()
+        if let cfg = targetProvider {
+            if let discovered = store.availableModelsByProviderId[cfg.id] {
+                for m in discovered where !list.contains(m) { list.append(m) }
+            }
+            if !list.contains(cfg.modelId) { list.append(cfg.modelId) }
+            for s in cfg.kind.suggestedModels where !list.contains(s) { list.append(s) }
+        }
+        return list
+    }
+
     private var basicPersonaFields: some View {
         VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
             VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
@@ -430,6 +453,21 @@ public struct PipiBotCreatorSheet: View {
                                 }
                             }
                         }
+                        if !store.usableLocalAgents.isEmpty {
+                            Divider()
+                            ForEach(store.usableLocalAgents) { agent in
+                                let t = PipiExecutionTarget.localAgent(agent.kind)
+                                Button {
+                                    preferredTarget = t
+                                } label: {
+                                    if preferredTarget == t {
+                                        Label(agent.kind.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(agent.kind.displayName)
+                                    }
+                                }
+                            }
+                        }
                     } label: {
                         HStack(spacing: PipiTokens.spacing8) {
                             Text(preferredTargetLabel)
@@ -451,6 +489,67 @@ public struct PipiBotCreatorSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
                     }
                     .pipiPlainMenu()
+                }
+            }
+
+            // Optional per-bot specific model override (leave blank to follow global default model)
+            VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
+                HStack {
+                    Text(s.t("专属模型 ID（留空则使用默认模型）", "Specific Model ID (blank = use default model)"))
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Spacer()
+                    if !preferredModelId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Button(s.t("恢复默认", "Use Default")) {
+                            preferredModelId = ""
+                        }
+                        .font(PipiTokens.fontMicro)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    }
+                }
+                HStack(spacing: PipiTokens.spacing8) {
+                    PipiTextField(
+                        s.t("留空使用默认模型，或输入如 gpt-4o / deepseek-reasoner", "Leave blank for default model, or enter e.g. gpt-4o"),
+                        text: $preferredModelId,
+                        height: 32
+                    )
+                    if !suggestedModelChoicesForForm.isEmpty {
+                        Menu {
+                            Button(s.t("跟随默认模型（不指定）", "Use Default Model")) {
+                                preferredModelId = ""
+                            }
+                            Divider()
+                            ForEach(suggestedModelChoicesForForm, id: \.self) { m in
+                                Button {
+                                    preferredModelId = m
+                                } label: {
+                                    if preferredModelId == m {
+                                        Label(m, systemImage: "checkmark")
+                                    } else {
+                                        Text(m)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(s.t("快速选择", "Pick"))
+                                    .font(PipiTokens.fontCaption.weight(.medium))
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                            }
+                            .foregroundStyle(PipiTokens.textPrimary)
+                            .padding(.horizontal, 10)
+                            .frame(height: 32)
+                            .background(PipiTokens.buttonSecondaryBg)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                    .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                        }
+                        .pipiPlainMenu()
+                    }
                 }
             }
 
@@ -834,6 +933,8 @@ public struct PipiBotCreatorSheet: View {
             ex.accent = accent
             ex.avatarShape = shape
             ex.preferredTarget = preferredTarget
+            let cleanModel = preferredModelId.trimmingCharacters(in: .whitespacesAndNewlines)
+            ex.preferredModelId = cleanModel.isEmpty ? nil : cleanModel
             ex.permissionTier = permissionTier
             ex.voiceProfileId = voiceProfileId.isEmpty ? nil : voiceProfileId
             ex.assignedSkillSlugs = Array(assignedSkillSlugs).sorted()
@@ -848,7 +949,8 @@ public struct PipiBotCreatorSheet: View {
                 accent: accent,
                 avatarShape: shape,
                 permissionTier: permissionTier,
-                preferredTarget: preferredTarget
+                preferredTarget: preferredTarget,
+                preferredModelId: preferredModelId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : preferredModelId.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             if !cleanRole.isEmpty {
                 created.roleZh = cleanRole

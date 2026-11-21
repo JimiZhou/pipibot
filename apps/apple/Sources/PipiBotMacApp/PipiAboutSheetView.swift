@@ -70,6 +70,8 @@ public struct PipiAboutSheetView: View {
                                         .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
                                 )
                                 .clipShape(Capsule())
+
+                            aboutUpdateControls
                         }
 
                         Text(
@@ -262,5 +264,98 @@ public struct PipiAboutSheetView: View {
         Rectangle()
             .fill(PipiTokens.borderSubtle)
             .frame(height: 1)
+    }
+
+    @ViewBuilder
+    private var aboutUpdateControls: some View {
+        switch store.updateManager.state {
+        case .idle, .upToDate:
+            HStack(spacing: PipiTokens.spacing8) {
+                if case .upToDate(_, _) = store.updateManager.state {
+                    Text(s.t("已是最新版本", "Up to date"))
+                        .font(PipiTokens.fontMicro)
+                        .foregroundStyle(PipiTokens.stateSuccess)
+                }
+                PipiActionButton(
+                    s.t("检查更新", "Check for Updates"),
+                    systemImage: "arrow.triangle.2.circlepath",
+                    tone: .secondary,
+                    density: .desktopCompact
+                ) {
+                    Task {
+                        _ = await store.updateManager.checkForUpdates(currentVersion: store.appDisplayVersion, silent: false)
+                    }
+                }
+            }
+            .padding(.top, 4)
+
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(s.t("正在检查 GitHub Release...", "Checking GitHub Releases..."))
+                    .font(PipiTokens.fontMicro)
+                    .foregroundStyle(PipiTokens.textSecondary)
+            }
+            .padding(.top, 4)
+
+        case .updateAvailable(let rel):
+            VStack(spacing: 6) {
+                Text(s.t("发现新版本 \(rel.tagName)", "New release \(rel.tagName) available"))
+                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .foregroundStyle(PipiTokens.stateSuccess)
+                PipiActionButton(
+                    s.t("下载并自动更新到 \(rel.tagName)", "Download & Install \(rel.tagName)"),
+                    systemImage: "arrow.down.circle.fill",
+                    tone: .primary,
+                    density: .desktopCompact
+                ) {
+                    store.updateManager.downloadAndInstallUpdate(rel) {
+                        store.flush()
+                    }
+                }
+            }
+            .padding(.top, 4)
+
+        case .downloading(_, let progress):
+            HStack(spacing: 8) {
+                ProgressView(value: progress)
+                    .frame(width: 140)
+                Text(s.t("下载中 \(Int(progress * 100))%", "Downloading \(Int(progress * 100))%"))
+                    .font(PipiTokens.fontMicro)
+                    .foregroundStyle(PipiTokens.textSecondary)
+            }
+            .padding(.top, 4)
+
+        case .verifying:
+            Text(s.t("正在校验 SHA-256 与代码签名...", "Verifying checksum & signature..."))
+                .font(PipiTokens.fontMicro)
+                .foregroundStyle(PipiTokens.textSecondary)
+                .padding(.top, 4)
+
+        case .installing:
+            Text(s.t("正在安装并重启应用...", "Installing & relaunching..."))
+                .font(PipiTokens.fontMicro)
+                .foregroundStyle(PipiTokens.stateSuccess)
+                .padding(.top, 4)
+
+        case .error(let msg):
+            VStack(spacing: 6) {
+                Text(msg)
+                    .font(PipiTokens.fontMicro)
+                    .foregroundStyle(PipiTokens.stateError)
+                    .multilineTextAlignment(.center)
+                PipiActionButton(
+                    s.t("重试检查", "Retry"),
+                    systemImage: "arrow.clockwise",
+                    tone: .secondary,
+                    density: .desktopCompact
+                ) {
+                    Task {
+                        _ = await store.updateManager.checkForUpdates(currentVersion: store.appDisplayVersion, silent: false)
+                    }
+                }
+            }
+            .padding(.top, 4)
+        }
     }
 }

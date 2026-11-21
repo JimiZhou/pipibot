@@ -414,15 +414,22 @@ public struct PipiBotsHubView: View {
     }
 
     private func preferredEngineDisplayLabel(for persona: PipiBotPersona) -> String {
+        let modelOverride = persona.preferredModelId?.trimmingCharacters(in: .whitespacesAndNewlines)
         switch persona.preferredTarget {
         case .auto:
-            return s.t("自动路由", "Auto")
+            if let modelOverride, !modelOverride.isEmpty {
+                return modelOverride
+            }
+            return s.t("默认模型", "Default")
         case .llm(let pid):
             if let cfg = store.llmProviders.first(where: { $0.id == pid }) {
-                return cfg.modelId
+                return (modelOverride?.isEmpty == false) ? modelOverride! : cfg.modelId
             }
-            return s.t("自动路由", "Auto")
+            return (modelOverride?.isEmpty == false) ? modelOverride! : s.t("默认模型", "Default")
         case .localAgent(let kind):
+            if let modelOverride, !modelOverride.isEmpty {
+                return "\(kind.displayName) · \(modelOverride)"
+            }
             return kind.displayName
         }
     }

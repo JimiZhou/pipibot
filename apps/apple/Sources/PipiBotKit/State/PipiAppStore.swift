@@ -1,5 +1,11 @@
 import Foundation
 import Observation
+#if canImport(Speech)
+import Speech
+#endif
+#if canImport(UserNotifications)
+import UserNotifications
+#endif
 
 public enum PipiConnectionMode: String, Sendable {
     case liveDaemon = "Embedded Bridge Live"
@@ -131,6 +137,20 @@ public enum PipiConversationRowStatus: Sendable, Equatable {
     case idle
 }
 
+public struct PipiCLIDelegationDirective: Sendable, Equatable {
+    public let agent: PipiLocalAgentKind
+    public let isWriteMode: Bool
+    public let reason: String
+    public let taskPrompt: String
+
+    public init(agent: PipiLocalAgentKind, isWriteMode: Bool, reason: String, taskPrompt: String) {
+        self.agent = agent
+        self.isWriteMode = isWriteMode
+        self.reason = reason
+        self.taskPrompt = taskPrompt
+    }
+}
+
 public enum PipiExternalSubAgentRouter {
     /// Parses explicit on-demand external CLI sub-agent invocations (`/claude ...`, `/codex ...`, `/opencode ...`)
     /// so PiPi remains the default built-in engine while delegating specialized coding/CLI tasks on demand.
@@ -151,6 +171,90 @@ public enum PipiExternalSubAgentRouter {
         }
         return nil
     }
+
+    /// Detects natural-language requests to delegate to Codex, Claude Code, or OpenCode without requiring `/codex`.
+    public static func detectNaturalLanguageInvocation(
+        _ rawPrompt: String,
+        usableAgents: [PipiLocalAgentKind]
+    ) -> (kind: PipiLocalAgentKind, taskPrompt: String)? {
+        let trimmed = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !usableAgents.isEmpty else { return nil }
+        let lower = trimmed.lowercased()
+
+        let agentPatterns: [(kind: PipiLocalAgentKind, tokens: [String])] = [
+            (.codex, ["codex"]),
+            (.claudeCode, ["claude code", "claude-code", "claudecode"]),
+            (.opencode, ["opencode"])
+        ]
+        let actionVerbHints = [
+            "用", "让", "叫", "调用", "使用", "交给", "派", "请", "运行", "启动", "通过",
+            "use ", "ask ", "call ", "run ", "via ", "with ", "delegate "
+        ]
+
+        for entry in agentPatterns where usableAgents.contains(entry.kind) {
+            for token in entry.tokens {
+                guard lower.contains(token) else { continue }
+                let hasVerb = actionVerbHints.contains(where: { lower.contains($0) })
+                let startsWithToken = lower.hasPrefix(token)
+                if hasVerb || startsWithToken {
+                    return (entry.kind, trimmed)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Extracts `<pipibot_cli_delegate agent="codex|claude-code|opencode" mode="readonly|write" reason="...">task</pipibot_cli_delegate>`
+    /// emitted proactively by PiPi during reasoning.
+    public static func extractCLIDelegation(from rawText: String) -> (directive: PipiCLIDelegationDirective, cleanedText: String)? {
+        let pattern = #"<pipibot_cli_delegate\b([^>]*)>([\s\S]*?)</pipibot_cli_delegate>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let nsRange = NSRange(rawText.startIndex..<rawText.endIndex, in: rawText)
+        guard let match = regex.firstMatch(in: rawText, options: [], range: nsRange),
+              let fullRange = Range(match.range, in: rawText),
+              let attrRange = Range(match.range(at: 1), in: rawText),
+              let bodyRange = Range(match.range(at: 2), in: rawText) else {
+            return nil
+        }
+
+        let attrs = String(rawText[attrRange])
+        let taskBody = String(rawText[bodyRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !taskBody.isEmpty else { return nil }
+
+        let agentRaw = extractAttribute("agent", from: attrs)?.lowercased() ?? "codex"
+        let kind: PipiLocalAgentKind = {
+            if agentRaw.contains("claude") { return .claudeCode }
+            if agentRaw.contains("open") { return .opencode }
+            return .codex
+        }()
+        let modeRaw = extractAttribute("mode", from: attrs)?.lowercased() ?? "readonly"
+        let isWrite = (modeRaw == "write" || modeRaw == "edit" || modeRaw == "execute")
+        let reason = extractAttribute("reason", from: attrs) ?? ""
+
+        var cleaned = rawText
+        cleaned.removeSubrange(fullRange)
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return (
+            PipiCLIDelegationDirective(agent: kind, isWriteMode: isWrite, reason: reason, taskPrompt: taskBody),
+            cleaned
+        )
+    }
+
+    private static func extractAttribute(_ name: String, from attrs: String) -> String? {
+        let pattern = #"\#(name)\s*=\s*["']([^"']*)["']"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(attrs.startIndex..<attrs.endIndex, in: attrs)
+        guard let match = regex.firstMatch(in: attrs, options: [], range: range),
+              let valRange = Range(match.range(at: 1), in: attrs) else {
+            return nil
+        }
+        return String(attrs[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 @MainActor
@@ -164,6 +268,7 @@ public final class PipiAppStore {
     public let bridgeSupervisor: PipiEmbeddedBridgeSupervisor
     public let remoteTunnelManager: PipiCloudflareTunnelManager
     public let wechatILinkManager: PipiWeChatILinkManager
+    public let updateManager = PipiGitHubUpdateManager()
     public let macOmnipotentEngine: PipiMacOmnipotentEngine
     public let localModelPlatformManager: PipiLocalModelPlatformManager
     public let telemetryMonitor: PipiSystemTelemetryMonitor
@@ -252,6 +357,11 @@ public final class PipiAppStore {
     // Wave 1 (#08) Multi-Granularity Approval Whitelist & LLM Guardrail Judge Toggle
     public var approvalWhitelistRules: [PipiApprovalWhitelistRule] = []
     public var llmGuardrailJudgeEnabled: Bool = true
+    public var securityAuditorBotId: String = PipiBotPersona.securityAuditorId
+    public var proactiveCLIDelegationEnabled: Bool = true
+    public var autoCheckUpdatesEnabled: Bool = true
+    public var wechatAutoConnectEnabled: Bool = true
+    public var availableModelsByProviderId: [String: [String]] = [:]
 
     // Wave 2 (#01 Wiki, #02 Per-Bot Memory, #03 Proactive & Prepare) Observable State
     public var wikiPages: [PipiPersonalWikiPage] = []
@@ -419,7 +529,7 @@ public final class PipiAppStore {
     public var connectionMode: PipiConnectionMode = .nativeResident
     public var daemonEndpoint: String = "http://127.0.0.1:4242"
 
-    public var daemonVersion: String = "0.9.0"
+    public var daemonVersion: String = "0.10.0"
 
     public var appDisplayVersion: String {
         if let bundleVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
@@ -594,7 +704,7 @@ public final class PipiAppStore {
         self.remoteTunnelManager = PipiCloudflareTunnelManager()
         self.localModelPlatformManager = PipiLocalModelPlatformManager()
         self.telemetryMonitor = PipiSystemTelemetryMonitor()
-        let resolvedSecretStore = secretStore ?? PipiKeychainSecretStore()
+        let resolvedSecretStore = secretStore ?? (enableNativeRuntime ? PipiKeychainSecretStore() : PipiInMemorySecretStore())
         self.wechatILinkManager = PipiWeChatILinkManager(secretStore: resolvedSecretStore)
         self.enableNativeRuntime = enableNativeRuntime
         self.enableEmbeddedBridge = enableEmbeddedBridge
@@ -713,10 +823,23 @@ public final class PipiAppStore {
         }
         self.syncAlterEgoObservableState()
         if enableNativeRuntime {
+            if self.hasCompletedOnboarding && !self.personas.contains(where: { $0.id == PipiBotPersona.securityAuditorId }) {
+                self.personas.append(PipiBotPersona.securityAuditorDefault)
+            }
             if self.persistenceWarning == nil {
                 self.noticeBanner = strings.readyStatus
             }
             self.startRoutineScheduler()
+            if self.wechatAutoConnectEnabled && self.wechatILinkManager.hasSavedCredentials {
+                self.reconnectWeChatILink()
+            }
+            if self.autoCheckUpdatesEnabled {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(3))
+                    guard let self else { return }
+                    _ = await self.updateManager.checkForUpdates(currentVersion: self.appDisplayVersion, silent: true)
+                }
+            }
         }
 
         if autoConnect && (companionSyncEnabled || enableEmbeddedBridge) {
@@ -952,7 +1075,15 @@ public final class PipiAppStore {
             computerUseConfig: computerUseConfig,
             globalCapabilityPool: globalCapabilityPool,
             homeScenePresetRaw: homeScenePreset.rawValue,
-            botRoomAssignments: botRoomAssignments.mapValues { $0.rawValue }
+            botRoomAssignments: botRoomAssignments.mapValues { $0.rawValue },
+            autoCheckUpdatesEnabled: autoCheckUpdatesEnabled,
+            proactiveCLIDelegationEnabled: proactiveCLIDelegationEnabled,
+            securityAuditorBotId: securityAuditorBotId,
+            wechatAutoConnectEnabled: wechatAutoConnectEnabled,
+            wechatTypingIndicatorEnabled: wechatILinkManager.typingIndicatorEnabled,
+            wechatPrimaryBotId: wechatILinkManager.primaryBotId,
+            wechatRoutingModeRaw: wechatILinkManager.routingMode.rawValue,
+            wechatGroupMemberBotIds: wechatILinkManager.groupMemberBotIds
         )
     }
 
@@ -1227,6 +1358,30 @@ public final class PipiAppStore {
                 }
             }
             self.botRoomAssignments = decodedRooms
+        }
+        if let autoUpdates = saved.autoCheckUpdatesEnabled {
+            self.autoCheckUpdatesEnabled = autoUpdates
+        }
+        if let proactiveCLI = saved.proactiveCLIDelegationEnabled {
+            self.proactiveCLIDelegationEnabled = proactiveCLI
+        }
+        if let auditorId = saved.securityAuditorBotId, !auditorId.isEmpty {
+            self.securityAuditorBotId = auditorId
+        }
+        if let wxAuto = saved.wechatAutoConnectEnabled {
+            self.wechatAutoConnectEnabled = wxAuto
+        }
+        if let wxTyping = saved.wechatTypingIndicatorEnabled {
+            self.wechatILinkManager.typingIndicatorEnabled = wxTyping
+        }
+        if let wxPrimary = saved.wechatPrimaryBotId, !wxPrimary.isEmpty {
+            self.wechatILinkManager.primaryBotId = wxPrimary
+        }
+        if let wxModeRaw = saved.wechatRoutingModeRaw, let wxMode = PipiWeChatRoutingMode(rawValue: wxModeRaw) {
+            self.wechatILinkManager.routingMode = wxMode
+        }
+        if let wxMembers = saved.wechatGroupMemberBotIds {
+            self.wechatILinkManager.groupMemberBotIds = wxMembers
         }
 
         if needsDirtySeedPurge || didMigratePlaintextKeys || didMigratePipiPersona {
@@ -1743,17 +1898,54 @@ public final class PipiAppStore {
         return nil
     }
 
+    public var securityAuditorPersona: PipiBotPersona {
+        personas.first(where: { $0.id == securityAuditorBotId })
+            ?? personas.first(where: { $0.id == PipiBotPersona.securityAuditorId })
+            ?? PipiBotPersona.securityAuditorDefault
+    }
+
+    public func resolvedEffectiveLLMConfig(providerId: String, for persona: PipiBotPersona) -> PipiLLMProviderConfig? {
+        guard var cfg = llmProviders.first(where: { $0.id == providerId }) else { return nil }
+        if let modelOverride = persona.preferredModelId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !modelOverride.isEmpty {
+            cfg.modelId = modelOverride
+        }
+        return cfg
+    }
+
+    public func setPersonaExecutionModel(personaId: String, target: PipiExecutionTarget?, modelId: String?) {
+        guard let idx = personas.firstIndex(where: { $0.id == personaId }) else { return }
+        if let target {
+            personas[idx].preferredTarget = target
+        }
+        let cleanedModel = modelId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        personas[idx].preferredModelId = (cleanedModel?.isEmpty == false) ? cleanedModel : nil
+        saveResidentState()
+    }
+
+    public func refreshAvailableModels(for providerId: String) async {
+        guard let cfg = llmProviders.first(where: { $0.id == providerId }) else { return }
+        let discovered = await PipiInferenceEngine.fetchAvailableModels(for: cfg)
+        availableModelsByProviderId[providerId] = discovered
+    }
+
     public func activeEngineDisplayLabel(for persona: PipiBotPersona? = nil) -> String {
-        guard let target = resolvedActiveTarget(for: persona) else {
+        let p = persona ?? activePersona
+        guard let target = resolvedActiveTarget(for: p) else {
             return strings.engineStatusUnconfigured
         }
         switch target {
         case .llm(let pid):
-            if let cfg = llmProviders.first(where: { $0.id == pid }) {
-                return "PiPi · \(cfg.name) (\(cfg.modelId))"
+            if let cfg = resolvedEffectiveLLMConfig(providerId: pid, for: p) {
+                let isCustom = (p.preferredTarget != .auto) || (p.preferredModelId?.isEmpty == false)
+                let prefix = isCustom ? "PiPi" : "PiPi · 默认"
+                return "\(prefix) · \(cfg.name) (\(cfg.modelId))"
             }
             return strings.engineStatusUnconfigured
         case .localAgent(let kind):
+            if let model = p.preferredModelId, !model.isEmpty {
+                return "PiPi → \(kind.displayName) (\(model))"
+            }
             return "PiPi → \(kind.displayName)"
         case .auto:
             return strings.autoRouteEngine
@@ -2059,14 +2251,20 @@ public final class PipiAppStore {
             return
         }
 
-        // On-demand external CLI sub-agent invocation (/claude, /codex, /opencode) routed by PiPi
+        // On-demand or proactive natural-language external CLI sub-agent invocation (e.g. /codex OR "用 codex 帮我...")
         var effectiveRawText = rawText
         var effectiveTargetOverride = targetOverride
-        if effectiveTargetOverride == nil,
-           let delegated = PipiExternalSubAgentRouter.parseOnDemandInvocation(trimmed),
-           usableLocalAgents.contains(where: { $0.kind == delegated.kind }) {
-            effectiveTargetOverride = .localAgent(delegated.kind)
-            effectiveRawText = delegated.taskPrompt
+        if effectiveTargetOverride == nil {
+            let usableKinds = usableLocalAgents.map(\.kind)
+            if let delegated = PipiExternalSubAgentRouter.parseOnDemandInvocation(trimmed),
+               usableKinds.contains(delegated.kind) {
+                effectiveTargetOverride = .localAgent(delegated.kind)
+                effectiveRawText = delegated.taskPrompt
+            } else if proactiveCLIDelegationEnabled,
+                      let natural = PipiExternalSubAgentRouter.detectNaturalLanguageInvocation(trimmed, usableAgents: usableKinds) {
+                effectiveTargetOverride = .localAgent(natural.kind)
+                effectiveRawText = natural.taskPrompt
+            }
         }
 
         let input = PipiUserInput(
@@ -2151,6 +2349,19 @@ public final class PipiAppStore {
 
         if approved, let pendingPrompt = approval.pendingPrompt, !pendingPrompt.isEmpty {
             let personaId = conversations[cIdx].personaId
+            if let directIntent = PipiMacOmnipotentIntentParser.parse(pendingPrompt) {
+                return Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    _ = await self.executeOmnipotentIntent(
+                        directIntent,
+                        userPrompt: pendingPrompt,
+                        in: sessionId,
+                        personaId: personaId,
+                        skipGuardrail: true,
+                        appendUserMessage: false
+                    )
+                }
+            }
             let target = approval.pendingTarget
             let input = PipiUserInput(
                 text: pendingPrompt,
@@ -2298,11 +2509,14 @@ public final class PipiAppStore {
         let engineLabel: String = {
             switch resolvedTarget {
             case .llm(let pid):
-                if let cfg = llmProviders.first(where: { $0.id == pid }) {
+                if let cfg = resolvedEffectiveLLMConfig(providerId: pid, for: persona) {
                     return "\(cfg.name) · \(cfg.modelId)"
                 }
                 return strings.appName
             case .localAgent(let kind):
+                if let model = persona.preferredModelId, !model.isEmpty {
+                    return "\(kind.displayName) · \(model)"
+                }
                 return kind.displayName
             case .auto:
                 return strings.appName
@@ -2494,7 +2708,7 @@ public final class PipiAppStore {
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                // Wave 1 (#08): Pre-execution two-tier guardrail check for local CLI agent turns
+                // Wave 1 (#08) + Dedicated Security Auditor: Pre-execution two-tier guardrail check
                 var precheckVerdict: PipiGuardrailVerdict?
                 var whitelistedForWrite = false
                 if case .localAgent(let kind) = resolvedTarget {
@@ -2510,7 +2724,7 @@ public final class PipiAppStore {
                         sourceTrust: runPriority == .proactiveRoutine ? .trustedUserRoutine : .trustedUser,
                         trustedUserMessages: [displayPrompt]
                     )
-                    let verdict = await self.evaluateActionWithGuardrail(actionInput)
+                    let verdict = await self.evaluateActionWithGuardrail(actionInput, auditMediumRisk: true)
                     precheckVerdict = verdict
                     if verdict.decision == .deny {
                         let durationMs = Int(Date().timeIntervalSince(startedAtDate) * 1000)
@@ -2536,6 +2750,82 @@ public final class PipiAppStore {
                         return
                     }
                     whitelistedForWrite = (verdict.ruleId == "whitelist.matched")
+                } else if case .llm = resolvedTarget, !isApprovalResume {
+                    let riskClass = PipiPermissionGuardrail.classifyPromptRisk(displayPrompt, defaultTarget: workDir)
+                    if riskClass.isRisky {
+                        let actionInput = PipiGuardrailActionInput(
+                            operationId: "op_\(runId)",
+                            toolName: "pipi_task",
+                            actionKind: riskClass.actionKind,
+                            target: riskClass.target,
+                            payloadSummary: displayPrompt,
+                            isPreparatoryOnly: false,
+                            sessionId: convId,
+                            projectId: projectForConv?.id,
+                            sourceTrust: runPriority == .proactiveRoutine ? .trustedUserRoutine : .trustedUser,
+                            trustedUserMessages: [displayPrompt]
+                        )
+                        let verdict = await self.evaluateActionWithGuardrail(actionInput, auditMediumRisk: true)
+                        if verdict.decision == .deny {
+                            let durationMs = Int(Date().timeIntervalSince(startedAtDate) * 1000)
+                            let blockedMsg = self.strings.t(
+                                "安全审计官已拦截该高危任务（\(verdict.riskLevel.label(.zhHans))）：\(verdict.rationale)",
+                                "Blocked by Security Auditor (\(verdict.riskLevel.label(.en))): \(verdict.rationale)"
+                            )
+                            self.finalizeStreamingMessage(
+                                conversationId: convId,
+                                messageId: placeholderId,
+                                finalContent: blockedMsg,
+                                engineLabel: engineLabel,
+                                isError: true
+                            )
+                            self.finalizeRunRecord(id: runId, status: .failed, durationMs: durationMs)
+                            self.finishGenerating(
+                                conversationId: convId,
+                                runId: runId,
+                                finalSessionState: .failed,
+                                nextAvatarState: .needsYouUrgent
+                            )
+                            self.saveResidentState()
+                            return
+                        }
+                        if verdict.decision == .needsApproval && effectivePermission != .autoEdit {
+                            let durationMs = Int(Date().timeIntervalSince(startedAtDate) * 1000)
+                            let pauseMsg = self.strings.t(
+                                "🛡️ 检测到风险操作，已暂停执行并等待您的确认（\(verdict.riskLevel.label(.zhHans))）：\n\(verdict.rationale)",
+                                "🛡️ Risky operation detected; paused for your confirmation (\(verdict.riskLevel.label(.en))):\n\(verdict.rationale)"
+                            )
+                            self.finalizeStreamingMessage(
+                                conversationId: convId,
+                                messageId: placeholderId,
+                                finalContent: pauseMsg,
+                                engineLabel: engineLabel,
+                                isError: false
+                            )
+                            self.emitRiskyTaskApprovalCard(
+                                conversationId: convId,
+                                messageId: placeholderId,
+                                question: self.strings.t("允许 PiPi 执行该风险任务吗？", "Allow PiPi to execute this risky task?"),
+                                detail: verdict.rationale,
+                                pendingPrompt: displayPrompt,
+                                pendingTarget: resolvedTarget,
+                                toolName: "pipi_task",
+                                actionKind: riskClass.actionKind,
+                                workDir: workDir,
+                                projectId: projectForConv?.id,
+                                verdict: verdict
+                            )
+                            self.finalizeRunRecord(id: runId, status: .succeeded, durationMs: durationMs)
+                            self.finishGenerating(
+                                conversationId: convId,
+                                runId: runId,
+                                finalSessionState: .needsYou,
+                                nextAvatarState: .needsYouApproval
+                            )
+                            self.saveResidentState()
+                            return
+                        }
+                    }
                 }
 
                 // Wave 1 (#04): Priority admission + interactive reserved slot + preemptive CLI --resume loop
@@ -2605,7 +2895,7 @@ public final class PipiAppStore {
                         let attemptTask: Task<PipiInferenceResult, Error>
                         switch resolvedTarget {
                         case .llm(let providerId):
-                            guard let cfg = self.llmProviders.first(where: { $0.id == providerId }) else {
+                            guard let cfg = self.resolvedEffectiveLLMConfig(providerId: providerId, for: persona) else {
                                 throw PipiInferenceError.emptyResponse
                             }
                             if var runState = self.activeRuns[convId], runState.runId == runId {
@@ -2699,6 +2989,7 @@ public final class PipiAppStore {
                                         workingDirectory: workDir,
                                         permissionTier: invocationPermission,
                                         cliSessionId: attemptCliSessionId,
+                                        modelOverride: persona.preferredModelId,
                                         extraEnvironment: injectedEnv,
                                         onDelta: onDelta,
                                         onEvent: onCLIEvent
@@ -2819,7 +3110,136 @@ public final class PipiAppStore {
                     )
                 }
 
-                if shouldRequestWriteApproval, case .localAgent(let kind) = resolvedTarget {
+                // Proactive CLI Sub-Agent Delegation: when PiPi emits `<pipibot_cli_delegate ...>`, automatically invoke Codex / Claude Code / OpenCode
+                var cliDelegatedPausedForApproval = false
+                if !shouldRequestWriteApproval,
+                   case .llm = resolvedTarget,
+                   self.proactiveCLIDelegationEnabled,
+                   let cliPlan = PipiExternalSubAgentRouter.extractCLIDelegation(from: finalResult.text),
+                   self.usableLocalAgents.contains(where: { $0.kind == cliPlan.directive.agent }) {
+                    let cliDir = cliPlan.directive
+                    let preamble = cliPlan.cleanedText
+                    let actionInput = PipiGuardrailActionInput(
+                        operationId: "op_cli_\(runId)",
+                        toolName: cliDir.agent.binaryName,
+                        actionKind: cliDir.isWriteMode ? .localWrite : .readOnly,
+                        target: workDir,
+                        payloadSummary: cliDir.taskPrompt,
+                        isPreparatoryOnly: !cliDir.isWriteMode,
+                        sessionId: convId,
+                        projectId: projectForConv?.id,
+                        sourceTrust: runPriority == .proactiveRoutine ? .trustedUserRoutine : .trustedUser,
+                        trustedUserMessages: [displayPrompt]
+                    )
+                    let cliVerdict = await self.evaluateActionWithGuardrail(actionInput, auditMediumRisk: cliDir.isWriteMode)
+                    if cliVerdict.decision == .deny {
+                        let denyMsg = [
+                            preamble,
+                            self.strings.t(
+                                "🛡️ 安全审计官已拦截对 \(cliDir.agent.displayName) 的调用：\(cliVerdict.rationale)",
+                                "🛡️ Security Auditor blocked \(cliDir.agent.displayName) delegation: \(cliVerdict.rationale)"
+                            )
+                        ].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                        self.finalizeStreamingMessage(
+                            conversationId: convId,
+                            messageId: placeholderId,
+                            finalContent: denyMsg,
+                            engineLabel: "\(engineLabel) · 🛡️",
+                            isError: true
+                        )
+                    } else if (cliVerdict.decision == .needsApproval || (cliDir.isWriteMode && effectivePermission == .ask && cliVerdict.ruleId != "whitelist.matched")) && effectivePermission != .autoEdit {
+                        let askMsg = [
+                            preamble,
+                            self.strings.t(
+                                "🤖 PiPi 建议调用 \(cliDir.agent.displayName) 执行工作区修改（\(cliDir.reason.isEmpty ? "工程任务" : cliDir.reason)），等待您的确认后执行。",
+                                "🤖 PiPi recommends delegating to \(cliDir.agent.displayName) (\(cliDir.reason.isEmpty ? "workspace task" : cliDir.reason)); awaiting your approval."
+                            )
+                        ].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                        self.finalizeStreamingMessage(
+                            conversationId: convId,
+                            messageId: placeholderId,
+                            finalContent: askMsg,
+                            engineLabel: "\(engineLabel) → \(cliDir.agent.displayName)",
+                            isError: false
+                        )
+                        self.emitWriteApprovalCard(
+                            conversationId: convId,
+                            messageId: placeholderId,
+                            agentKind: cliDir.agent,
+                            originalPrompt: cliDir.taskPrompt,
+                            workDir: workDir,
+                            projectId: projectForConv?.id,
+                            verdict: cliVerdict
+                        )
+                        cliDelegatedPausedForApproval = true
+                    } else {
+                        if var runState = self.activeRuns[convId], runState.runId == runId {
+                            runState.statusText = self.strings.runningAgentStatus(cliDir.agent.displayName)
+                            self.activeRuns[convId] = runState
+                        }
+                        if convId == self.activeConversationId {
+                            self.avatarEngine.setState(cliDir.agent.avatarRunningState)
+                        }
+                        let cliTier: PipiPermissionTier = cliDir.isWriteMode ? .autoEdit : .readOnly
+                        let cliHistory = [PipiChatMessage(role: .user, content: cliDir.taskPrompt, createdAt: ISO8601DateFormatter().string(from: Date()))]
+                        let cliResult: PipiInferenceResult
+                        if let customSessionExecutor {
+                            cliResult = try await customSessionExecutor(
+                                .localAgent(cliDir.agent),
+                                nil,
+                                effectiveSystemPrompt,
+                                cliHistory,
+                                workDir,
+                                cliTier,
+                                existingCliSessionId,
+                                nil,
+                                onCLIEvent
+                            )
+                        } else {
+                            let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: cliDir.agent, profileId: convId)
+                            cliResult = try await PipiInferenceEngine.invokeLocalAgent(
+                                kind: cliDir.agent,
+                                systemPrompt: effectiveSystemPrompt,
+                                history: cliHistory,
+                                workingDirectory: workDir,
+                                permissionTier: cliTier,
+                                cliSessionId: existingCliSessionId,
+                                modelOverride: persona.preferredModelId,
+                                extraEnvironment: injectedEnv,
+                                onDelta: nil,
+                                onEvent: onCLIEvent
+                            )
+                        }
+                        if let sid = cliResult.cliSessionId, !sid.isEmpty,
+                           let cIdx = self.conversations.firstIndex(where: { $0.id == convId }) {
+                            self.conversations[cIdx].cliSessionId = sid
+                        }
+                        let combinedText = [
+                            preamble,
+                            "🔧 **\(cliDir.agent.displayName)**" + (cliDir.reason.isEmpty ? "" : "（\(cliDir.reason)）") + "\n\n" + cliResult.text
+                        ].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                        self.finalizeStreamingMessage(
+                            conversationId: convId,
+                            messageId: placeholderId,
+                            finalContent: combinedText,
+                            engineLabel: "\(engineLabel) → \(cliDir.agent.displayName)",
+                            isError: false,
+                            steps: cliResult.steps,
+                            planItems: cliResult.planItems,
+                            fileChanges: cliResult.fileChanges,
+                            summaryInfo: cliResult.summaryInfo
+                        )
+                    }
+                }
+
+                if cliDelegatedPausedForApproval {
+                    self.finishGenerating(
+                        conversationId: convId,
+                        runId: runId,
+                        finalSessionState: .needsYou,
+                        nextAvatarState: .needsYouApproval
+                    )
+                } else if shouldRequestWriteApproval, case .localAgent(let kind) = resolvedTarget {
                     self.emitWriteApprovalCard(
                         conversationId: convId,
                         messageId: placeholderId,
@@ -3064,12 +3484,102 @@ public final class PipiAppStore {
         saveResidentState()
     }
 
-    public func evaluateActionWithGuardrail(_ action: PipiGuardrailActionInput) async -> PipiGuardrailVerdict {
-        await permissionGuardrail.evaluate(
+    public func evaluateActionWithGuardrail(
+        _ action: PipiGuardrailActionInput,
+        auditMediumRisk: Bool = false
+    ) async -> PipiGuardrailVerdict {
+        let judge = llmGuardrailJudge ?? buildLiveSecurityAuditorJudge()
+        return await permissionGuardrail.evaluate(
             action,
-            enableLLMJudge: llmGuardrailJudgeEnabled,
-            llmJudge: llmGuardrailJudge
+            enableLLMJudge: llmGuardrailJudgeEnabled && judge != nil,
+            llmJudge: judge,
+            auditMediumRisk: auditMediumRisk
         )
+    }
+
+    /// Live Security Auditor Agent judge using `securityAuditorPersona` and its configured model.
+    private func buildLiveSecurityAuditorJudge() -> PipiLLMGuardrailJudge? {
+        guard llmGuardrailJudgeEnabled,
+              inferenceExecutor == nil,
+              sessionInferenceExecutor == nil else {
+            return nil
+        }
+        let auditor = securityAuditorPersona
+        guard let target = resolvedActiveTarget(for: auditor),
+              case .llm(let pid) = target,
+              let cfg = resolvedEffectiveLLMConfig(providerId: pid, for: auditor) else {
+            return nil
+        }
+        let auditorPrompt = auditor.systemPrompt
+        return { request in
+            let system = """
+            \(auditorPrompt)
+
+            \(request.systemInstruction)
+            Respond with ONLY a valid JSON object matching:
+            {"risk_level":"low|medium|high|critical","user_authorization":"high|medium|low|unknown","decision":"allow|needs_approval|deny","rationale":"concise reason in user's language"}
+            """
+            let history = [PipiChatMessage(role: .user, content: request.structuredPrompt)]
+            let result = try await PipiInferenceEngine.invokeLLM(
+                config: cfg,
+                systemPrompt: system,
+                history: history,
+                maxTokens: 320,
+                onDelta: nil
+            )
+            guard let parsed = PipiPermissionGuardrail.parseLLMJudgeResponse(result.text) else {
+                throw PipiInferenceError.emptyResponse
+            }
+            return parsed
+        }
+    }
+
+    private func emitRiskyTaskApprovalCard(
+        conversationId convId: String,
+        messageId: String,
+        question: String,
+        detail: String,
+        pendingPrompt: String,
+        pendingTarget: PipiExecutionTarget?,
+        toolName: String,
+        actionKind: PipiActionKind,
+        workDir: String = "",
+        projectId: String? = nil,
+        verdict: PipiGuardrailVerdict? = nil
+    ) {
+        guard let cIdx = conversations.firstIndex(where: { $0.id == convId }) else { return }
+        let nextSeq = (conversations[cIdx].events.last?.seq ?? 0) + 1
+        let projectOrAlwaysLabel = (projectId != nil) ? strings.allowProjectAction : strings.allowAlwaysAction
+        let projectOrAlwaysOptionId = (projectId != nil) ? "allow_project" : "allow_always"
+        let approval = PipiSessionApproval(
+            sessionId: convId,
+            eventSeq: nextSeq,
+            question: question,
+            detail: detail,
+            options: [
+                PipiSessionApproval.Option(id: "allow_changes", label: strings.allowOnceAction, style: .primary),
+                PipiSessionApproval.Option(id: "allow_session", label: strings.allowSessionAction, style: .secondary),
+                PipiSessionApproval.Option(id: projectOrAlwaysOptionId, label: projectOrAlwaysLabel, style: .secondary),
+                PipiSessionApproval.Option(id: "keep_readonly", label: strings.t("拒绝执行", "Deny"), style: .destructive)
+            ],
+            recommendedOptionId: "allow_changes",
+            status: .pending,
+            pendingPrompt: pendingPrompt,
+            pendingTarget: pendingTarget,
+            riskLevel: verdict?.riskLevel ?? .high,
+            userAuthorization: verdict?.userAuthorization ?? .unknown,
+            rationale: verdict?.rationale ?? detail,
+            operationId: verdict?.operationId ?? "op_\(UUID().uuidString.prefix(8).lowercased())",
+            actionToolName: toolName,
+            actionKind: actionKind,
+            actionTarget: workDir.isEmpty ? nil : workDir,
+            projectId: projectId
+        )
+        conversations[cIdx].approvals.append(approval)
+        if let mIdx = conversations[cIdx].messages.firstIndex(where: { $0.id == messageId }) {
+            conversations[cIdx].messages[mIdx].approvalId = approval.id
+        }
+        appendSessionEvent(convId, kind: .approval, messageId: messageId, approval: approval)
     }
 
     private func emitWriteApprovalCard(
@@ -3313,10 +3823,24 @@ public final class PipiAppStore {
             }
         }
         if !usableLocalAgents.isEmpty {
-            let names = usableLocalAgents.map(\.kind.displayName).joined(separator: ", ")
-            sections.append(
-                "[PiPi Built-in Engine & External Sub-Agents]\nYou run on PiPi (built-in pi agent kernel). Enabled external CLI sub-agents available for on-demand coding/terminal delegation: \(names). The user can also invoke them directly via /claude, /codex, or /opencode."
-            )
+            let agents = usableLocalAgents.map(\.kind)
+            let names = agents.map(\.displayName).joined(separator: ", ")
+            let preferredKind = agents.contains(.codex) ? PipiLocalAgentKind.codex : agents[0]
+            if proactiveCLIDelegationEnabled {
+                sections.append(
+                    """
+                    [PiPi Built-in Engine & Proactive CLI Sub-Agents]
+                    You run on PiPi (built-in pi agent kernel). Enabled local CLI coding/terminal agents on this Mac: \(names).
+                    PROACTIVE DELEGATION RULE: Whenever the user's request requires reading/modifying local repository files, debugging code, running tests/builds, inspecting git status, or executing terminal commands, DO NOT say you lack terminal access and DO NOT ask the user to type `/codex`. Instead, proactively delegate by outputting a single XML tag:
+                    <pipibot_cli_delegate agent="\(preferredKind.rawValue)" mode="readonly|write" reason="short reason">exact actionable task for the CLI agent</pipibot_cli_delegate>
+                    Use `mode="readonly"` for inspection, diagnosis, git/test checks, and analysis; use `mode="write"` when files should be edited or builds/mutating commands must run (PiPi's Security Auditor & Guardrail will automatically review and ask the user if needed).
+                    """
+                )
+            } else {
+                sections.append(
+                    "[PiPi Built-in Engine & External Sub-Agents]\nYou run on PiPi (built-in pi agent kernel). Enabled external CLI sub-agents available for on-demand coding/terminal delegation: \(names). The user can invoke them directly via /claude, /codex, or /opencode."
+                )
+            }
         }
         return sections.joined(separator: "\n\n")
     }
@@ -6969,7 +7493,7 @@ public final class PipiAppStore {
                     guard let self else {
                         return PipiRemoteControlSnapshot(
                             hostName: "Mac",
-                            appVersion: "0.9.0",
+                            appVersion: "0.10.0",
                             activeModelLabel: "",
                             language: "zh-Hans",
                             bots: [],
@@ -7206,10 +7730,12 @@ public final class PipiAppStore {
         _ intent: PipiOmnipotentDirectIntent,
         userPrompt: String,
         in conversationId: String,
-        personaId: String
+        personaId: String,
+        skipGuardrail: Bool = false,
+        appendUserMessage: Bool = true
     ) async -> PipiMacOmnipotentCommandResult {
         let nowIso = ISO8601DateFormatter().string(from: Date())
-        if let idx = conversations.firstIndex(where: { $0.id == conversationId }) {
+        if appendUserMessage, let idx = conversations.firstIndex(where: { $0.id == conversationId }) {
             let userMsg = PipiChatMessage(role: .user, content: userPrompt, createdAt: nowIso)
             conversations[idx].messages.append(userMsg)
             conversations[idx].updatedAt = nowIso
@@ -7218,17 +7744,103 @@ public final class PipiAppStore {
             }
         }
 
-        avatarEngine.setState(.macAutomating)
-
+        let projectForConv: PipiProject? = conversations.first(where: { $0.id == conversationId })?.projectId.flatMap { pid in
+            projects.first(where: { $0.id == pid })
+        }
         let projectDir: String? = {
-            if let conv = conversations.first(where: { $0.id == conversationId }),
-               let projId = conv.projectId,
-               let proj = projects.first(where: { $0.id == projId }),
-               let path = proj.workspacePath, !path.isEmpty {
+            if let path = projectForConv?.workspacePath, !path.isEmpty {
                 return path
             }
             return workspaceDirectory
         }()
+
+        // Risk assessment + Security Auditor check for Mac-native side-effecting intents
+        if !skipGuardrail {
+            let personaObj = personas.first(where: { $0.id == personaId }) ?? activePersona
+            let effectivePermission = effectivePermissionTier(for: personaObj, project: projectForConv)
+            let riskSpec: (actionKind: PipiActionKind, toolName: String, target: String)? = {
+                switch intent {
+                case .sendSMS(let recipient, _):
+                    return (.externalEffect, "apple_messages", recipient)
+                case .sendMail(let recipient, _, _):
+                    return (.externalEffect, "apple_mail", recipient)
+                case .runCommand(let cmd):
+                    let risk = PipiPermissionGuardrail.classifyPromptRisk(cmd, defaultTarget: projectDir ?? workspaceDirectory)
+                    let kind: PipiActionKind = risk.actionKind == .readOnly ? .shellCommand : risk.actionKind
+                    return (kind, "mac_shell", projectDir ?? workspaceDirectory)
+                case .sendFile(let path):
+                    return (.externalEffect, "send_file", path)
+                case .recordScreen:
+                    return (.localWrite, "screen_record", "mac_display")
+                case .screenshot, .readSMS, .readMail, .voiceClip:
+                    return nil
+                }
+            }()
+
+            if let spec = riskSpec {
+                let actionInput = PipiGuardrailActionInput(
+                    operationId: "op_omni_\(UUID().uuidString.prefix(8).lowercased())",
+                    toolName: spec.toolName,
+                    actionKind: spec.actionKind,
+                    target: spec.target,
+                    payloadSummary: userPrompt,
+                    isPreparatoryOnly: false,
+                    sessionId: conversationId,
+                    projectId: projectForConv?.id,
+                    sourceTrust: .trustedUser,
+                    trustedUserMessages: [userPrompt]
+                )
+                let verdict = await evaluateActionWithGuardrail(actionInput, auditMediumRisk: true)
+                if verdict.decision == .deny {
+                    let blocked = strings.t(
+                        "🛡️ 安全审计官已拦截该高危操作（\(verdict.riskLevel.label(.zhHans))）：\(verdict.rationale)",
+                        "🛡️ Blocked by Security Auditor (\(verdict.riskLevel.label(.en))): \(verdict.rationale)"
+                    )
+                    appendAssistantMessage(to: conversationId, content: blocked, engineLabel: strings.t("安全审计", "Security Auditor"), isError: true)
+                    setSessionState(conversationId, to: .failed)
+                    avatarEngine.setState(.needsYouUrgent)
+                    saveResidentState()
+                    return PipiMacOmnipotentCommandResult(succeeded: false, summary: blocked)
+                }
+                if verdict.decision == .needsApproval && effectivePermission != .autoEdit {
+                    let msgId = UUID().uuidString
+                    let pauseText = strings.t(
+                        "🛡️ 该系统操作存在风险，已暂停并等待您的确认（\(verdict.riskLevel.label(.zhHans))）：\(verdict.rationale)",
+                        "🛡️ Risky system action paused for your approval (\(verdict.riskLevel.label(.en))): \(verdict.rationale)"
+                    )
+                    if let idx = conversations.firstIndex(where: { $0.id == conversationId }) {
+                        let msg = PipiChatMessage(
+                            id: msgId,
+                            role: .assistant,
+                            content: pauseText,
+                            createdAt: ISO8601DateFormatter().string(from: Date()),
+                            engineLabel: strings.t("Mac 原生执行 · 待确认", "Mac Native · Needs Approval"),
+                            isError: false
+                        )
+                        conversations[idx].messages.append(msg)
+                    }
+                    emitRiskyTaskApprovalCard(
+                        conversationId: conversationId,
+                        messageId: msgId,
+                        question: strings.t("允许执行该 Mac 原生操作吗？", "Allow executing this Mac native action?"),
+                        detail: verdict.rationale,
+                        pendingPrompt: userPrompt,
+                        pendingTarget: nil,
+                        toolName: spec.toolName,
+                        actionKind: spec.actionKind,
+                        workDir: spec.target,
+                        projectId: projectForConv?.id,
+                        verdict: verdict
+                    )
+                    setSessionState(conversationId, to: .needsYou)
+                    avatarEngine.setState(.needsYouApproval)
+                    saveResidentState()
+                    return PipiMacOmnipotentCommandResult(succeeded: false, summary: pauseText)
+                }
+            }
+        }
+
+        avatarEngine.setState(.macAutomating)
 
         let personaVoiceName: String? = {
             if let bot = personas.first(where: { $0.id == personaId }),
@@ -7434,6 +8046,7 @@ public final class PipiAppStore {
 
     public func setWeChatRoutingMode(_ mode: PipiWeChatRoutingMode) {
         wechatILinkManager.routingMode = mode
+        saveResidentState()
     }
 
     public func toggleWeChatGroupMember(_ botId: String) {
@@ -7444,6 +8057,134 @@ public final class PipiAppStore {
         } else {
             wechatILinkManager.groupMemberBotIds.append(botId)
         }
+        saveResidentState()
+    }
+
+    public func setAutoCheckUpdatesEnabled(_ enabled: Bool) {
+        autoCheckUpdatesEnabled = enabled
+        saveResidentState()
+    }
+
+    public func setProactiveCLIDelegationEnabled(_ enabled: Bool) {
+        proactiveCLIDelegationEnabled = enabled
+        saveResidentState()
+    }
+
+    public func setSecurityAuditorBotId(_ botId: String) {
+        if personas.contains(where: { $0.id == botId }) {
+            securityAuditorBotId = botId
+            saveResidentState()
+        }
+    }
+
+    /// Delivers a system + in-app + WeChat notification (e.g. triggered via `pipibot://notify?...`).
+    public func deliverSystemAndWeChatNotification(title: String, body: String) async {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "PiPiBot" : title
+        let cleanBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanBody.isEmpty else { return }
+
+        noticeBanner = "\(cleanTitle)：\(cleanBody)"
+        let targetConvId = activeConversationId ?? conversations.first?.id ?? createConversation(activate: true).id
+        appendAssistantMessage(
+            to: targetConvId,
+            content: "📣 **\(cleanTitle)**\n\n\(cleanBody)",
+            engineLabel: strings.appName,
+            isError: false
+        )
+        saveResidentState()
+
+        #if canImport(UserNotifications)
+        if enableNativeRuntime && Bundle.main.bundleURL.pathExtension == "app" {
+            let center = UNUserNotificationCenter.current()
+            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+            let content = UNMutableNotificationContent()
+            content.title = cleanTitle
+            content.body = cleanBody
+            content.sound = .default
+            let req = UNNotificationRequest(identifier: "pipi_notify_\(UUID().uuidString.prefix(8))", content: content, trigger: nil)
+            try? await center.add(req)
+        }
+        #endif
+
+        _ = await wechatILinkManager.sendProactiveText("📣 \(cleanTitle)\n\n\(cleanBody)")
+    }
+
+    /// Transcribes an inbound WeChat audio file (converting SILK/AMR/M4A if local decoders exist, then using Apple Speech / Cloud STT).
+    private func transcribeLocalAudioFile(_ filePath: String) async -> String? {
+        guard FileManager.default.fileExists(atPath: filePath) else { return nil }
+        let ext = (filePath as NSString).pathExtension.lowercased()
+        var playableURL = URL(fileURLWithPath: filePath)
+        var tempWavURL: URL? = nil
+
+        // Convert to WAV if non-native container and `ffmpeg` or `afconvert` is available
+        if ext != "wav" && ext != "m4a" && ext != "mp3" && ext != "caf" {
+            let candidateWav = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("pipi_wx_voice_\(UUID().uuidString.prefix(8)).wav")
+            if let ffmpegPath = PipiNativeMacRuntime.findExecutable("ffmpeg") {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: ffmpegPath)
+                proc.arguments = ["-y", "-i", filePath, "-ar", "16000", "-ac", "1", candidateWav.path]
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                try? proc.run()
+                proc.waitUntilExit()
+                if proc.terminationStatus == 0, FileManager.default.fileExists(atPath: candidateWav.path) {
+                    playableURL = candidateWav
+                    tempWavURL = candidateWav
+                }
+            } else {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+                proc.arguments = ["-f", "WAVE", "-d", "LEI16@16000", filePath, candidateWav.path]
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                try? proc.run()
+                proc.waitUntilExit()
+                if proc.terminationStatus == 0, FileManager.default.fileExists(atPath: candidateWav.path) {
+                    playableURL = candidateWav
+                    tempWavURL = candidateWav
+                }
+            }
+        }
+        defer {
+            if let tempWavURL {
+                try? FileManager.default.removeItem(at: tempWavURL)
+            }
+        }
+
+        // Try on-device Apple Speech Recognition first
+        #if canImport(Speech)
+        if SFSpeechRecognizer.authorizationStatus() == .authorized {
+            let localeId = resolvedLanguage == .zhHans ? "zh-CN" : "en-US"
+            if let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeId)), recognizer.isAvailable {
+                let text: String? = await withCheckedContinuation { cont in
+                    let req = SFSpeechURLRecognitionRequest(url: playableURL)
+                    req.shouldReportPartialResults = false
+                    var finished = false
+                    recognizer.recognitionTask(with: req) { result, error in
+                        if finished { return }
+                        if let result, result.isFinal {
+                            finished = true
+                            cont.resume(returning: result.bestTranscription.formattedString)
+                        } else if error != nil {
+                            finished = true
+                            cont.resume(returning: nil)
+                        }
+                    }
+                }
+                if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return text
+                }
+            }
+        }
+        #endif
+
+        // Fallback to PipiDailyVoiceEngine Cloud STT if user configured an API key
+        if let audioData = try? Data(contentsOf: playableURL), !audioData.isEmpty {
+            if let res = try? await voiceEngine.transcribeAudioBuffer(audioData) {
+                return res.text
+            }
+        }
+        return nil
     }
 
     public func makeWeChatMessageBridge() -> PipiWeChatMessageBridge {
@@ -7453,29 +8194,116 @@ public final class PipiAppStore {
                     guard let self else { return [] }
                     let lang = self.resolvedLanguage
                     return self.personas.map { bot in
-                        PipiWeChatBotCandidate(id: bot.id, name: bot.name(lang))
+                        PipiWeChatBotInfo(
+                            id: bot.id,
+                            name: bot.name(lang),
+                            role: bot.role(lang),
+                            modelLabel: self.activeEngineDisplayLabel(for: bot),
+                            permissionTier: bot.permissionTier
+                        )
                     }
                 }
             },
-            executeTurn: { [weak self] botId, prompt, fromUserId in
+            availableProjects: { [weak self] in
+                await MainActor.run {
+                    guard let self else { return [] }
+                    return self.projects.map {
+                        PipiWeChatProjectInfo(id: $0.id, name: $0.name, workspacePath: $0.workspacePath)
+                    }
+                }
+            },
+            availableConversations: { [weak self] in
+                await MainActor.run {
+                    guard let self else { return [] }
+                    let lang = self.resolvedLanguage
+                    return self.conversations
+                        .filter { !$0.isArchived }
+                        .sorted { $0.updatedAt > $1.updatedAt }
+                        .prefix(20)
+                        .map { conv in
+                            let persona = self.personas.first(where: { $0.id == conv.personaId })
+                            let proj = conv.projectId.flatMap { pid in self.projects.first(where: { $0.id == pid }) }
+                            return PipiWeChatConversationInfo(
+                                id: conv.id,
+                                personaId: conv.personaId,
+                                personaName: persona?.name(lang) ?? self.strings.appName,
+                                title: conv.title,
+                                projectId: conv.projectId,
+                                projectName: proj?.name,
+                                messageCount: conv.messages.count
+                            )
+                        }
+                }
+            },
+            availableModelChoices: { [weak self] in
+                await MainActor.run {
+                    guard let self else { return [] }
+                    var choices: [PipiWeChatModelChoice] = [
+                        PipiWeChatModelChoice(
+                            id: "auto_default",
+                            label: "跟随全局默认模型（\(self.activeEngineDisplayLabel(for: PipiBotPersona.defaultPersonas[0]))）",
+                            target: .auto,
+                            modelId: nil
+                        )
+                    ]
+                    for cfg in self.readyLLMProviders {
+                        choices.append(PipiWeChatModelChoice(
+                            id: "llm_\(cfg.id)",
+                            label: "\(cfg.name) · \(cfg.modelId)",
+                            target: .llm(providerId: cfg.id),
+                            modelId: cfg.modelId
+                        ))
+                        for m in cfg.kind.suggestedModels where m != cfg.modelId {
+                            choices.append(PipiWeChatModelChoice(
+                                id: "llm_\(cfg.id)_\(m)",
+                                label: "\(cfg.name) · \(m)",
+                                target: .llm(providerId: cfg.id),
+                                modelId: m
+                            ))
+                        }
+                    }
+                    for agent in self.usableLocalAgents {
+                        choices.append(PipiWeChatModelChoice(
+                            id: "cli_\(agent.kind.rawValue)",
+                            label: "本地 Agent · \(agent.kind.displayName)",
+                            target: .localAgent(agent.kind),
+                            modelId: nil
+                        ))
+                    }
+                    return choices
+                }
+            },
+            executeTurn: { [weak self] botId, requestedConvId, projectId, prompt, attachments, fromUserId in
                 guard let self else {
-                    return PipiWeChatOutboundReply(botName: "PiPiBot", text: "Mac 端服务未就绪。")
+                    return (PipiWeChatOutboundReply(botName: "PiPiBot", text: "Mac 端服务未就绪。"), nil)
                 }
                 let (convId, botName, beforeMsgCount) = await MainActor.run { () -> (String, String, Int) in
                     let lang = self.resolvedLanguage
                     let bot = self.personas.first(where: { $0.id == botId }) ?? self.activePersona
-                    let titleTag = "微信 · \(bot.name(lang))"
                     let conv: PipiConversation
-                    if let existing = self.conversations.first(where: { $0.personaId == bot.id && $0.title == titleTag && !$0.isArchived }) {
-                        conv = existing
+                    if let requestedConvId,
+                       let found = self.conversations.first(where: { $0.id == requestedConvId && !$0.isArchived }) {
+                        conv = found
+                        if let projectId, found.projectId != projectId {
+                            self.moveConversation(found.id, toProject: projectId)
+                        }
                     } else {
-                        conv = self.createConversation(for: bot.id, title: titleTag, activate: false)
+                        let titleTag = "微信 · \(bot.name(lang))"
+                        if let existing = self.conversations.first(where: { $0.personaId == bot.id && $0.title == titleTag && !$0.isArchived }) {
+                            conv = existing
+                            if let projectId, existing.projectId != projectId {
+                                self.moveConversation(existing.id, toProject: projectId)
+                            }
+                        } else {
+                            conv = self.createConversation(for: bot.id, projectId: projectId, title: titleTag, activate: false)
+                        }
                     }
                     return (conv.id, bot.name(lang), conv.messages.count)
                 }
 
                 await self.sendPersonalMessage(
                     prompt,
+                    attachments: attachments,
                     conversationId: convId,
                     personaId: botId,
                     activateTargetConversation: false
@@ -7505,13 +8333,198 @@ public final class PipiAppStore {
                         }
                         return nil
                     }
+
+                    let pendingAppr: PipiWeChatPendingApprovalInfo? = conv?.approvals
+                        .last(where: { $0.status == .pending })
+                        .map { appr in
+                            PipiWeChatPendingApprovalInfo(
+                                approvalId: appr.id,
+                                question: appr.question,
+                                rationale: appr.rationale ?? appr.detail ?? "需要您的安全确认。",
+                                riskLevel: appr.riskLevel ?? .medium,
+                                options: appr.options.map { ($0.id, $0.label) }
+                            )
+                        }
+
                     _ = fromUserId
-                    return PipiWeChatOutboundReply(botName: botName, text: replyText, artifacts: artifacts)
+                    return (
+                        PipiWeChatOutboundReply(
+                            botName: botName,
+                            text: replyText,
+                            artifacts: artifacts,
+                            pendingApproval: pendingAppr
+                        ),
+                        convId
+                    )
                 }
             },
-            switchModeFromChat: { [weak self] mode in
+            createBot: { [weak self] name, role, templateId, target, modelId, permissionTier in
                 await MainActor.run {
-                    self?.wechatILinkManager.routingMode = mode
+                    guard let self else { return nil }
+                    let tpl = PipiBotPersonaTemplate.catalog.first(where: { $0.id == templateId })
+                        ?? PipiBotPersonaTemplate.catalog.last!
+                    var created = tpl.instantiate(
+                        customName: name,
+                        customPrompt: nil,
+                        permissionTier: permissionTier,
+                        preferredTarget: target,
+                        preferredModelId: modelId
+                    )
+                    created.roleZh = role
+                    created.roleEn = role
+                    created.systemPrompt = "You are \(name), \(role). Reply in the user's language with concise, practical, high-signal assistance."
+                    self.upsertPersona(created)
+                    return PipiWeChatBotInfo(
+                        id: created.id,
+                        name: created.name(self.resolvedLanguage),
+                        role: created.role(self.resolvedLanguage),
+                        modelLabel: self.activeEngineDisplayLabel(for: created),
+                        permissionTier: created.permissionTier
+                    )
+                }
+            },
+            createConversation: { [weak self] personaId, projectId, title in
+                await MainActor.run {
+                    guard let self else { return nil }
+                    return self.createConversation(for: personaId, projectId: projectId, title: title, activate: false).id
+                }
+            },
+            bindConversationProject: { [weak self] conversationId, projectId in
+                await MainActor.run {
+                    self?.moveConversation(conversationId, toProject: projectId)
+                }
+            },
+            updateBotConfig: { [weak self] botId, target, modelId, clearModelOverride, permissionTier in
+                await MainActor.run {
+                    guard let self, let idx = self.personas.firstIndex(where: { $0.id == botId }) else {
+                        return "未找到目标 Bot。"
+                    }
+                    if let target {
+                        self.personas[idx].preferredTarget = target
+                    }
+                    if clearModelOverride {
+                        self.personas[idx].preferredModelId = nil
+                    } else if let modelId, !modelId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        self.personas[idx].preferredModelId = modelId.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    if let permissionTier {
+                        self.personas[idx].permissionTier = permissionTier
+                    }
+                    self.saveResidentState()
+                    let updated = self.personas[idx]
+                    return "✅ 已更新「\(updated.name(self.resolvedLanguage))」配置：\n• 驱动引擎/模型：\(self.activeEngineDisplayLabel(for: updated))\n• 风险权限：\(updated.permissionTier.label(.zhHans))"
+                }
+            },
+            toggleSetting: { [weak self] key in
+                await MainActor.run {
+                    guard let self else { return "" }
+                    switch key {
+                    case "llm_judge":
+                        self.setLLMGuardrailJudgeEnabled(!self.llmGuardrailJudgeEnabled)
+                        return "✅ 「安全审计官自动评估」已\(self.llmGuardrailJudgeEnabled ? "开启" : "关闭")。"
+                    case "proactive_cli":
+                        self.setProactiveCLIDelegationEnabled(!self.proactiveCLIDelegationEnabled)
+                        return "✅ 「主动调用 Codex/CLI 工具」已\(self.proactiveCLIDelegationEnabled ? "开启" : "关闭")。"
+                    case "memory":
+                        self.memoryEnabled.toggle()
+                        self.saveResidentState()
+                        return "✅ 「跨会话长期记忆」已\(self.memoryEnabled ? "开启" : "关闭")。"
+                    default:
+                        return "已记录配置。"
+                    }
+                }
+            },
+            fetchConfigSnapshot: { [weak self] primaryBotId, routingMode, typingEnabled, convId, projId in
+                await MainActor.run {
+                    guard let self else {
+                        return PipiWeChatConfigSnapshot(
+                            primaryBotId: primaryBotId,
+                            primaryBotName: "PiPi",
+                            routingMode: routingMode,
+                            activeConversationTitle: nil,
+                            activeProjectName: nil,
+                            defaultModelLabel: "未配置",
+                            llmJudgeEnabled: true,
+                            proactiveCLIDelegationEnabled: true,
+                            typingIndicatorEnabled: typingEnabled,
+                            memoryEnabled: true,
+                            appVersion: "0.10.0"
+                        )
+                    }
+                    let lang = self.resolvedLanguage
+                    let bot = self.personas.first(where: { $0.id == primaryBotId }) ?? self.activePersona
+                    let conv = convId.flatMap { id in self.conversations.first(where: { $0.id == id }) }
+                    let proj = projId.flatMap { id in self.projects.first(where: { $0.id == id }) }
+                    return PipiWeChatConfigSnapshot(
+                        primaryBotId: bot.id,
+                        primaryBotName: bot.name(lang),
+                        routingMode: routingMode,
+                        activeConversationTitle: conv?.title,
+                        activeProjectName: proj?.name,
+                        defaultModelLabel: self.activeEngineDisplayLabel(for: PipiBotPersona.defaultPersonas[0]),
+                        llmJudgeEnabled: self.llmGuardrailJudgeEnabled,
+                        proactiveCLIDelegationEnabled: self.proactiveCLIDelegationEnabled,
+                        typingIndicatorEnabled: typingEnabled,
+                        memoryEnabled: self.memoryEnabled,
+                        appVersion: self.appDisplayVersion
+                    )
+                }
+            },
+            resolveApproval: { [weak self] approvalId, optionId in
+                guard let self else { return nil }
+                let (convId, beforeCount, botName) = await MainActor.run { () -> (String?, Int, String) in
+                    let conv = self.conversations.first(where: { $0.approvals.contains(where: { $0.id == approvalId }) })
+                    let persona = conv.flatMap { c in self.personas.first(where: { $0.id == c.personaId }) } ?? self.activePersona
+                    return (conv?.id, conv?.messages.count ?? 0, persona.name(self.resolvedLanguage))
+                }
+                await self.resolveApproval(approvalId, optionId: optionId, note: "Resolved via WeChat")
+                return await MainActor.run {
+                    guard let convId, let conv = self.conversations.first(where: { $0.id == convId }) else {
+                        return PipiWeChatOutboundReply(botName: botName, text: "已处理确认。")
+                    }
+                    let latest = conv.messages.dropFirst(beforeCount).last(where: { $0.role == .assistant })
+                    let text = latest?.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? "已取消该风险操作。"
+                    return PipiWeChatOutboundReply(botName: botName, text: text)
+                }
+            },
+            checkForUpdates: { [weak self] in
+                guard let self else { return ("服务未就绪", nil) }
+                let current = await MainActor.run { self.appDisplayVersion }
+                let state = await self.updateManager.checkForUpdates(currentVersion: current, silent: false)
+                switch state {
+                case .updateAvailable(let rel):
+                    let notes = rel.body.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let shortNotes = notes.isEmpty ? "" : "\n更新内容：\n\(String(notes.prefix(360)))"
+                    return ("🚀 发现新版本 \(rel.tagName)（当前 v\(current)）：\(rel.title)\(shortNotes)", rel)
+                case .upToDate(let v, _):
+                    return ("✅ 当前版本 v\(v) 已是最新 GitHub Release。", nil)
+                case .error(let msg):
+                    return ("⚠️ \(msg)", nil)
+                default:
+                    return ("正在检查更新中...", nil)
+                }
+            },
+            installUpdate: { [weak self] release in
+                guard let self else { return "服务未就绪" }
+                await MainActor.run {
+                    self.updateManager.downloadAndInstallUpdate(release) {
+                        self.flush()
+                    }
+                }
+                return "⬇️ 已开始在 Mac 端下载并校验 v\(release.version)，安装完成后 PiPiBot 将自动重启。"
+            },
+            transcribeAudioFile: { [weak self] path in
+                guard let self else { return nil }
+                return await self.transcribeLocalAudioFile(path)
+            },
+            switchModeFromChat: { [weak self] mode, memberIds in
+                await MainActor.run {
+                    guard let self else { return }
+                    self.wechatILinkManager.routingMode = mode
+                    if let memberIds, !memberIds.isEmpty {
+                        self.wechatILinkManager.groupMemberBotIds = memberIds
+                    }
+                    self.saveResidentState()
                 }
             }
         )

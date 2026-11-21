@@ -305,22 +305,80 @@ public struct PipiBotInspectorView: View {
             sectionTitle(s.t("底层执行与调度", "Execution & Routing"))
 
             VStack(alignment: .leading, spacing: 0) {
-                // Current Routed Engine
+                // Current Routed Engine (clickable quick per-bot model switcher)
                 HStack(spacing: PipiTokens.spacing8) {
                     Text(s.t("当前路由引擎", "Routed Engine"))
                         .font(PipiTokens.fontCaption)
                         .foregroundStyle(PipiTokens.textSecondary)
                     Spacer(minLength: 6)
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(store.hasConfiguredEngine ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
-                            .frame(width: 6.5, height: 6.5)
-                        Text(store.hasConfiguredEngine ? store.activeEngineDisplayLabel() : s.engineStatusUnconfigured)
-                            .font(PipiTokens.fontCaption.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                    Menu {
+                        let bot = store.activePersona
+                        Button {
+                            store.setPersonaExecutionModel(personaId: bot.id, target: .auto, modelId: nil)
+                        } label: {
+                            if bot.preferredTarget == .auto && (bot.preferredModelId ?? "").isEmpty {
+                                Label(s.t("跟随全局默认模型", "Follow Global Default"), systemImage: "checkmark")
+                            } else {
+                                Text(s.t("跟随全局默认模型", "Follow Global Default"))
+                            }
+                        }
+                        if !store.readyLLMProviders.isEmpty {
+                            Divider()
+                            ForEach(store.readyLLMProviders) { cfg in
+                                let isSelected = bot.preferredTarget == .llm(providerId: cfg.id) && (bot.preferredModelId ?? "").isEmpty
+                                Button {
+                                    store.setPersonaExecutionModel(personaId: bot.id, target: .llm(providerId: cfg.id), modelId: nil)
+                                } label: {
+                                    if isSelected {
+                                        Label("\(cfg.name) · \(cfg.modelId)", systemImage: "checkmark")
+                                    } else {
+                                        Text("\(cfg.name) · \(cfg.modelId)")
+                                    }
+                                }
+                                ForEach(cfg.kind.suggestedModels.filter { $0 != cfg.modelId }, id: \.self) { m in
+                                    let isModelSelected = bot.preferredTarget == .llm(providerId: cfg.id) && bot.preferredModelId == m
+                                    Button {
+                                        store.setPersonaExecutionModel(personaId: bot.id, target: .llm(providerId: cfg.id), modelId: m)
+                                    } label: {
+                                        if isModelSelected {
+                                            Label("  ↳ \(cfg.name) · \(m)", systemImage: "checkmark")
+                                        } else {
+                                            Text("  ↳ \(cfg.name) · \(m)")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !store.usableLocalAgents.isEmpty {
+                            Divider()
+                            ForEach(store.usableLocalAgents) { agent in
+                                Button {
+                                    store.setPersonaExecutionModel(personaId: bot.id, target: .localAgent(agent.kind), modelId: nil)
+                                } label: {
+                                    if bot.preferredTarget == .localAgent(agent.kind) {
+                                        Label(agent.kind.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(agent.kind.displayName)
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(store.hasConfiguredEngine ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
+                                .frame(width: 6.5, height: 6.5)
+                            Text(store.hasConfiguredEngine ? store.activeEngineDisplayLabel() : s.engineStatusUnconfigured)
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 8.5, weight: .semibold))
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
                     }
+                    .pipiPlainMenu()
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)

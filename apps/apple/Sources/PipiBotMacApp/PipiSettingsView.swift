@@ -432,6 +432,55 @@ public struct PipiSettingsView: View {
                 .padding(.vertical, 12)
             }
 
+            // Software Updates via GitHub Releases
+            settingsGroup(title: s.t("版本与自动更新", "Software Updates")) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    HStack(spacing: PipiTokens.spacing12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.t("当前版本 v\(store.appDisplayVersion)", "Current Version v\(store.appDisplayVersion)"))
+                                .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(softwareUpdateSubtitle)
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(softwareUpdateSubtitleColor)
+                        }
+                        Spacer()
+                        softwareUpdateActionButton
+                    }
+
+                    if case .updateAvailable(let release) = store.updateManager.state,
+                       !release.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(release.body.trimmingCharacters(in: .whitespacesAndNewlines))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .lineLimit(4)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(PipiTokens.bgSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                    } else if case .downloading(_, let progress) = store.updateManager.state {
+                        ProgressView(value: progress)
+                    }
+
+                    settingsRowDivider
+
+                    HStack {
+                        Text(s.t("启动时自动从 GitHub Release 检查更新", "Automatically check GitHub Releases on launch"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { store.autoCheckUpdatesEnabled },
+                            set: { store.setAutoCheckUpdatesEnabled($0) }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+
             // Guided Setup re-entry card
             settingsGroup(title: s.t("引导式配置", "Guided Setup")) {
                 HStack(spacing: PipiTokens.spacing12) {
@@ -759,13 +808,35 @@ public struct PipiSettingsView: View {
             ) {
                 VStack(spacing: 0) {
                     HStack(spacing: 6) {
-                        Text(s.t("外部 Agent 不替代 PiPi，仅在复杂编码或使用 /claude · /codex · /opencode 时按需调用。", "External agents never replace PiPi; PiPi calls them on demand or via /claude, /codex, /opencode."))
+                        Text(s.t("PiPi 可根据任务需要主动调度已启用的 Codex / Claude Code / OpenCode，也支持用自然语言或 /codex 直接调用。", "PiPi proactively delegates coding & terminal tasks to enabled Codex / Claude Code / OpenCode without needing /codex."))
                             .font(PipiTokens.fontCaption)
                             .foregroundStyle(PipiTokens.textSecondary)
                         Spacer()
                         PipiActionButton(s.rescanAgents, systemImage: "arrow.clockwise", tone: .ghost, density: .desktopCompact) {
                             Task { await store.refreshLocalAgents() }
                         }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+
+                    settingsRowDivider
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.t("允许 PiPi 主动调用命令行 Agent", "Proactive CLI Sub-Agent Delegation"))
+                                .font(PipiTokens.fontSubheadline.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(s.t("遇到本地代码检查、测试或终端任务时，无需输入 /codex，由 PiPi 主动调起并受安全审计护栏保护。", "Automatically dispatches repo/terminal tasks to Codex or Claude Code under Safety Guardrail review."))
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                        }
+                        Spacer(minLength: PipiTokens.spacing12)
+                        Toggle("", isOn: Binding(
+                            get: { store.proactiveCLIDelegationEnabled },
+                            set: { store.setProactiveCLIDelegationEnabled($0) }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -2532,10 +2603,44 @@ public struct PipiSettingsView: View {
                             .buttonStyle(.plain)
                         }
 
-                        Text(s.t("微信内快捷指令：/mode 1v1 · /mode group · /bots · /screenshot · /sms · /mail · /build <命令>", "In-WeChat commands: /mode 1v1 · /mode group · /bots · /screenshot · /sms · /mail · /build <cmd>"))
-                            .font(PipiTokens.fontMonoSmall)
+                        Text(s.t("微信内自然语言引导：直接说「菜单」「创建bot」「切换bot」「切换会话」「切换项目」「进入群聊」「更多配置」「检查更新」，支持语音转文字、图片、附件与正在输入状态。", "In-WeChat natural language: say 菜单 / 创建bot / 切换bot / 切换会话 / 切换项目 / 进入群聊 / 更多配置 / 检查更新. Supports voice ASR, images, files, and typing indicator."))
+                            .font(PipiTokens.fontCaption)
                             .foregroundStyle(PipiTokens.textMuted)
                     }
+                }
+
+                settingsRowDivider
+
+                HStack {
+                    Text(s.t("实时同步「正在输入」状态", "Sync Typing Indicator"))
+                        .font(PipiTokens.fontCaption.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.wechatILinkManager.typingIndicatorEnabled },
+                        set: {
+                            store.wechatILinkManager.typingIndicatorEnabled = $0
+                            store.saveResidentState()
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+
+                HStack {
+                    Text(s.t("应用启动时自动恢复微信连接", "Auto-Reconnect WeChat on Launch"))
+                        .font(PipiTokens.fontCaption.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.wechatAutoConnectEnabled },
+                        set: {
+                            store.wechatAutoConnectEnabled = $0
+                            store.saveResidentState()
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
                 }
             }
             .padding(.horizontal, 16)
@@ -3146,6 +3251,38 @@ public struct PipiSettingsView: View {
 
                 settingsRowDivider
 
+                HStack(spacing: PipiTokens.spacing12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.t("安全审计智能体", "Security Auditor Agent"))
+                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.t("当前模型：\(store.activeEngineDisplayLabel(for: store.securityAuditorPersona))", "Model: \(store.activeEngineDisplayLabel(for: store.securityAuditorPersona))"))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                    }
+                    Spacer()
+                    let candidates = store.personas.map { PipiWeChatBotCandidate(id: $0.id, name: $0.name(lang)) }
+                    let fallback = PipiWeChatBotCandidate(
+                        id: store.securityAuditorPersona.id,
+                        name: store.securityAuditorPersona.name(lang)
+                    )
+                    let currentAuditor = candidates.first(where: { $0.id == store.securityAuditorBotId }) ?? fallback
+                    PipiSelectMenu(
+                        options: candidates.isEmpty ? [fallback] : candidates,
+                        selection: Binding(
+                            get: { currentAuditor },
+                            set: { store.setSecurityAuditorBotId($0.id) }
+                        ),
+                        width: 196
+                    ) { bot in
+                        bot.name
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
                 if store.approvalWhitelistRules.isEmpty {
                     Text(s.guardrailWhitelistEmpty)
                         .font(PipiTokens.fontCaption)
@@ -3633,6 +3770,68 @@ public struct PipiSettingsView: View {
         }
     }
     #endif
+
+    private var softwareUpdateSubtitle: String {
+        switch store.updateManager.state {
+        case .idle:
+            return s.t("可从 GitHub Release 检查并自动安装最新版本", "Check and auto-install latest GitHub Release")
+        case .checking:
+            return s.t("正在连接 GitHub Releases...", "Checking GitHub Releases...")
+        case .upToDate(let version, _):
+            return s.t("已是最新版本（v\(version)）", "Up to date (v\(version))")
+        case .updateAvailable(let rel):
+            return s.t("发现新版本 \(rel.tagName)：\(rel.title)", "Update available \(rel.tagName): \(rel.title)")
+        case .downloading(let rel, let p):
+            return s.t("正在下载 \(rel.tagName) (\(Int(p * 100))%)...", "Downloading \(rel.tagName) (\(Int(p * 100))%)...")
+        case .verifying(let rel):
+            return s.t("正在校验 \(rel.tagName) 安装包完整性...", "Verifying \(rel.tagName) checksum & signature...")
+        case .installing(let rel):
+            return s.t("正在安装 \(rel.tagName) 并准备重启...", "Installing \(rel.tagName) & relaunching...")
+        case .error(let msg):
+            return msg
+        }
+    }
+
+    private var softwareUpdateSubtitleColor: Color {
+        switch store.updateManager.state {
+        case .updateAvailable, .upToDate, .installing:
+            return PipiTokens.stateSuccess
+        case .error:
+            return PipiTokens.stateError
+        default:
+            return PipiTokens.textSecondary
+        }
+    }
+
+    @ViewBuilder
+    private var softwareUpdateActionButton: some View {
+        switch store.updateManager.state {
+        case .updateAvailable(let rel):
+            PipiActionButton(
+                s.t("下载并更新", "Update Now"),
+                systemImage: "arrow.down.circle.fill",
+                tone: .primary,
+                density: .desktopCompact
+            ) {
+                store.updateManager.downloadAndInstallUpdate(rel) {
+                    store.flush()
+                }
+            }
+        case .checking, .downloading, .verifying, .installing:
+            ProgressView().controlSize(.small)
+        default:
+            PipiActionButton(
+                s.t("检查更新", "Check Updates"),
+                systemImage: "arrow.triangle.2.circlepath",
+                tone: .secondary,
+                density: .desktopCompact
+            ) {
+                Task {
+                    _ = await store.updateManager.checkForUpdates(currentVersion: store.appDisplayVersion, silent: false)
+                }
+            }
+        }
+    }
 }
 
 private struct FlowWrapChips<Item: Identifiable, Content: View>: View {

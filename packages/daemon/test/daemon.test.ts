@@ -161,6 +161,26 @@ describe('PipiBot V1 Mac Resident Daemon (@pipibot/daemon)', () => {
     assert.ok(collected.includes('event: node.heartbeat'), 'expected live node.heartbeat event');
   });
 
+  test('GET /api/v1/resources returns normalized CPU, memory, and disk telemetry', async () => {
+    const response = await requestJson<{
+      sampledAt: string;
+      cpu: { usagePercent: number; load1m: number; coreCount: number };
+      memory: { totalBytes: number; usedBytes: number; usedPercent: number };
+      disk: { path: string; totalBytes: number; availableBytes: number; usedPercent: number };
+    }>(baseUrl, '/api/v1/resources');
+
+    assert.equal(response.status, 200);
+    assert.match(response.data.sampledAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.ok(response.data.cpu.coreCount > 0);
+    assert.ok(response.data.cpu.usagePercent >= 0 && response.data.cpu.usagePercent <= 100);
+    assert.ok(response.data.memory.totalBytes > 0);
+    assert.ok(response.data.memory.usedBytes >= 0);
+    assert.ok(response.data.memory.usedPercent >= 0 && response.data.memory.usedPercent <= 100);
+    assert.ok(response.data.disk.totalBytes > 0);
+    assert.ok(response.data.disk.availableBytes >= 0);
+    assert.ok(response.data.disk.usedPercent >= 0 && response.data.disk.usedPercent <= 100);
+  });
+
   test('Outcomes CRUD, 2-Stage Evaluator, and Needs-You Decision resolution work end-to-end', async () => {
     const listRes = await requestJson<{
       outcomes: Array<{ id: string }>;

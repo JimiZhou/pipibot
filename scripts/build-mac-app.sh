@@ -63,9 +63,20 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.9.0</string>
+  <string>0.10.0</string>
   <key>CFBundleVersion</key>
-  <string>9</string>
+  <string>10</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>ai.pipibot.mac.url</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>pipibot</string>
+      </array>
+    </dict>
+  </array>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSDesktopFolderUsageDescription</key>

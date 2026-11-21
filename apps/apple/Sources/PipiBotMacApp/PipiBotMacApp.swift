@@ -65,6 +65,9 @@ struct PipiBotMacApp: App {
             enableEmbeddedBridge: false,
             seedDemoData: false
         )
+        if !residentStore.personas.contains(where: { $0.id == PipiBotPersona.securityAuditorId }) {
+            residentStore.personas.append(PipiBotPersona.securityAuditorDefault)
+        }
         _store = State(initialValue: residentStore)
 
         NotificationCenter.default.addObserver(
@@ -99,6 +102,28 @@ struct PipiBotMacApp: App {
                     }
                     for window in NSApp.windows where window.canBecomeMain {
                         PipiMacAppDelegate.configureNativeWindowChrome(window)
+                    }
+                }
+                .onOpenURL { url in
+                    guard url.scheme?.lowercased() == "pipibot" else { return }
+                    let host = (url.host ?? "").lowercased()
+                    let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                    let queryMap = Dictionary(
+                        (comps?.queryItems ?? []).compactMap { item in
+                            item.value.map { (item.name.lowercased(), $0) }
+                        },
+                        uniquingKeysWith: { _, last in last }
+                    )
+                    if host == "notify" {
+                        let title = queryMap["title"] ?? "PiPiBot 通知"
+                        let body = queryMap["body"] ?? ""
+                        Task { @MainActor in
+                            await store.deliverSystemAndWeChatNotification(title: title, body: body)
+                        }
+                    } else if host == "check-updates" {
+                        Task { @MainActor in
+                            _ = await store.updateManager.checkForUpdates(currentVersion: store.appDisplayVersion, silent: false)
+                        }
                     }
                 }
         }

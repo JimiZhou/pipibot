@@ -199,7 +199,8 @@ public final class PipiPermissionGuardrail: @unchecked Sendable {
     public func evaluate(
         _ action: PipiGuardrailActionInput,
         enableLLMJudge: Bool = false,
-        llmJudge: PipiLLMGuardrailJudge? = nil
+        llmJudge: PipiLLMGuardrailJudge? = nil,
+        auditMediumRisk: Bool = false
     ) async -> PipiGuardrailVerdict {
         // 0. Idempotency check
         if let prior = ledger.entry(for: action.operationId) {
@@ -313,8 +314,9 @@ public final class PipiPermissionGuardrail: @unchecked Sendable {
 
         let baseRisk = Self.baseRisk(for: action.actionKind)
 
-        // 5. Layer 2: Independent LLM Risk x Authorization judge for high-risk actions
-        if baseRisk == .high, enableLLMJudge, let llmJudge {
+        // 5. Layer 2: Independent LLM Risk x Authorization judge (Security Auditor Agent)
+        let shouldConsultJudge = (baseRisk == .high) || (auditMediumRisk && baseRisk == .medium)
+        if shouldConsultJudge, enableLLMJudge, let llmJudge {
             do {
                 let prompt = Self.buildJudgePrompt(for: action)
                 let req = PipiLLMJudgeRequest(
@@ -425,6 +427,13 @@ public final class PipiPermissionGuardrail: @unchecked Sendable {
         let untrusted = action.untrustedContextSnippets.isEmpty
             ? "(none)"
             : action.untrustedContextSnippets.map { "- \($0)" }.joined(separator: "\n")
+        let payloadEscaped = action.payloadSummary
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: " ")
+        let targetEscaped = action.target
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
         return """
         <trusted_user_authorization can_authorize="true" source_trust="\(action.sourceTrust.rawValue)">
         \(trusted)
@@ -433,10 +442,105 @@ public final class PipiPermissionGuardrail: @unchecked Sendable {
         \(untrusted)
         </untrusted_evidence>
         <planned_action>
-        {"operationId":"\(action.operationId)","toolName":"\(action.toolName)","actionKind":"\(action.actionKind.rawValue)","target":"\(action.target)","isPreparatoryOnly":\(action.isPreparatoryOnly)}
+        {"operationId":"\(action.operationId)","toolName":"\(action.toolName)","actionKind":"\(action.actionKind.rawValue)","target":"\(targetEscaped)","payloadSummary":"\(payloadEscaped)","isPreparatoryOnly":\(action.isPreparatoryOnly)}
         </planned_action>
         """
     }
+
+    /// Parses strict or markdown-fenced JSON returned by the Security Auditor LLM Judge.
+    public static func parseLLMJudgeResponse(_ raw: String) -> PipiLLMJudgeResponse? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let candidates: [String] = {
+            var list = [trimmed]
+            if let start = trimmed.firstIndex(of: "{"), let end = trimmed.lastIndex(of: "}") , start < end {
+                list.append(String(trimmed[start...end]))
+            }
+            return list
+        }()
+
+        let decoder = JSONDecoder()
+        for candidate in candidates {
+            if let data = candidate.data(using: .utf8),
+               let parsed = try? decoder.decode(PipiLLMJudgeResponse.self, from: data) {
+                return parsed
+            }
+        }
+        return nil
+    }
+
+    public struct PromptRiskClassification: Sendable, Equatable {
+        public let isRisky: Bool
+        public let actionKind: PipiActionKind
+        public let target: String
+        public let reason: String
+    }
+
+    /// Classifies whether a user request or PiPi-planned execution carries side effects requiring
+    /// Security Auditor evaluation and/or explicit user confirmation.
+    public static func classifyPromptRisk(_ prompt: String, defaultTarget: String = "workspace") -> PromptRiskClassification {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return PromptRiskClassification(isRisky: false, actionKind: .readOnly, target: defaultTarget, reason: "Empty prompt")
+        }
+
+        if matchesRegex(guardrailTamperPattern, in: trimmed) || matchesRegex(catastrophicDestroyPattern, in: trimmed) {
+            return PromptRiskClassification(
+                isRisky: true,
+                actionKind: .securityChange,
+                target: defaultTarget,
+                reason: "Potentially destructive or guardrail-altering instruction detected."
+            )
+        }
+
+        if matchesRegex(secretExfilPattern, in: trimmed) && matchesRegex(egressCommandPattern, in: trimmed) {
+            return PromptRiskClassification(
+                isRisky: true,
+                actionKind: .credentialAccess,
+                target: defaultTarget,
+                reason: "Credential access combined with external egress detected."
+            )
+        }
+
+        if matchesRegex(destructiveTaskPattern, in: trimmed) {
+            return PromptRiskClassification(
+                isRisky: true,
+                actionKind: .destructive,
+                target: defaultTarget,
+                reason: "Destructive file, git, or process action requires confirmation."
+            )
+        }
+
+        if matchesRegex(externalEffectTaskPattern, in: trimmed) {
+            return PromptRiskClassification(
+                isRisky: true,
+                actionKind: .externalEffect,
+                target: defaultTarget,
+                reason: "External communication, publish, or remote push action requires confirmation."
+            )
+        }
+
+        if matchesRegex(shellOrSystemWritePattern, in: trimmed) {
+            return PromptRiskClassification(
+                isRisky: true,
+                actionKind: .shellCommand,
+                target: defaultTarget,
+                reason: "Shell or workspace-mutating execution requires confirmation."
+            )
+        }
+
+        return PromptRiskClassification(isRisky: false, actionKind: .readOnly, target: defaultTarget, reason: "Read-only or conversational task.")
+    }
+
+    private static let destructiveTaskPattern =
+        #"(\brm\s+-|\brmdir\b|\bunlink\b|\bsudo\b|\bchmod\b|\bchown\b|\bkillall\b|\bpkill\b|\bkill\s+-9|\bgit\s+(?:reset\s+--hard|clean\s+-fd|push\s+(?:--force|-f))|\bdrop\s+(?:table|database)\b|删除(?:文件|目录|分支|数据|数据库|应用)|清空(?:目录|磁盘|数据)|强推|强制覆盖)"#
+
+    private static let externalEffectTaskPattern =
+        #"(\bgit\s+push\b|\bgh\s+release\s+(?:create|delete|upload)\b|\bnpm\s+publish\b|\bcurl\s+.*(?:-X\s*(?:POST|PUT|DELETE|PATCH)|-d\b|--data)|发(?:送)?(?:短信|邮件|微信消息|通知给)|发送\s*SMS|发邮件给|发送给|提交并推送|发布到|部署到线上)"#
+
+    private static let shellOrSystemWritePattern =
+        #"(\b(?:mv|cp|mkdir|touch|tee|sed\s+-i|brew\s+(?:install|uninstall|upgrade)|npm\s+install|pip\s+install|launchctl)\b|写入文件|修改(?:系统)?配置|安装依赖|执行命令|运行脚本)"#
 
     private static let secretExfilPattern =
         #"(\.env\b|id_rsa|id_ed25519|BEGIN [A-Z0-9 ]*PRIVATE KEY|\bsk-(?:proj-|ant-)?[A-Za-z0-9_-]{12,}|\bghp_[A-Za-z0-9]{16,}|\bAKIA[0-9A-Z]{16}|keychain|cookies\.sqlite)"#

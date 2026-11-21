@@ -10,9 +10,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, statfs } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { homedir } from 'node:os';
+import * as os from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -187,7 +187,7 @@ export class PipiResidentServer {
 
     const moduleDir = fileURLToPath(new URL('.', import.meta.url));
     this.repoRoot = resolve(options.repoRoot ?? join(moduleDir, '..', '..', '..'));
-    this.dataDir = options.dataDir ?? join(homedir(), '.pipibot');
+    this.dataDir = options.dataDir ?? join(os.homedir(), '.pipibot');
     this.workspacePath = options.workspacePath ?? this.repoRoot;
     this.byokConfigs = options.byokConfigs ?? [];
     this.pulseIntervalMs = options.pulseIntervalMs ?? ACTIVITY_PULSE_INTERVAL_MS;
@@ -441,6 +441,7 @@ export class PipiResidentServer {
             chat: '/api/v1/chat/turn',
             memory: '/api/v1/memory',
             launchdPlist: '/api/v1/launchd-plist',
+            resources: '/api/v1/resources',
             designSystem: '/design-system/',
             iosCompanion: '/ios/',
           },
@@ -481,6 +482,11 @@ export class PipiResidentServer {
             fleetOnline: nodes.filter((n) => n.vitality === 'alive' || n.vitality === 'busy').length,
           },
         });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/api/v1/resources') {
+        this.sendJson(res, 200, await this.readResourceSnapshot());
         return;
       }
 
@@ -842,6 +848,43 @@ export class PipiResidentServer {
       const msg = error instanceof Error ? error.message : String(error);
       this.sendJson(res, 500, { error: msg });
     }
+  }
+
+  private async readResourceSnapshot(): Promise<{
+    sampledAt: string;
+    cpu: { usagePercent: number; load1m: number; coreCount: number };
+    memory: { totalBytes: number; usedBytes: number; usedPercent: number };
+    disk: { path: string; totalBytes: number; availableBytes: number; usedPercent: number };
+  }> {
+    const totalMemory = os.totalmem();
+    const freeMemory = os.freemem();
+    const coreCount = Math.max(1, os.cpus().length);
+    const load1m = os.loadavg()[0] ?? 0;
+    const usagePercent = Math.min(100, Math.max(0, (load1m / coreCount) * 100));
+    const disk = await statfs(this.workspacePath);
+    const totalBytes = Number(disk.blocks) * Number(disk.bsize);
+    const availableBytes = Number(disk.bavail) * Number(disk.bsize);
+    const usedBytes = Math.max(0, totalBytes - availableBytes);
+
+    return {
+      sampledAt: new Date().toISOString(),
+      cpu: {
+        usagePercent: Number(usagePercent.toFixed(1)),
+        load1m: Number(load1m.toFixed(2)),
+        coreCount,
+      },
+      memory: {
+        totalBytes: totalMemory,
+        usedBytes: totalMemory - freeMemory,
+        usedPercent: Number((((totalMemory - freeMemory) / totalMemory) * 100).toFixed(1)),
+      },
+      disk: {
+        path: this.workspacePath,
+        totalBytes,
+        availableBytes,
+        usedPercent: totalBytes > 0 ? Number(((usedBytes / totalBytes) * 100).toFixed(1)) : 0,
+      },
+    };
   }
 
   private async executeChatTurn(params: {

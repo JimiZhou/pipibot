@@ -7,6 +7,27 @@ import AppKit
 @MainActor
 final class PipiMacAppDelegate: NSObject, NSApplicationDelegate {
     var onGlobalQuickBarHotkey: (@MainActor () -> Void)?
+    var onOpenExternalURL: (@MainActor (URL) -> Void)?
+    private var queuedExternalURLs: [URL] = []
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            if let handler = onOpenExternalURL {
+                handler(url)
+            } else {
+                queuedExternalURLs.append(url)
+            }
+        }
+    }
+
+    func flushQueuedExternalURLs() {
+        guard let handler = onOpenExternalURL, !queuedExternalURLs.isEmpty else { return }
+        let pending = queuedExternalURLs
+        queuedExternalURLs.removeAll()
+        for url in pending {
+            handler(url)
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -54,6 +75,8 @@ struct PipiBotMacApp: App {
     @State private var showAboutSheet = false
     @State private var settingsInitialTab: PipiSettingsTab = .general
     @State private var menuBarDraft = ""
+    @State private var lastHandledURLString: String?
+    @State private var lastHandledURLTimestamp: Date = .distantPast
     @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -100,33 +123,19 @@ struct PipiBotMacApp: App {
                     appDelegate.onGlobalQuickBarHotkey = {
                         toggleQuickBar()
                     }
+                    appDelegate.onOpenExternalURL = { url in
+                        handleIncomingURL(url)
+                    }
+                    appDelegate.flushQueuedExternalURLs()
                     for window in NSApp.windows where window.canBecomeMain {
                         PipiMacAppDelegate.configureNativeWindowChrome(window)
                     }
                 }
                 .onOpenURL { url in
-                    guard url.scheme?.lowercased() == "pipibot" else { return }
-                    let host = (url.host ?? "").lowercased()
-                    let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
-                    let queryMap = Dictionary(
-                        (comps?.queryItems ?? []).compactMap { item in
-                            item.value.map { (item.name.lowercased(), $0) }
-                        },
-                        uniquingKeysWith: { _, last in last }
-                    )
-                    if host == "notify" {
-                        let title = queryMap["title"] ?? "PiPiBot 通知"
-                        let body = queryMap["body"] ?? ""
-                        Task { @MainActor in
-                            await store.deliverSystemAndWeChatNotification(title: title, body: body)
-                        }
-                    } else if host == "check-updates" {
-                        Task { @MainActor in
-                            _ = await store.updateManager.checkForUpdates(currentVersion: store.appDisplayVersion, silent: false)
-                        }
-                    }
+                    handleIncomingURL(url)
                 }
         }
+        .handlesExternalEvents(matching: Set(["pipibot"]))
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             SidebarCommands()
@@ -393,6 +402,37 @@ struct PipiBotMacApp: App {
             }
         }
         .preferredColorScheme(store.themeMode.colorSchemeOverride)
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        guard url.scheme?.lowercased() == "pipibot" else { return }
+        let now = Date()
+        if lastHandledURLString == url.absoluteString,
+           now.timeIntervalSince(lastHandledURLTimestamp) < 1.5 {
+            return
+        }
+        lastHandledURLString = url.absoluteString
+        lastHandledURLTimestamp = now
+
+        let host = (url.host ?? "").lowercased()
+        let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let queryMap = Dictionary(
+            (comps?.queryItems ?? []).compactMap { item in
+                item.value.map { (item.name.lowercased(), $0) }
+            },
+            uniquingKeysWith: { _, last in last }
+        )
+        if host == "notify" {
+            let title = queryMap["title"] ?? "PiPiBot 通知"
+            let body = queryMap["body"] ?? ""
+            Task { @MainActor in
+                await store.deliverSystemAndWeChatNotification(title: title, body: body)
+            }
+        } else if host == "check-updates" {
+            Task { @MainActor in
+                _ = await store.updateManager.checkForUpdates(currentVersion: store.appDisplayVersion, silent: false)
+            }
+        }
     }
 
     private func toggleQuickBar() {

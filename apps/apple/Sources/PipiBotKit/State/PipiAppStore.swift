@@ -282,6 +282,7 @@ public final class PipiAppStore {
     public let enableNativeRuntime: Bool
     public let enableEmbeddedBridge: Bool
     public let secretStore: any PipiSecretStore
+    private let defersSystemKeychainReads: Bool
     public let localHostConnection: PipiLocalHostConnection
     public var activeHostConnection: any PipiHostConnection
     /// Wave 1 (#04) 7-level priority scheduler with interactive reserved slot, AIMD & preemption.
@@ -705,7 +706,12 @@ public final class PipiAppStore {
         self.localModelPlatformManager = PipiLocalModelPlatformManager()
         self.telemetryMonitor = PipiSystemTelemetryMonitor()
         let resolvedSecretStore = secretStore ?? (enableNativeRuntime ? PipiKeychainSecretStore() : PipiInMemorySecretStore())
-        self.wechatILinkManager = PipiWeChatILinkManager(secretStore: resolvedSecretStore)
+        let defersKeychain = resolvedSecretStore is PipiKeychainSecretStore
+        self.defersSystemKeychainReads = defersKeychain
+        self.wechatILinkManager = PipiWeChatILinkManager(
+            secretStore: resolvedSecretStore,
+            restoreCredentialsOnInit: !defersKeychain
+        )
         self.enableNativeRuntime = enableNativeRuntime
         self.enableEmbeddedBridge = enableEmbeddedBridge
         self.persistenceUrl = stateFileUrl
@@ -830,7 +836,12 @@ public final class PipiAppStore {
                 self.noticeBanner = strings.readyStatus
             }
             self.startRoutineScheduler()
-            if self.wechatAutoConnectEnabled && self.wechatILinkManager.hasSavedCredentials {
+            if self.defersSystemKeychainReads {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    await self?.hydrateNativeSecretsAfterLaunch()
+                }
+            } else if self.wechatAutoConnectEnabled && self.wechatILinkManager.hasSavedCredentials {
                 self.reconnectWeChatILink()
             }
             if self.autoCheckUpdatesEnabled {
@@ -1211,7 +1222,7 @@ public final class PipiAppStore {
                     secretStore.setSecret(plaintext, for: copy.secretAccountKey)
                     copy.apiKey = plaintext
                     didMigratePlaintextKeys = true
-                } else if let stored = secretStore.secret(for: copy.secretAccountKey) {
+                } else if !defersSystemKeychainReads, let stored = secretStore.secret(for: copy.secretAccountKey) {
                     copy.apiKey = stored
                 }
                 return copy
@@ -8074,6 +8085,46 @@ public final class PipiAppStore {
         if personas.contains(where: { $0.id == botId }) {
             securityAuditorBotId = botId
             saveResidentState()
+        }
+    }
+
+    /// Hydrates Keychain-backed LLM API keys and WeChat iLink credentials off the main thread after launch.
+    private func hydrateNativeSecretsAfterLaunch() async {
+        let store = self.secretStore
+        let missingAccounts: [String] = llmProviders
+            .filter { $0.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map(\.secretAccountKey)
+
+        if !missingAccounts.isEmpty {
+            let hydratedMap = await Task.detached(priority: .utility) { () -> [String: String] in
+                var map: [String: String] = [:]
+                for account in missingAccounts {
+                    if let val = store.secret(for: account) {
+                        map[account] = val
+                    }
+                }
+                return map
+            }.value
+
+            if !hydratedMap.isEmpty {
+                var didChange = false
+                for idx in llmProviders.indices {
+                    let acct = llmProviders[idx].secretAccountKey
+                    if llmProviders[idx].apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       let secret = hydratedMap[acct], !secret.isEmpty {
+                        llmProviders[idx].apiKey = secret
+                        didChange = true
+                    }
+                }
+                if didChange {
+                    refreshLocalHostCapabilities()
+                }
+            }
+        }
+
+        let restoredWeChat = await wechatILinkManager.restoreSavedCredentialsInBackground()
+        if restoredWeChat && wechatAutoConnectEnabled {
+            reconnectWeChatILink()
         }
     }
 

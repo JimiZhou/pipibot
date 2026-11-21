@@ -693,13 +693,16 @@ public final class PipiWeChatILinkManager {
     public init(
         secretStore: any PipiSecretStore = PipiKeychainSecretStore(),
         session: URLSession = .shared,
-        inboundDirectoryURL: URL? = nil
+        inboundDirectoryURL: URL? = nil,
+        restoreCredentialsOnInit: Bool = true
     ) {
         self.secretStore = secretStore
         self.session = session
         self.inboundDirectoryURL = inboundDirectoryURL ?? PipiPersonalWikiStore.defaultStorageDirectory()
             .appendingPathComponent("wechat-inbound", isDirectory: true)
-        restoreSavedCredentialsIfAvailable()
+        if restoreCredentialsOnInit {
+            restoreSavedCredentialsIfAvailable()
+        }
     }
 
     public var hasSavedCredentials: Bool { credentials != nil }
@@ -711,6 +714,26 @@ public final class PipiWeChatILinkManager {
             return
         }
         self.credentials = saved
+    }
+
+    /// Loads saved iLink credentials off the main thread so startup never deadlocks on Keychain ACL prompts.
+    @discardableResult
+    public func restoreSavedCredentialsInBackground() async -> Bool {
+        if credentials != nil { return true }
+        let store = self.secretStore
+        let account = Self.keychainAccountKey
+        let raw = await Task.detached(priority: .utility) {
+            store.secret(for: account)
+        }.value
+        guard let raw,
+              let data = raw.data(using: .utf8),
+              let saved = try? JSONDecoder().decode(PipiWeChatSessionCredentials.self, from: data) else {
+            return false
+        }
+        if self.credentials == nil {
+            self.credentials = saved
+        }
+        return true
     }
 
     private func persistCredentials(_ creds: PipiWeChatSessionCredentials) {

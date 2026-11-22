@@ -207,8 +207,13 @@ public enum PipiWeChatIntentParser {
             return .cancelFlow
         }
 
-        // Main menu
-        if ["/menu", "/help", "菜单", "功能菜单", "主菜单", "帮助", "交互菜单", "打开菜单", "你能做什么", "怎么用", "指令列表"].contains(lower) {
+        // Main menu (supports exact commands + natural phrasing like "菜单给我看看" / "看看菜单" / "你能干啥")
+        let menuExact = ["/menu", "/help", "菜单", "功能菜单", "主菜单", "帮助", "交互菜单", "打开菜单", "你能做什么", "你能干什么", "你能干啥", "怎么用", "指令列表"]
+        let menuExclusion = ["设计", "写一个", "代码", "餐厅", "菜谱", "点菜", "做菜", "css", "html", "swift"]
+        if menuExact.contains(lower)
+            || (trimmed.count <= 24
+                && !menuExclusion.contains(where: { lower.contains($0) })
+                && (lower.contains("菜单") || lower.contains("功能列表") || lower.contains("指令列表") || lower.contains("有什么功能"))) {
             return .showMenu
         }
 
@@ -295,8 +300,8 @@ public enum PipiWeChatIntentParser {
 
         // Update check
         if lower == "/update" || [
-            "检查更新", "查看更新", "版本更新", "检查新版本", "升级版本", "自动更新"
-        ].contains(where: { lower == $0 || (lower.contains($0) && trimmed.count <= 18) }) {
+            "检查更新", "检查下更新", "查看更新", "版本更新", "检查新版本", "有没有新版本", "升级版本", "自动更新", "更新版本"
+        ].contains(where: { lower == $0 || (lower.contains($0) && trimmed.count <= 20) }) {
             return .checkUpdate
         }
 

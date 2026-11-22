@@ -10,6 +10,7 @@ public struct PipiInferenceResult: Sendable, Equatable {
     public let planItems: [PipiPlanItem]
     public let fileChanges: [PipiFileChange]
     public let summaryInfo: PipiSessionSummaryInfo?
+    public let attachments: [PipiChatAttachment]
 
     public init(
         text: String,
@@ -18,7 +19,8 @@ public struct PipiInferenceResult: Sendable, Equatable {
         steps: [PipiStepEvent] = [],
         planItems: [PipiPlanItem] = [],
         fileChanges: [PipiFileChange] = [],
-        summaryInfo: PipiSessionSummaryInfo? = nil
+        summaryInfo: PipiSessionSummaryInfo? = nil,
+        attachments: [PipiChatAttachment] = []
     ) {
         self.text = text
         self.engineLabel = engineLabel
@@ -27,6 +29,7 @@ public struct PipiInferenceResult: Sendable, Equatable {
         self.planItems = planItems
         self.fileChanges = fileChanges
         self.summaryInfo = summaryInfo
+        self.attachments = attachments
     }
 }
 
@@ -143,73 +146,74 @@ public struct PipiInferenceEngine: Sendable {
         }
 
         let trimmedHistory = Array(history.suffix(24))
-        let text: String
-        switch config.kind {
-        case .openai, .deepseek, .openrouter, .customOpenAI:
-            if let onDelta {
-                text = try await streamOpenAICompatible(
-                    config: config,
-                    systemPrompt: systemPrompt,
-                    history: trimmedHistory,
-                    maxTokens: maxTokens,
-                    onDelta: onDelta
-                )
-            } else {
-                text = try await callOpenAICompatible(
-                    config: config,
-                    systemPrompt: systemPrompt,
-                    history: trimmedHistory,
-                    maxTokens: maxTokens
-                )
-            }
-        case .anthropic:
-            if let onDelta {
-                text = try await streamAnthropic(
-                    config: config,
-                    systemPrompt: systemPrompt,
-                    history: trimmedHistory,
-                    maxTokens: maxTokens ?? 4096,
-                    onDelta: onDelta
-                )
-            } else {
-                text = try await callAnthropic(
-                    config: config,
-                    systemPrompt: systemPrompt,
-                    history: trimmedHistory,
-                    maxTokens: maxTokens ?? 2048
-                )
-            }
-        case .gemini:
-            if let onDelta {
-                text = try await streamGemini(
-                    config: config,
-                    systemPrompt: systemPrompt,
-                    history: trimmedHistory,
-                    maxTokens: maxTokens,
-                    onDelta: onDelta
-                )
-            } else {
-                text = try await callGemini(
-                    config: config,
-                    systemPrompt: systemPrompt,
-                    history: trimmedHistory,
-                    maxTokens: maxTokens
-                )
-            }
-        case .ollama:
-            if let onDelta {
-                text = try await streamOllama(
-                    config: config,
-                    systemPrompt: systemPrompt,
-                    history: trimmedHistory,
-                    onDelta: onDelta
-                )
-            } else {
-                text = try await callOllama(
-                    config: config,
-                    systemPrompt: systemPrompt,
-                    history: trimmedHistory
-                )
+        let text: String = try await withTransientNetworkRetry {
+            switch config.kind {
+            case .openai, .deepseek, .openrouter, .customOpenAI:
+                if let onDelta {
+                    return try await streamOpenAICompatible(
+                        config: config,
+                        systemPrompt: systemPrompt,
+                        history: trimmedHistory,
+                        maxTokens: maxTokens,
+                        onDelta: onDelta
+                    )
+                } else {
+                    return try await callOpenAICompatible(
+                        config: config,
+                        systemPrompt: systemPrompt,
+                        history: trimmedHistory,
+                        maxTokens: maxTokens
+                    )
+                }
+            case .anthropic:
+                if let onDelta {
+                    return try await streamAnthropic(
+                        config: config,
+                        systemPrompt: systemPrompt,
+                        history: trimmedHistory,
+                        maxTokens: maxTokens ?? 4096,
+                        onDelta: onDelta
+                    )
+                } else {
+                    return try await callAnthropic(
+                        config: config,
+                        systemPrompt: systemPrompt,
+                        history: trimmedHistory,
+                        maxTokens: maxTokens ?? 2048
+                    )
+                }
+            case .gemini:
+                if let onDelta {
+                    return try await streamGemini(
+                        config: config,
+                        systemPrompt: systemPrompt,
+                        history: trimmedHistory,
+                        maxTokens: maxTokens,
+                        onDelta: onDelta
+                    )
+                } else {
+                    return try await callGemini(
+                        config: config,
+                        systemPrompt: systemPrompt,
+                        history: trimmedHistory,
+                        maxTokens: maxTokens
+                    )
+                }
+            case .ollama:
+                if let onDelta {
+                    return try await streamOllama(
+                        config: config,
+                        systemPrompt: systemPrompt,
+                        history: trimmedHistory,
+                        onDelta: onDelta
+                    )
+                } else {
+                    return try await callOllama(
+                        config: config,
+                        systemPrompt: systemPrompt,
+                        history: trimmedHistory
+                    )
+                }
             }
         }
 
@@ -1379,7 +1383,7 @@ public struct PipiInferenceEngine: Sendable {
                         if process.terminationStatus == 0 {
                             continuation.resume(returning: outStr.isEmpty ? errStr : outStr)
                         } else {
-                            let detail = errStr.isEmpty ? outStr : errStr
+                            let detail = PipiInferenceEngine.extractMeaningfulCLIError(stdout: outStr, stderr: errStr)
                             continuation.resume(throwing: PipiInferenceError.localAgentFailed(process.terminationStatus, detail))
                         }
                     } catch {
@@ -1450,5 +1454,455 @@ public struct PipiInferenceEngine: Sendable {
             break
         }
         return candidates
+    }
+
+    // MARK: - Transient Network Retry & CLI Diagnostics
+
+    public static func isTransientNetworkError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain {
+            let transientCodes: Set<Int> = [
+                NSURLErrorTimedOut,
+                NSURLErrorCannotFindHost,
+                NSURLErrorCannotConnectToHost,
+                NSURLErrorNetworkConnectionLost,
+                NSURLErrorDNSLookupFailed,
+                NSURLErrorNotConnectedToInternet,
+                NSURLErrorSecureConnectionFailed,
+                NSURLErrorServerCertificateUntrusted
+            ]
+            if transientCodes.contains(ns.code) { return true }
+        }
+        let desc = error.localizedDescription.lowercased()
+        return desc.contains("tls") || desc.contains("timed out") || desc.contains("connection lost") || desc.contains("connection reset")
+    }
+
+    public static func withTransientNetworkRetry<T: Sendable>(
+        maxAttempts: Int = 2,
+        operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        var attempt = 0
+        while true {
+            attempt += 1
+            do {
+                return try await operation()
+            } catch {
+                if attempt >= maxAttempts || Task.isCancelled || !isTransientNetworkError(error) {
+                    throw error
+                }
+                try? await Task.sleep(for: .milliseconds(650 * attempt))
+            }
+        }
+    }
+
+    public static func extractMeaningfulCLIError(stdout: String, stderr: String) -> String {
+        let cleanErr = stripAnsiEscapeCodes(stderr)
+        let cleanOut = stripAnsiEscapeCodes(stdout)
+        let noisyPrefixes = [
+            "reading additional input from stdin",
+            "openai codex v",
+            "workdir:",
+            "model:",
+            "provider:",
+            "approval:",
+            "sandbox:"
+        ]
+        var usefulLines: [String] = []
+        for rawLine in cleanErr.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            let lower = line.lowercased()
+            if noisyPrefixes.contains(where: { lower.hasPrefix($0) }) { continue }
+            usefulLines.append(line)
+        }
+        // Also inspect stdout JSON lines for explicit error messages
+        for rawLine in cleanOut.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.hasPrefix("{"),
+               let data = line.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let errMsg = obj["message"] as? String, (obj["type"] as? String)?.contains("error") == true {
+                    usefulLines.append(errMsg)
+                } else if let errObj = obj["error"] as? [String: Any], let msg = errObj["message"] as? String {
+                    usefulLines.append(msg)
+                }
+            }
+        }
+        if !usefulLines.isEmpty {
+            return usefulLines.suffix(4).joined(separator: "\n")
+        }
+        let fallback = cleanErr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return fallback.isEmpty ? cleanOut.trimmingCharacters(in: .whitespacesAndNewlines) : fallback
+    }
+
+    // MARK: - Native Multi-Step Tool-Calling LLM Invocation
+
+    public static func buildInitialAgentWireMessages(
+        systemPrompt: String,
+        history: [PipiChatMessage],
+        maxImageBytes: Int = defaultMaxImageBytes
+    ) -> [PipiAgentWireMessage] {
+        var result: [PipiAgentWireMessage] = []
+        if !systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            result.append(.system(systemPrompt))
+        }
+        for msg in history.suffix(20) where msg.role != .system && !msg.isError {
+            if msg.role == .user {
+                let imgs = encodedImages(for: msg, maxImageBytes: maxImageBytes).map {
+                    PipiEncodedImagePart(mimeType: $0.mimeType, base64: $0.base64)
+                }
+                result.append(.user(text: msg.content, images: imgs))
+            } else {
+                result.append(.assistant(text: msg.content, toolCalls: []))
+            }
+        }
+        return result
+    }
+
+    public static func invokeLLMWithTools(
+        config: PipiLLMProviderConfig,
+        messages: [PipiAgentWireMessage],
+        tools: [PipiAgentToolDefinition],
+        maxTokens: Int? = nil
+    ) async throws -> PipiLLMToolStepResult {
+        if config.kind.requiresApiKey && config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw PipiInferenceError.missingApiKey(config.name)
+        }
+        let label = "\(config.name) · \(config.modelId)"
+
+        return try await withTransientNetworkRetry {
+            switch config.kind {
+            case .openai, .deepseek, .openrouter, .customOpenAI:
+                do {
+                    return try await callOpenAICompatibleWithTools(
+                        config: config,
+                        messages: messages,
+                        tools: tools,
+                        maxTokens: maxTokens,
+                        engineLabel: label
+                    )
+                } catch PipiInferenceError.httpError(let code, _) where code == 400 || code == 404 || code == 422 {
+                    // Endpoint may not support `tools` JSON schema; fall back to inline `<pipi_tool>` protocol
+                    return try await callFallbackInlineToolTurn(
+                        config: config,
+                        messages: messages,
+                        maxTokens: maxTokens,
+                        engineLabel: label
+                    )
+                }
+            case .anthropic:
+                return try await callAnthropicWithTools(
+                    config: config,
+                    messages: messages,
+                    tools: tools,
+                    maxTokens: maxTokens ?? 4096,
+                    engineLabel: label
+                )
+            case .gemini, .ollama:
+                return try await callFallbackInlineToolTurn(
+                    config: config,
+                    messages: messages,
+                    maxTokens: maxTokens,
+                    engineLabel: label
+                )
+            }
+        }
+    }
+
+    private static func callOpenAICompatibleWithTools(
+        config: PipiLLMProviderConfig,
+        messages: [PipiAgentWireMessage],
+        tools: [PipiAgentToolDefinition],
+        maxTokens: Int?,
+        engineLabel: String
+    ) async throws -> PipiLLMToolStepResult {
+        guard let url = buildOpenAIChatCompletionsURL(baseURL: config.baseURL) else {
+            throw PipiInferenceError.invalidEndpoint(config.baseURL)
+        }
+
+        var wire: [[String: Any]] = []
+        for msg in messages {
+            switch msg {
+            case .system(let text):
+                wire.append(["role": "system", "content": text])
+            case .user(let text, let images):
+                if images.isEmpty {
+                    wire.append(["role": "user", "content": text])
+                } else {
+                    var parts: [[String: Any]] = [["type": "text", "text": text]]
+                    for img in images {
+                        parts.append([
+                            "type": "image_url",
+                            "image_url": ["url": "data:\(img.mimeType);base64,\(img.base64)"]
+                        ])
+                    }
+                    wire.append(["role": "user", "content": parts])
+                }
+            case .assistant(let text, let toolCalls):
+                var entry: [String: Any] = ["role": "assistant"]
+                if !text.isEmpty {
+                    entry["content"] = text
+                } else if toolCalls.isEmpty {
+                    entry["content"] = ""
+                }
+                if !toolCalls.isEmpty {
+                    entry["tool_calls"] = toolCalls.map { tc in
+                        [
+                            "id": tc.id,
+                            "type": "function",
+                            "function": [
+                                "name": tc.name,
+                                "arguments": tc.argumentsJSON
+                            ]
+                        ]
+                    }
+                }
+                wire.append(entry)
+            case .toolResult(let callId, let toolName, let content):
+                wire.append([
+                    "role": "tool",
+                    "tool_call_id": callId,
+                    "name": toolName,
+                    "content": content
+                ])
+            }
+        }
+
+        var payload: [String: Any] = [
+            "model": config.modelId,
+            "messages": wire,
+            "temperature": config.temperature,
+            "stream": false
+        ]
+        if !tools.isEmpty {
+            payload["tools"] = tools.map { $0.openAISchema() }
+            payload["tool_choice"] = "auto"
+        }
+        if let maxTokens { payload["max_tokens"] = maxTokens }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 120
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
+        if config.kind == .openrouter {
+            req.setValue("https://pipibot.ai", forHTTPHeaderField: "HTTP-Referer")
+            req.setValue("PipiBot", forHTTPHeaderField: "X-Title")
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        if let http = resp as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let errText = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            throw PipiInferenceError.httpError(http.statusCode, errText)
+        }
+
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = root["choices"] as? [[String: Any]],
+              let first = choices.first,
+              let message = first["message"] as? [String: Any] else {
+            throw PipiInferenceError.emptyResponse
+        }
+
+        let rawContent = (message["content"] as? String) ?? ""
+        var parsedCalls: [PipiLLMToolCall] = []
+        if let rawToolCalls = message["tool_calls"] as? [[String: Any]] {
+            for (idx, tc) in rawToolCalls.enumerated() {
+                let id = (tc["id"] as? String) ?? "call_\(idx + 1)"
+                let fn = tc["function"] as? [String: Any]
+                let name = (fn?["name"] as? String) ?? ""
+                let args: String
+                if let argStr = fn?["arguments"] as? String {
+                    args = argStr
+                } else if let argObj = fn?["arguments"],
+                          let argData = try? JSONSerialization.data(withJSONObject: argObj),
+                          let argStr = String(data: argData, encoding: .utf8) {
+                    args = argStr
+                } else {
+                    args = "{}"
+                }
+                if !name.isEmpty {
+                    parsedCalls.append(PipiLLMToolCall(id: id, name: name, argumentsJSON: args))
+                }
+            }
+        }
+
+        // Also support inline `<pipi_tool>` tags if a model emitted them in text
+        if parsedCalls.isEmpty {
+            let inline = PipiAgentToolbox.extractInlineToolCalls(from: rawContent)
+            if !inline.calls.isEmpty {
+                return PipiLLMToolStepResult(text: inline.cleanedText, toolCalls: inline.calls, engineLabel: engineLabel)
+            }
+        }
+
+        return PipiLLMToolStepResult(
+            text: rawContent.trimmingCharacters(in: .whitespacesAndNewlines),
+            toolCalls: parsedCalls,
+            engineLabel: engineLabel
+        )
+    }
+
+    private static func callAnthropicWithTools(
+        config: PipiLLMProviderConfig,
+        messages: [PipiAgentWireMessage],
+        tools: [PipiAgentToolDefinition],
+        maxTokens: Int,
+        engineLabel: String
+    ) async throws -> PipiLLMToolStepResult {
+        guard let url = buildAnthropicMessagesURL(baseURL: config.baseURL) else {
+            throw PipiInferenceError.invalidEndpoint(config.baseURL)
+        }
+
+        var systemTexts: [String] = []
+        var wire: [[String: Any]] = []
+        var pendingToolResults: [[String: Any]] = []
+
+        func flushToolResults() {
+            guard !pendingToolResults.isEmpty else { return }
+            wire.append(["role": "user", "content": pendingToolResults])
+            pendingToolResults.removeAll()
+        }
+
+        for msg in messages {
+            switch msg {
+            case .system(let text):
+                systemTexts.append(text)
+            case .user(let text, let images):
+                flushToolResults()
+                if images.isEmpty {
+                    wire.append(["role": "user", "content": text])
+                } else {
+                    var blocks: [[String: Any]] = images.map { img in
+                        [
+                            "type": "image",
+                            "source": [
+                                "type": "base64",
+                                "media_type": img.mimeType,
+                                "data": img.base64
+                            ]
+                        ]
+                    }
+                    blocks.append(["type": "text", "text": text])
+                    wire.append(["role": "user", "content": blocks])
+                }
+            case .assistant(let text, let toolCalls):
+                flushToolResults()
+                if toolCalls.isEmpty {
+                    wire.append(["role": "assistant", "content": text])
+                } else {
+                    var blocks: [[String: Any]] = []
+                    if !text.isEmpty {
+                        blocks.append(["type": "text", "text": text])
+                    }
+                    for tc in toolCalls {
+                        blocks.append([
+                            "type": "tool_use",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "input": tc.argumentsDictionary()
+                        ])
+                    }
+                    wire.append(["role": "assistant", "content": blocks])
+                }
+            case .toolResult(let callId, _, let content):
+                pendingToolResults.append([
+                    "type": "tool_result",
+                    "tool_use_id": callId,
+                    "content": content
+                ])
+            }
+        }
+        flushToolResults()
+
+        var payload: [String: Any] = [
+            "model": config.modelId,
+            "max_tokens": maxTokens,
+            "messages": wire
+        ]
+        let combinedSystem = systemTexts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !combinedSystem.isEmpty {
+            payload["system"] = combinedSystem
+        }
+        if !tools.isEmpty {
+            payload["tools"] = tools.map { $0.anthropicSchema() }
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 120
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        if let http = resp as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let errText = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            throw PipiInferenceError.httpError(http.statusCode, errText)
+        }
+
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contentBlocks = root["content"] as? [[String: Any]] else {
+            throw PipiInferenceError.emptyResponse
+        }
+
+        var textParts: [String] = []
+        var toolCalls: [PipiLLMToolCall] = []
+        for block in contentBlocks {
+            let bType = block["type"] as? String
+            if bType == "text", let t = block["text"] as? String {
+                textParts.append(t)
+            } else if bType == "tool_use",
+                      let id = block["id"] as? String,
+                      let name = block["name"] as? String {
+                let inputObj = block["input"] ?? [:]
+                let argData = (try? JSONSerialization.data(withJSONObject: inputObj)) ?? Data("{}".utf8)
+                let argStr = String(data: argData, encoding: .utf8) ?? "{}"
+                toolCalls.append(PipiLLMToolCall(id: id, name: name, argumentsJSON: argStr))
+            }
+        }
+        return PipiLLMToolStepResult(
+            text: textParts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines),
+            toolCalls: toolCalls,
+            engineLabel: engineLabel
+        )
+    }
+
+    private static func callFallbackInlineToolTurn(
+        config: PipiLLMProviderConfig,
+        messages: [PipiAgentWireMessage],
+        maxTokens: Int?,
+        engineLabel: String
+    ) async throws -> PipiLLMToolStepResult {
+        var sysParts: [String] = []
+        var flatHistory: [PipiChatMessage] = []
+        for msg in messages {
+            switch msg {
+            case .system(let s):
+                sysParts.append(s)
+            case .user(let text, _):
+                flatHistory.append(PipiChatMessage(role: .user, content: text))
+            case .assistant(let text, let calls):
+                let callSummary = calls.map { "<pipi_tool name=\"\($0.name)\">\($0.argumentsJSON)</pipi_tool>" }.joined(separator: "\n")
+                let combined = [text, callSummary].filter { !$0.isEmpty }.joined(separator: "\n")
+                flatHistory.append(PipiChatMessage(role: .assistant, content: combined))
+            case .toolResult(_, let name, let content):
+                flatHistory.append(PipiChatMessage(role: .user, content: "[Tool Result: \(name)]\n\(content)"))
+            }
+        }
+        sysParts.append(PipiAgentToolbox.structuredToolFallbackPrompt())
+        let res = try await invokeLLM(
+            config: config,
+            systemPrompt: sysParts.joined(separator: "\n\n"),
+            history: flatHistory,
+            maxTokens: maxTokens,
+            onDelta: nil
+        )
+        let extracted = PipiAgentToolbox.extractInlineToolCalls(from: res.text)
+        return PipiLLMToolStepResult(
+            text: extracted.cleanedText,
+            toolCalls: extracted.calls,
+            engineLabel: engineLabel
+        )
     }
 }

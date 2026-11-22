@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { parseCliArgs } from '../src/cli.ts';
 import { DAEMON_VERSION, PipiResidentServer } from '../src/server.ts';
+import { PipiMeshNodeAgent } from '../src/mesh-node.ts';
 
 const MODULE_DIR = fileURLToPath(new URL('.', import.meta.url));
 const REAL_REPO_ROOT = resolve(MODULE_DIR, '..', '..', '..');
@@ -483,6 +484,139 @@ describe('PipiBot V1 Mac Resident Daemon (@pipibot/daemon)', () => {
       await iosServer.stop();
       rmSync(tempRepo, { recursive: true, force: true });
       rmSync(tempData, { recursive: true, force: true });
+    }
+  });
+
+  test('Multi-Machine Mesh Hub: 2 parallel headless nodes, cross-host artifact relay, systemd unit, and MCP/SKILL.md ecosystem sync', async () => {
+    // 1. Verify Linux systemd unit endpoint
+    const unitRes = await fetch(`${baseUrl}/api/v1/systemd-service?role=node&name=linux-4090`);
+    assert.equal(unitRes.status, 200);
+    const unitText = await unitRes.text();
+    assert.ok(unitText.includes('[Service]'));
+    assert.ok(unitText.includes('node join'));
+    assert.ok(unitText.includes('linux-4090'));
+
+    // 2. Spin up two independent headless Mesh Nodes connecting outbound to the Hub
+    const nodeA = new PipiMeshNodeAgent({
+      hubUrl: baseUrl,
+      name: 'linux-4090',
+      nodeId: 'node_linux_4090',
+      heartbeatIntervalMs: 30_000,
+      customExecutor: async (task) => {
+        await new Promise((r) => setTimeout(r, 80));
+        return {
+          text: `GPU node completed: ${task.prompt}`,
+          artifacts: [
+            {
+              fileName: 'gpu_report.txt',
+              mimeType: 'text/plain',
+              contentBase64: Buffer.from('RTX 4090 24GB VRAM OK', 'utf8').toString('base64'),
+            },
+          ],
+        };
+      },
+    });
+    const nodeB = new PipiMeshNodeAgent({
+      hubUrl: baseUrl,
+      name: 'prod-vps',
+      nodeId: 'node_prod_vps',
+      heartbeatIntervalMs: 30_000,
+      customExecutor: async (task) => {
+        await new Promise((r) => setTimeout(r, 60));
+        return { text: `VPS node completed: ${task.prompt}` };
+      },
+    });
+
+    try {
+      await nodeA.start();
+      await nodeB.start();
+      await new Promise((r) => setTimeout(r, 150));
+
+      const nodesRes = await requestJson<{ nodes: Array<{ nodeId: string; status: string }> }>(
+        baseUrl,
+        '/api/v1/mesh/nodes',
+      );
+      assert.equal(nodesRes.status, 200);
+      assert.ok(nodesRes.data.nodes.some((n) => n.nodeId === 'node_linux_4090' && n.status === 'online'));
+      assert.ok(nodesRes.data.nodes.some((n) => n.nodeId === 'node_prod_vps' && n.status === 'online'));
+
+      // 3. Dispatch two tasks in parallel across both machines without blocking
+      const [d1, d2] = await Promise.all([
+        requestJson<{ task: { taskId: string } }>(baseUrl, '/api/v1/mesh/dispatch', {
+          method: 'POST',
+          body: JSON.stringify({ targetNodeId: 'linux-4090', prompt: 'check cuda', groupId: 'grp_1' }),
+        }),
+        requestJson<{ task: { taskId: string } }>(baseUrl, '/api/v1/mesh/dispatch', {
+          method: 'POST',
+          body: JSON.stringify({ targetNodeId: 'prod-vps', prompt: 'check nginx', groupId: 'grp_1' }),
+        }),
+      ]);
+      assert.equal(d1.status, 201);
+      assert.equal(d2.status, 201);
+
+      // Wait briefly for both parallel executions to complete
+      let t1Done: { status: string; outputText: string; outputArtifactIds: string[] } | undefined;
+      let t2Done: { status: string; outputText: string } | undefined;
+      for (let i = 0; i < 30; i += 1) {
+        await new Promise((r) => setTimeout(r, 50));
+        const r1 = await requestJson<{ task: { status: string; outputText: string; outputArtifactIds: string[] } }>(
+          baseUrl,
+          `/api/v1/mesh/tasks/${d1.data.task.taskId}`,
+        );
+        const r2 = await requestJson<{ task: { status: string; outputText: string } }>(
+          baseUrl,
+          `/api/v1/mesh/tasks/${d2.data.task.taskId}`,
+        );
+        if (r1.data.task.status === 'completed' && r2.data.task.status === 'completed') {
+          t1Done = r1.data.task;
+          t2Done = r2.data.task;
+          break;
+        }
+      }
+      assert.ok(t1Done?.outputText.includes('GPU node completed: check cuda'));
+      assert.ok(t2Done?.outputText.includes('VPS node completed: check nginx'));
+      assert.equal(t1Done?.outputArtifactIds.length, 1);
+
+      // 4. Download cross-machine artifact relayed via Hub
+      const artResp = await fetch(`${baseUrl}/api/v1/mesh/artifacts/${t1Done!.outputArtifactIds[0]}`);
+      assert.equal(artResp.status, 200);
+      assert.equal(await artResp.text(), 'RTX 4090 24GB VRAM OK');
+
+      // 5. Ecosystem SKILL.md + MCP Server install & sync
+      const skillInstall = await requestJson<{ ok: boolean; skill: { id: string; name: string } }>(
+        baseUrl,
+        '/api/v1/ecosystem/skills',
+        {
+          method: 'POST',
+          body: JSON.stringify({ source: 'skill-linux-ops', scope: 'host', targetId: 'node_linux_4090' }),
+        },
+      );
+      assert.equal(skillInstall.status, 201);
+      assert.equal(skillInstall.data.skill.id, 'skill-linux-ops');
+
+      const mcpInstall = await requestJson<{ ok: boolean; server: { id: string; name: string } }>(
+        baseUrl,
+        '/api/v1/ecosystem/mcp',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            id: 'mcp-fetch',
+            name: 'Web Fetch MCP',
+            transport: 'stdio',
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-fetch'],
+          }),
+        },
+      );
+      assert.equal(mcpInstall.status, 201);
+
+      const ecoRes = await requestJson<{ skills: unknown[]; mcpServers: unknown[] }>(baseUrl, '/api/v1/ecosystem');
+      assert.equal(ecoRes.status, 200);
+      assert.ok(ecoRes.data.skills.length >= 1);
+      assert.ok(ecoRes.data.mcpServers.length >= 1);
+    } finally {
+      nodeA.stop();
+      nodeB.stop();
     }
   });
 });

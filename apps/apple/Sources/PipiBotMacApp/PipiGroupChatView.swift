@@ -69,6 +69,45 @@ public struct PipiGroupChatView: View {
 
                     topicSwitcherStrip(group: group)
 
+                    let lanes = store.activeLanes(forGroup: group.id)
+                    if !lanes.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: PipiTokens.spacing8) {
+                                ForEach(lanes) { lane in
+                                    HStack(spacing: 6) {
+                                        ProgressView()
+                                            .controlSize(.mini)
+                                        Text("\(lane.personaName) [\(lane.hostLabel)]")
+                                            .font(PipiTokens.fontMicro.weight(.semibold))
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                        Text(lane.statusText)
+                                            .font(PipiTokens.fontMicro)
+                                            .foregroundStyle(PipiTokens.textSecondary)
+                                            .lineLimit(1)
+                                        Button {
+                                            store.stopGroupLane(lane.runId)
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(PipiTokens.textMuted)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(PipiTokens.bgSurface)
+                                    .overlay(
+                                        Capsule().stroke(PipiTokens.borderSubtle, lineWidth: 1)
+                                    )
+                                    .clipShape(Capsule())
+                                }
+                            }
+                            .padding(.horizontal, PipiTokens.spacing16)
+                            .padding(.vertical, 6)
+                        }
+                        .background(PipiTokens.bgElevated)
+                    }
+
                     Rectangle()
                         .fill(PipiTokens.borderSubtle)
                         .frame(height: 1)

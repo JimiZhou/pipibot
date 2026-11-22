@@ -245,6 +245,16 @@ public struct PipiWeChatMessageBridge: Sendable {
     public let installUpdate: @Sendable (_ release: PipiGitHubReleaseInfo) async -> String
     public let transcribeAudioFile: @Sendable (_ filePath: String) async -> String?
     public let switchModeFromChat: @Sendable (_ mode: PipiWeChatRoutingMode, _ memberBotIds: [String]?) async -> Void
+    public let executeTurnWithProgress: (@Sendable (
+        _ botId: String,
+        _ conversationId: String?,
+        _ projectId: String?,
+        _ prompt: String,
+        _ attachments: [PipiChatAttachment],
+        _ fromUserId: String,
+        _ onProgress: @escaping @Sendable (String) async -> Void
+    ) async -> (reply: PipiWeChatOutboundReply, resolvedConversationId: String?))?
+    public let synthesizeVoiceReply: @Sendable (_ text: String, _ botId: String) async -> PipiDeliverableArtifact?
 
     public init(
         availableBots: @escaping @Sendable () async -> [PipiWeChatBotInfo],
@@ -276,7 +286,17 @@ public struct PipiWeChatMessageBridge: Sendable {
         checkForUpdates: @escaping @Sendable () async -> (message: String, release: PipiGitHubReleaseInfo?) = { ("未接入更新服务。", nil) },
         installUpdate: @escaping @Sendable (_ release: PipiGitHubReleaseInfo) async -> String = { _ in "未接入更新服务。" },
         transcribeAudioFile: @escaping @Sendable (_ filePath: String) async -> String? = { _ in nil },
-        switchModeFromChat: @escaping @Sendable (_ mode: PipiWeChatRoutingMode, _ memberBotIds: [String]?) async -> Void = { _, _ in }
+        switchModeFromChat: @escaping @Sendable (_ mode: PipiWeChatRoutingMode, _ memberBotIds: [String]?) async -> Void = { _, _ in },
+        executeTurnWithProgress: (@Sendable (
+            _ botId: String,
+            _ conversationId: String?,
+            _ projectId: String?,
+            _ prompt: String,
+            _ attachments: [PipiChatAttachment],
+            _ fromUserId: String,
+            _ onProgress: @escaping @Sendable (String) async -> Void
+        ) async -> (reply: PipiWeChatOutboundReply, resolvedConversationId: String?))? = nil,
+        synthesizeVoiceReply: @escaping @Sendable (_ text: String, _ botId: String) async -> PipiDeliverableArtifact? = { _, _ in nil }
     ) {
         self.availableBots = availableBots
         self.availableProjects = availableProjects
@@ -294,6 +314,8 @@ public struct PipiWeChatMessageBridge: Sendable {
         self.installUpdate = installUpdate
         self.transcribeAudioFile = transcribeAudioFile
         self.switchModeFromChat = switchModeFromChat
+        self.executeTurnWithProgress = executeTurnWithProgress
+        self.synthesizeVoiceReply = synthesizeVoiceReply
     }
 }
 
@@ -302,7 +324,7 @@ public struct PipiWeChatMessageBridge: Sendable {
 public enum PipiWeChatILinkProtocol {
     public static let defaultBaseURL = "https://ilinkai.weixin.qq.com"
     public static let defaultCdnBaseURL = "https://novac2c.cdn.weixin.qq.com/c2c"
-    public static let channelVersion = "0.10.0"
+    public static let channelVersion = "0.11.0"
 
     /// Generates the Base64-encoded random uint32 header value required by WeChat iLink (`X-WECHAT-UIN`).
     public static func makeWeChatUINHeader() -> String {
@@ -691,7 +713,7 @@ public final class PipiWeChatILinkManager {
     private static let keychainAccountKey = "wechat_ilink_bot_credentials_v1"
 
     public init(
-        secretStore: any PipiSecretStore = PipiKeychainSecretStore(),
+        secretStore: any PipiSecretStore = PipiLocalEncryptedSecretStore(),
         session: URLSession = .shared,
         inboundDirectoryURL: URL? = nil,
         restoreCredentialsOnInit: Bool = true
@@ -774,6 +796,32 @@ public final class PipiWeChatILinkManager {
         await sendTextMessage(toUserId: toUser, contextToken: ctxToken, text: trimmed, creds: creds)
         lastActivityNote = "已主动推送微信通知"
         return true
+    }
+
+    /// Sends a proactive media artifact (image, voice/audio, file, video) to the most recent bound WeChat user.
+    @discardableResult
+    public func sendProactiveArtifact(_ artifact: PipiDeliverableArtifact, caption: String? = nil) async -> Bool {
+        guard let creds = credentials,
+              let toUser = creds.lastFromUserId, !toUser.isEmpty,
+              let ctxToken = creds.lastContextToken, !ctxToken.isEmpty else {
+            return false
+        }
+        if let caption = caption?.trimmingCharacters(in: .whitespacesAndNewlines), !caption.isEmpty {
+            await sendTextMessage(toUserId: toUser, contextToken: ctxToken, text: caption, creds: creds)
+        }
+        await sendMediaArtifact(artifact, toUserId: toUser, contextToken: ctxToken, creds: creds)
+        lastActivityNote = "已主动推送微信附件：\(artifact.fileName)"
+        return true
+    }
+
+    /// Detects whether the user explicitly asked for a voice message reply.
+    public nonisolated static func userRequestedVoiceReply(_ text: String) -> Bool {
+        let lower = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let triggers = [
+            "发语音", "发条语音", "发一条语音", "发个语音", "语音回复", "用语音",
+            "语音告诉我", "语音给我", "读给我听", "念给我听", "说给我听", "voice message", "send voice", "reply with voice"
+        ]
+        return triggers.contains(where: { lower.contains($0) })
     }
 
     /// Requests a fresh WeChat iLink QR code (`get_bot_qrcode`) and polls `get_qrcode_status` until confirmed.
@@ -1100,20 +1148,66 @@ public final class PipiWeChatILinkManager {
             )
         }
 
+        let wantsVoiceBack = inbound.hasVoice || Self.userRequestedVoiceReply(effectiveText)
+
         for targetBotId in route.targetBotIds {
             let ctx = coordinator.context(for: inbound.fromUserId)
             let sessionConvId = (routingMode == .directMainBot && targetBotId == primaryBotId)
                 ? (ctx.activeConversationId ?? ctx.activeConversationIdByBot[targetBotId])
                 : ctx.activeConversationIdByBot[targetBotId]
 
-            let outcome = await bridge.executeTurn(
-                targetBotId,
-                sessionConvId,
-                ctx.activeProjectId,
-                route.cleanedPrompt,
-                inboundAttachments,
-                inbound.fromUserId
-            )
+            // Lively step-by-step progress narrator for WeChat (throttled cleanly so user never waits in silence)
+            actor ProgressThrottle {
+                private var lastSentAt: Date = .distantPast
+                private var count: Int = 0
+                func shouldSend() -> Bool {
+                    let now = Date()
+                    guard count < 4 else { return false }
+                    if count == 0 || now.timeIntervalSince(lastSentAt) >= 2.2 {
+                        count += 1
+                        lastSentAt = now
+                        return true
+                    }
+                    return false
+                }
+            }
+            let throttle = ProgressThrottle()
+            let userIdCopy = inbound.fromUserId
+            let ctxTokenCopy = inbound.contextToken
+
+            let outcome: (reply: PipiWeChatOutboundReply, resolvedConversationId: String?)
+            if let progressExec = bridge.executeTurnWithProgress {
+                outcome = await progressExec(
+                    targetBotId,
+                    sessionConvId,
+                    ctx.activeProjectId,
+                    route.cleanedPrompt,
+                    inboundAttachments,
+                    inbound.fromUserId,
+                    { [weak self] progressNote in
+                        let clean = progressNote.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !clean.isEmpty, await throttle.shouldSend() else { return }
+                        await MainActor.run {
+                            self?.lastActivityNote = clean
+                        }
+                        await self?.sendTextMessage(
+                            toUserId: userIdCopy,
+                            contextToken: ctxTokenCopy,
+                            text: clean,
+                            creds: creds
+                        )
+                    }
+                )
+            } else {
+                outcome = await bridge.executeTurn(
+                    targetBotId,
+                    sessionConvId,
+                    ctx.activeProjectId,
+                    route.cleanedPrompt,
+                    inboundAttachments,
+                    inbound.fromUserId
+                )
+            }
 
             if let resolvedConv = outcome.resolvedConversationId {
                 coordinator.updateContext(for: inbound.fromUserId) { c in
@@ -1141,7 +1235,21 @@ public final class PipiWeChatILinkManager {
                     creds: creds
                 )
             }
-            for artifact in reply.artifacts {
+
+            // Smart dual-track voice reply: if user sent voice or asked for voice and no audio artifact yet, synthesize one!
+            var outboundArtifacts = reply.artifacts
+            if wantsVoiceBack && !outboundArtifacts.contains(where: { $0.kind == .audio }) {
+                let spokenSource = reply.text
+                    .replacingOccurrences(of: "**", with: "")
+                    .replacingOccurrences(of: "`", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !spokenSource.isEmpty,
+                   let voiceArtifact = await bridge.synthesizeVoiceReply(String(spokenSource.prefix(240)), targetBotId) {
+                    outboundArtifacts.append(voiceArtifact)
+                }
+            }
+
+            for artifact in outboundArtifacts {
                 await sendMediaArtifact(
                     artifact,
                     toUserId: inbound.fromUserId,
@@ -1876,10 +1984,14 @@ public final class PipiWeChatILinkManager {
         let rawMD5 = PipiWeChatILinkProtocol.md5Hex(rawData)
         let cleanBase = creds.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
+        let ext = (artifact.fileName as NSString).pathExtension.lowercased()
+        let sendAudioAsFile = (artifact.kind == .audio && ext != "silk" && ext != "amr")
+        let effectiveUploadMediaType = sendAudioAsFile ? 3 : artifact.kind.iLinkMediaType
+
         guard let uploadMetaURL = URL(string: "\(cleanBase)/ilink/bot/getuploadurl") else { return }
         let metaPayload: [String: Any] = [
             "filekey": fileKey,
-            "media_type": artifact.kind.iLinkMediaType,
+            "media_type": effectiveUploadMediaType,
             "to_user_id": toUserId,
             "rawsize": rawData.count,
             "rawfilemd5": rawMD5,
@@ -1928,6 +2040,15 @@ public final class PipiWeChatILinkManager {
             "encrypt_type": 1
         ]
 
+        let fileFallbackItem: [String: Any] = [
+            "type": 4,
+            "file_item": [
+                "media": mediaBlock,
+                "file_name": artifact.fileName,
+                "len": String(rawData.count)
+            ]
+        ]
+
         let item: [String: Any]
         switch artifact.kind {
         case .image:
@@ -1939,22 +2060,20 @@ public final class PipiWeChatILinkManager {
                 ]
             ]
         case .audio:
-            item = [
-                "type": 3,
-                "voice_item": [
-                    "media": mediaBlock,
-                    "playtime": 5000
+            // WeChat native voice_item strictly expects SILK/AMR; for M4A/MP3/WAV, deliver as playable audio file_item reliably.
+            if ext == "silk" || ext == "amr" {
+                item = [
+                    "type": 3,
+                    "voice_item": [
+                        "media": mediaBlock,
+                        "playtime": 6000
+                    ]
                 ]
-            ]
+            } else {
+                item = fileFallbackItem
+            }
         case .file:
-            item = [
-                "type": 4,
-                "file_item": [
-                    "media": mediaBlock,
-                    "file_name": artifact.fileName,
-                    "len": String(rawData.count)
-                ]
-            ]
+            item = fileFallbackItem
         case .video:
             item = [
                 "type": 5,
@@ -1966,23 +2085,39 @@ public final class PipiWeChatILinkManager {
         }
 
         guard let sendURL = URL(string: "\(cleanBase)/ilink/bot/sendmessage") else { return }
-        let sendPayload: [String: Any] = [
-            "msg": [
-                "to_user_id": toUserId,
-                "client_id": "pipibot_media_\(UUID().uuidString.prefix(10).lowercased())",
-                "message_type": 2,
-                "message_state": 2,
-                "context_token": contextToken,
-                "item_list": [item]
-            ],
-            "base_info": ["channel_version": PipiWeChatILinkProtocol.channelVersion]
-        ]
-        var sendReq = URLRequest(url: sendURL)
-        sendReq.httpMethod = "POST"
-        sendReq.timeoutInterval = 20
-        sendReq.httpBody = try? JSONSerialization.data(withJSONObject: sendPayload)
-        applyAuthHeaders(&sendReq, token: creds.botToken)
-        _ = try? await session.data(for: sendReq)
+
+        func postMediaItem(_ itemPayload: [String: Any]) async -> Bool {
+            let sendPayload: [String: Any] = [
+                "msg": [
+                    "to_user_id": toUserId,
+                    "client_id": "pipibot_media_\(UUID().uuidString.prefix(10).lowercased())",
+                    "message_type": 2,
+                    "message_state": 2,
+                    "context_token": contextToken,
+                    "item_list": [itemPayload]
+                ],
+                "base_info": ["channel_version": PipiWeChatILinkProtocol.channelVersion]
+            ]
+            var sendReq = URLRequest(url: sendURL)
+            sendReq.httpMethod = "POST"
+            sendReq.timeoutInterval = 25
+            sendReq.httpBody = try? JSONSerialization.data(withJSONObject: sendPayload)
+            applyAuthHeaders(&sendReq, token: creds.botToken)
+            guard let (respData, resp) = try? await session.data(for: sendReq),
+                  let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return false
+            }
+            if let root = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
+               let ret = root["ret"] as? Int, ret != 0 {
+                return false
+            }
+            return true
+        }
+
+        let delivered = await postMediaItem(item)
+        if !delivered && artifact.kind == .audio && (ext == "silk" || ext == "amr") {
+            _ = await postMediaItem(fileFallbackItem)
+        }
     }
 
     private func applyAuthHeaders(_ request: inout URLRequest, token: String) {

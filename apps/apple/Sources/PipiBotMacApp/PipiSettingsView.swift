@@ -103,6 +103,11 @@ public struct PipiSettingsView: View {
     @State private var copiedBrewCmd: Bool = false
     @State private var showLegacyDaemonBridge: Bool = false
     @State private var macTestFeedback: String? = nil
+    @State private var meshHubURLDraft: String = "http://127.0.0.1:4242"
+    @State private var meshHubTokenDraft: String = ""
+    @State private var meshNodeJoinNameDraft: String = "linux-4090"
+    @State private var copiedMeshJoinCmd: Bool = false
+    @State private var communitySkillSourceDraft: String = ""
 
     public init(
         store: PipiAppStore,
@@ -475,6 +480,222 @@ public struct PipiSettingsView: View {
                         ))
                         .labelsHidden()
                         .toggleStyle(.switch)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+
+            // Local Encrypted Credential Vault (Zero Keychain Popups) & Jarvis Butler Quick Actions
+            settingsGroup(title: s.t("本地加密保险库与管家早报", "Encrypted Vault & Jarvis Butler")) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    HStack(spacing: PipiTokens.spacing12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.t("本地 AES-256-GCM 凭据保险库（启动零弹窗）", "Local AES-256-GCM Secret Vault (Zero Keychain Popups)"))
+                                .font(PipiTokens.fontSubheadline.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(s.t("凭据已加密存于应用私有 0600 保险库，重启与自动更新不再弹 Keychain 密码框。如需迁入旧版保存的 API Key 与微信登录态，可点右侧按钮手动导入一次。", "Credentials are stored in an encrypted 0600 local vault with zero Keychain prompts on launch. Click to optionally import legacy Keychain entries once."))
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                        Spacer()
+                        PipiActionButton(
+                            s.t("导入旧 Keychain", "Import Legacy Keychain"),
+                            systemImage: "key.horizontal",
+                            tone: .secondary,
+                            density: .desktopCompact
+                        ) {
+                            _ = store.importSecretsFromLegacyKeychain()
+                        }
+                    }
+
+                    settingsRowDivider
+
+                    HStack(spacing: PipiTokens.spacing12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.t("Jarvis 每日早报（日历 + 提醒 + 项目动态）", "Jarvis Daily Briefing (Calendar + Reminders + Git)"))
+                                .font(PipiTokens.fontSubheadline.weight(.medium))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(s.t("每天上午自动汇总并推送到 Mac 与微信，也可立即触发一次预览。", "Automatically delivered each morning to Mac & WeChat, or trigger one now."))
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                        Spacer()
+                        PipiActionButton(
+                            s.t("立即发送早报", "Send Briefing Now"),
+                            systemImage: "sun.max",
+                            tone: .secondary,
+                            density: .desktopCompact
+                        ) {
+                            Task { await store.triggerDailyBriefingNow() }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+
+            // Multi-Machine Mesh Hub & Linux/macOS Headless Node Join
+            settingsGroup(title: s.t("多机互联 Mesh Hub（Linux / Mac / GPU 节点）", "Multi-Machine Mesh Hub (Linux / Mac / GPU Nodes)")) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    Text(s.t("免费开源多机总控：支持连接本机内置 Hub 或任意自建 24h Linux VPS Hub。加入后的远程主机将自动成为可直接对话与同群 @协作的节点助手，无需切换工作区。", "Free self-hosted multi-machine mesh: connect to your built-in Hub or a 24h Linux VPS Hub. Joined machines become directly @mentionable in unified group chats."))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textMuted)
+
+                    HStack(spacing: PipiTokens.spacing8) {
+                        TextField("http://127.0.0.1:4242", text: $meshHubURLDraft)
+                            .textFieldStyle(.roundedBorder)
+                        SecureField(s.t("可选 Hub Token", "Optional Hub Token"), text: $meshHubTokenDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 150)
+                        PipiActionButton(
+                            s.t("连接并刷新节点", "Connect & Sync"),
+                            systemImage: "network",
+                            tone: .primary,
+                            density: .desktopCompact
+                        ) {
+                            Task { await store.connectMeshHub(url: meshHubURLDraft, token: meshHubTokenDraft) }
+                        }
+                    }
+
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Circle()
+                            .fill(store.meshHubClient.isConnected ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                            .frame(width: 8, height: 8)
+                        Text(store.meshHubClient.isConnected
+                             ? s.t("已连接 Mesh Hub · 在线节点 \(store.meshHubClient.nodes.filter(\.isOnline).count) 台", "Connected · \(store.meshHubClient.nodes.filter(\.isOnline).count) online nodes")
+                             : (store.meshHubClient.lastError ?? s.t("未连接 Hub（可在终端运行 pipibot hub start 或开启伴侣守护）", "Hub offline — start built-in daemon or point to your Linux VPS Hub")))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Spacer()
+                    }
+
+                    if !store.meshHubClient.nodes.isEmpty {
+                        VStack(spacing: PipiTokens.spacing8) {
+                            ForEach(store.meshHubClient.nodes) { node in
+                                HStack(spacing: PipiTokens.spacing8) {
+                                    Circle()
+                                        .fill(node.isOnline ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                                        .frame(width: 7, height: 7)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(node.name) · \(node.platformBadge)/\(node.arch)")
+                                            .font(PipiTokens.fontCaption.weight(.semibold))
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                        Text("\(node.workspacePath)" + (node.telemetry.gpuSummary.map { " · GPU: \($0)" } ?? ""))
+                                            .font(PipiTokens.fontMicro)
+                                            .foregroundStyle(PipiTokens.textMuted)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Text(node.activeTaskCount > 0 ? s.t("并行 \(node.activeTaskCount) 任务", "\(node.activeTaskCount) active") : (node.isOnline ? s.t("在线", "Online") : s.t("离线", "Offline")))
+                                        .font(PipiTokens.fontMicro.weight(.medium))
+                                        .foregroundStyle(node.isOnline ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(PipiTokens.bgSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            }
+                        }
+                    }
+
+                    settingsRowDivider
+
+                    HStack(spacing: PipiTokens.spacing8) {
+                        TextField(s.t("新节点名（如 linux-4090）", "Node name (e.g. linux-4090)"), text: $meshNodeJoinNameDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 170)
+                        Text(store.meshHubClient.buildNodeJoinCommand(nodeName: meshNodeJoinNameDraft))
+                            .font(PipiTokens.fontMonoSmall)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        PipiActionButton(
+                            copiedMeshJoinCmd ? s.t("已复制接入命令", "Copied") : s.t("复制 Linux 接入命令", "Copy Join Cmd"),
+                            systemImage: copiedMeshJoinCmd ? "checkmark" : "doc.on.doc",
+                            tone: .secondary,
+                            density: .desktopCompact
+                        ) {
+                            #if os(macOS)
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(
+                                store.meshHubClient.buildNodeJoinCommand(nodeName: meshNodeJoinNameDraft),
+                                forType: .string
+                            )
+                            copiedMeshJoinCmd = true
+                            #endif
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+
+            // Open-Source MCP & SKILL.md Ecosystem
+            settingsGroup(title: s.t("开源插件生态（MCP Server + SKILL.md）", "Open-Source Ecosystem (MCP + SKILL.md)")) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        TextField(s.t("粘贴 GitHub 仓库链接、SKILL.md URL 或本地目录路径", "Paste GitHub repo URL, SKILL.md URL, or local path"), text: $communitySkillSourceDraft)
+                            .textFieldStyle(.roundedBorder)
+                        PipiActionButton(
+                            s.t("一键安装 Skill", "Install Skill"),
+                            systemImage: "square.and.arrow.down",
+                            tone: .primary,
+                            density: .desktopCompact
+                        ) {
+                            let src = communitySkillSourceDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !src.isEmpty else { return }
+                            communitySkillSourceDraft = ""
+                            Task { _ = await store.installCommunitySkill(source: src) }
+                        }
+                    }
+
+                    // Curated free community catalog
+                    VStack(spacing: PipiTokens.spacing8) {
+                        ForEach(PipiEcosystemCatalogEntry.curated) { item in
+                            let alreadyInstalled = item.kind == .skill
+                                ? store.ecosystemManager.installedSkills.contains(where: { $0.id == item.id })
+                                : store.ecosystemManager.installedMCPServers.contains(where: { $0.id == item.id })
+                            HStack(spacing: PipiTokens.spacing8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(item.kind == .mcp ? "🔌 MCP" : "📘 Skill") · \(item.name)")
+                                        .font(PipiTokens.fontCaption.weight(.semibold))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                    Text(item.description)
+                                        .font(PipiTokens.fontMicro)
+                                        .foregroundStyle(PipiTokens.textMuted)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                PipiActionButton(
+                                    alreadyInstalled ? s.t("已安装", "Installed") : s.t("安装", "Install"),
+                                    systemImage: alreadyInstalled ? "checkmark" : "plus",
+                                    tone: alreadyInstalled ? .ghost : .secondary,
+                                    density: .desktopCompact
+                                ) {
+                                    guard !alreadyInstalled else { return }
+                                    Task {
+                                        if item.kind == .skill {
+                                            _ = await store.installCommunitySkill(source: item.id)
+                                        } else {
+                                            _ = await store.installCommunityMCP(
+                                                id: item.id,
+                                                name: item.name,
+                                                description: item.description,
+                                                transport: .stdio,
+                                                command: item.mcpCommand,
+                                                args: item.mcpArgs
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(PipiTokens.bgSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                        }
                     }
                 }
                 .padding(.horizontal, 16)

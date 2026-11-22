@@ -16,7 +16,7 @@ if [[ ! -d "$APP_BUNDLE" ]]; then
   exit 1
 fi
 
-VERSION="${PIPIBOT_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || echo "0.10.0")}"
+VERSION="${PIPIBOT_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || echo "0.12.0")}"
 ARCH="${PIPIBOT_ARCH:-$(uname -m)}"
 DMG_NAME="PiPiBot-${VERSION}-${ARCH}.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"

@@ -36,7 +36,12 @@ public struct PipiIOSCompanionRootView: View {
     @Bindable public var store: PipiAppStore
 
     @State private var selectedTab: PipiIOSTab = .chat
+    @State private var chatSurfaceMode: Int = 0 // 0 = Direct 1v1, 1 = Multi-Host Parallel Group
     @State private var draftInput: String = ""
+    @State private var groupDraftInput: String = ""
+    @State private var meshHubURLDraft: String = "http://127.0.0.1:4242"
+    @State private var meshHubTokenDraft: String = ""
+    @State private var ecoSkillURLDraft: String = ""
     @State private var showAddModelSheet = false
     @State private var modelPreset: PipiLLMProviderKind = .openai
     @State private var modelApiKey: String = ""
@@ -235,10 +240,91 @@ public struct PipiIOSCompanionRootView: View {
         .frame(height: 44)
     }
 
-    // MARK: - Tab 1: Chat
+    // MARK: - Tab 1: Unified Multi-Host Group Parallel Workbench & 1v1 Direct Chat
 
     private var chatPage: some View {
         VStack(spacing: 0) {
+            // Clean Direct vs Multi-Host Parallel Group Switcher
+            HStack(spacing: PipiTokens.spacing8) {
+                Picker("", selection: $chatSurfaceMode) {
+                    Text(s.t("1v1 管家", "1v1 Direct")).tag(0)
+                    Text(s.t("多机并行群聊", "Multi-Host Group")).tag(1)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                if chatSurfaceMode == 1 {
+                    Button {
+                        let allIds = Array(store.personas.prefix(4).map(\.id))
+                        let created = store.createGroupChat(
+                            title: s.t("多机协作群", "Multi-Host Swarm"),
+                            participantPersonaIds: allIds.isEmpty ? [store.activePersona.id] : allIds,
+                            swarmMode: .mentionOnly
+                        )
+                        store.selectGroupChat(created.id)
+                        triggerHaptic(.light)
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(activeAccent)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, PipiTokens.spacing16)
+            .padding(.bottom, PipiTokens.spacing8)
+
+            if chatSurfaceMode == 1 {
+                iosParallelGroupView
+            } else {
+                iosDirectChatView
+            }
+        }
+    }
+
+    private var iosDirectChatView: some View {
+        VStack(spacing: 0) {
+            // Compact session picker pills so sessions never feel messy
+            if !store.conversations.filter({ !$0.isArchived }).isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Button {
+                            _ = store.createConversation(for: store.activePersona.id, activate: true)
+                            triggerHaptic(.light)
+                        } label: {
+                            Label(s.t("新会话", "New"), systemImage: "plus")
+                                .font(PipiTokens.fontMicro.weight(.semibold))
+                                .foregroundStyle(activeAccent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(PipiTokens.bgSurface)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+
+                        ForEach(store.conversations.filter { !$0.isArchived }.sorted { $0.updatedAt > $1.updatedAt }.prefix(8)) { conv in
+                            let isCur = conv.id == store.activeConversationId
+                            Button {
+                                store.selectConversation(conv.id)
+                                triggerHaptic(.light)
+                            } label: {
+                                Text(conv.title)
+                                    .font(PipiTokens.fontMicro.weight(isCur ? .semibold : .regular))
+                                    .foregroundStyle(isCur ? PipiTokens.textInverse : PipiTokens.textSecondary)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(isCur ? activeAccent : PipiTokens.bgSurface)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, PipiTokens.spacing16)
+                    .padding(.bottom, PipiTokens.spacing8)
+                }
+            }
+
             ScrollView {
                 VStack(spacing: PipiTokens.spacing12) {
                     if let conv = store.activeConversation, !conv.messages.isEmpty {
@@ -264,6 +350,13 @@ public struct PipiIOSCompanionRootView: View {
                                 personaAccent: store.activePersona.accent,
                                 motif: PipiPersonaMotif.resolve(for: store.activePersona)
                             )
+                            Text(store.activePersona.hostBadgeLabel(lang))
+                                .font(PipiTokens.fontMicro.weight(.semibold))
+                                .foregroundStyle(activeAccent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 3)
+                                .background(PipiTokens.bgSurface)
+                                .clipShape(Capsule())
                             Text(store.activePersona.greeting(lang))
                                 .font(PipiTokens.fontBody)
                                 .foregroundStyle(PipiTokens.textSecondary)
@@ -315,33 +408,311 @@ public struct PipiIOSCompanionRootView: View {
         }
     }
 
-    // MARK: - Tab 2: Bots (Personas)
+    private var iosParallelGroupView: some View {
+        let activeGroup = store.groupChats.first(where: { $0.id == store.activeGroupChatId }) ?? store.sortedGroupChats.first
+        return VStack(spacing: 0) {
+            // Group & Topic Selector
+            if !store.sortedGroupChats.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: PipiTokens.spacing8) {
+                        ForEach(store.sortedGroupChats.prefix(8)) { grp in
+                            let selected = grp.id == activeGroup?.id
+                            Button {
+                                store.selectGroupChat(grp.id)
+                                triggerHaptic(.light)
+                            } label: {
+                                Text("👥 \(grp.title)")
+                                    .font(PipiTokens.fontMicro.weight(selected ? .semibold : .regular))
+                                    .foregroundStyle(selected ? PipiTokens.textInverse : PipiTokens.textPrimary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(selected ? activeAccent : PipiTokens.bgSurface)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, PipiTokens.spacing16)
+                    .padding(.bottom, PipiTokens.spacing8)
+                }
+            }
+
+            if let group = activeGroup {
+                // Live Per-Task Parallel Multi-Host Lanes Strip
+                let lanes = store.activeLanes(forGroup: group.id)
+                if !lanes.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            ForEach(lanes) { lane in
+                                HStack(spacing: 6) {
+                                    ProgressView().controlSize(.mini)
+                                    Text("\(lane.personaName) [\(lane.hostLabel)]")
+                                        .font(PipiTokens.fontMicro.weight(.semibold))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                    Button {
+                                        store.stopGroupLane(lane.runId)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(PipiTokens.textMuted)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(PipiTokens.bgSurface)
+                                .overlay(Capsule().stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                                .clipShape(Capsule())
+                            }
+                        }
+                        .padding(.horizontal, PipiTokens.spacing16)
+                        .padding(.bottom, PipiTokens.spacing8)
+                    }
+                }
+
+                // Group Messages
+                ScrollView {
+                    VStack(spacing: PipiTokens.spacing12) {
+                        let msgs = group.messages(forTopic: group.effectiveActiveTopicId)
+                        if msgs.isEmpty {
+                            Text(s.t("点击下方任意主机的 @助手 即可并行派活，多个机器的 Agent 同时执行、互不卡队！", "Tap any @Agent below across your machines to run tasks in true parallel!"))
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textMuted)
+                                .multilineTextAlignment(.center)
+                                .padding(PipiTokens.spacing20)
+                        } else {
+                            ForEach(msgs) { msg in
+                                iosGroupMessageBubble(msg)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, PipiTokens.spacing16)
+                    .padding(.bottom, PipiTokens.spacing16)
+                }
+
+                // Quick @Bot Mention Bar (shows every participant with its Host badge!)
+                let members = group.participantPersonaIds.compactMap { pid in store.personas.first(where: { $0.id == pid }) }
+                if !members.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(members) { bot in
+                                Button {
+                                    let tag = "@\(bot.name(lang)) "
+                                    if !groupDraftInput.contains(tag) {
+                                        groupDraftInput = tag + groupDraftInput
+                                    }
+                                    triggerHaptic(.light)
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text("@\(bot.name(lang))")
+                                            .font(PipiTokens.fontMicro.weight(.semibold))
+                                        Text(bot.hostBadgeLabel(lang))
+                                            .font(PipiTokens.fontMicro)
+                                            .foregroundStyle(PipiTokens.textMuted)
+                                    }
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 5)
+                                    .background(PipiTokens.bgSurface)
+                                    .overlay(Capsule().stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, PipiTokens.spacing16)
+                        .padding(.bottom, 6)
+                    }
+                }
+
+                // Non-blocking parallel composer
+                HStack(spacing: PipiTokens.spacing8) {
+                    TextField(s.t("@任意主机助手并行派活…", "@mention any host agent in parallel…"), text: $groupDraftInput)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, PipiTokens.spacing12)
+                        .frame(height: PipiTokens.buttonHeightMobile)
+                        .background(PipiTokens.bgSurface)
+                        .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusMD).stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+
+                    PipiActionButton(s.send, systemImage: "paperplane.fill", tone: .primary, density: .mobile) {
+                        let text = groupDraftInput
+                        groupDraftInput = ""
+                        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                        Task {
+                            await store.sendGroupMessage(text, toGroupId: group.id, topicId: group.effectiveActiveTopicId)
+                            triggerHaptic(.light)
+                        }
+                    }
+                }
+                .padding(.horizontal, PipiTokens.spacing16)
+                .padding(.vertical, PipiTokens.spacing8)
+            } else {
+                VStack(spacing: PipiTokens.spacing16) {
+                    Spacer()
+                    Text(s.t("还没有多机协作群聊", "No multi-host group chats yet"))
+                        .font(PipiTokens.fontHeadline)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    PipiActionButton(s.t("创建第一个多机并行群", "Create Multi-Host Group"), systemImage: "person.3.fill", tone: .primary, density: .mobile) {
+                        let ids = Array(store.personas.prefix(4).map(\.id))
+                        let created = store.createGroupChat(
+                            title: s.t("多机协作群", "Multi-Host Swarm"),
+                            participantPersonaIds: ids.isEmpty ? [store.activePersona.id] : ids,
+                            swarmMode: .mentionOnly
+                        )
+                        store.selectGroupChat(created.id)
+                    }
+                    Spacer()
+                }
+                .padding(PipiTokens.spacing20)
+            }
+        }
+    }
+
+    private func iosGroupMessageBubble(_ msg: PipiGroupMessage) -> some View {
+        let isUser: Bool = {
+            if case .user = msg.senderKind { return true }
+            return false
+        }()
+        let senderLabel: String = {
+            switch msg.senderKind {
+            case .user: return s.t("你", "You")
+            case .system: return s.appName
+            case .bot(let pid):
+                if let p = store.personas.first(where: { $0.id == pid }) {
+                    return "\(p.name(lang)) · \(p.hostBadgeLabel(lang))"
+                }
+                return pid
+            }
+        }()
+        return VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
+            Text(senderLabel)
+                .font(PipiTokens.fontMicro)
+                .foregroundStyle(PipiTokens.textMuted)
+            HStack {
+                if isUser { Spacer(minLength: 40) }
+                Text(msg.content.isEmpty ? "…" : msg.content)
+                    .font(PipiTokens.fontBody)
+                    .foregroundStyle(isUser ? PipiTokens.textInverse : PipiTokens.textPrimary)
+                    .padding(PipiTokens.spacing12)
+                    .background(isUser ? activeAccent : PipiTokens.bgSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                if !isUser { Spacer(minLength: 40) }
+            }
+        }
+    }
+
+    // MARK: - Tab 2: Multi-Machine Fleet & Cross-Host Agents
 
     private var botsPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                // Multi-Machine Online Nodes Section
+                HStack {
+                    Text(s.t("多机节点舰队", "Connected Host Nodes"))
+                        .font(PipiTokens.fontSubheadline.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Spacer()
+                    Button {
+                        Task { _ = await store.refreshMeshNodes() }
+                        triggerHaptic(.light)
+                    } label: {
+                        Label(s.refresh, systemImage: "arrow.clockwise")
+                            .font(PipiTokens.fontMicro.weight(.semibold))
+                            .foregroundStyle(activeAccent)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if store.meshHubClient.nodes.isEmpty {
+                    PipiListCard(
+                        title: s.t("本机 Mac（默认主节点）", "Local Mac (Primary Node)"),
+                        subtitle: s.t("在 Linux/其他 Mac 上运行 pipibot node join 后，所有远程主机将自动出现在此处，点击即可直连协作。", "Run pipibot node join on Linux or other Macs to see all hosts here with zero workspace switching."),
+                        badgeText: s.t("本机在线", "Local Ready"),
+                        badgeColor: PipiTokens.stateSuccess
+                    )
+                } else {
+                    ForEach(store.meshHubClient.nodes) { node in
+                        PipiListCard(
+                            title: "\(node.name) · \(node.platformBadge)/\(node.arch)",
+                            subtitle: node.workspacePath + (node.telemetry.gpuSummary.map { " · GPU: \($0)" } ?? ""),
+                            badgeText: node.isOnline ? s.t("在线", "Online") : s.t("离线", "Offline"),
+                            badgeColor: node.isOnline ? PipiTokens.stateSuccess : PipiTokens.textMuted,
+                            footer: {
+                                PipiActionButton(
+                                    s.t("直连该主机 Agent", "Chat with Host Agent"),
+                                    systemImage: "bolt.horizontal.fill",
+                                    tone: .primary,
+                                    density: .mobile,
+                                    fullWidth: true
+                                ) {
+                                    let bot = store.ensurePersonaForMeshNode(node)
+                                    store.selectPersona(bot.id)
+                                    chatSurfaceMode = 0
+                                    selectedTab = .chat
+                                    triggerHaptic(.light)
+                                }
+                            }
+                        )
+                    }
+                }
+
+                Text(s.t("全部智能体（跨主机统一目录）", "All Agents (Unified Across Hosts)"))
+                    .font(PipiTokens.fontSubheadline.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textPrimary)
+                    .padding(.top, PipiTokens.spacing8)
+
                 ForEach(store.personas) { persona in
                     let isSelected = store.activePersona.id == persona.id
                     let accent = PipiTokens.color(for: persona.accent)
                     PipiListCard(
                         title: persona.name(lang),
-                        subtitle: persona.role(lang),
-                        badgeText: isSelected ? s.enabled : nil,
+                        subtitle: "[\(persona.hostBadgeLabel(lang))] \(persona.role(lang))",
+                        badgeText: persona.isRemoteHost ? persona.hostBadgeLabel(lang) : (isSelected ? s.enabled : nil),
                         badgeColor: accent,
                         leading: {
                             PipiBotPersonaGlyph(persona: persona, size: 38, isSelected: isSelected)
                         },
                         footer: {
-                            PipiActionButton(
-                                s.t("开始对话", "Chat Now"),
-                                systemImage: "bubble.left.fill",
-                                tone: isSelected ? .primary : .secondary,
-                                density: .mobile,
-                                fullWidth: true
-                            ) {
-                                store.selectPersona(persona.id)
-                                selectedTab = .chat
-                                triggerHaptic(.light)
+                            HStack(spacing: PipiTokens.spacing8) {
+                                PipiActionButton(
+                                    s.t("1v1 对话", "Direct Chat"),
+                                    systemImage: "bubble.left.fill",
+                                    tone: isSelected ? .primary : .secondary,
+                                    density: .mobile,
+                                    fullWidth: true
+                                ) {
+                                    store.selectPersona(persona.id)
+                                    chatSurfaceMode = 0
+                                    selectedTab = .chat
+                                    triggerHaptic(.light)
+                                }
+                                PipiActionButton(
+                                    s.t("拉入群聊", "Add to Group"),
+                                    systemImage: "person.3.fill",
+                                    tone: .secondary,
+                                    density: .mobile,
+                                    fullWidth: true
+                                ) {
+                                    if let grpId = store.activeGroupChatId ?? store.sortedGroupChats.first?.id,
+                                       let idx = store.groupChats.firstIndex(where: { $0.id == grpId }) {
+                                        if !store.groupChats[idx].participantPersonaIds.contains(persona.id) {
+                                            store.groupChats[idx].participantPersonaIds.append(persona.id)
+                                            store.saveResidentState()
+                                        }
+                                        store.selectGroupChat(grpId)
+                                    } else {
+                                        let created = store.createGroupChat(
+                                            title: s.t("多机协作群", "Multi-Host Swarm"),
+                                            participantPersonaIds: [store.activePersona.id, persona.id],
+                                            swarmMode: .mentionOnly
+                                        )
+                                        store.selectGroupChat(created.id)
+                                    }
+                                    chatSurfaceMode = 1
+                                    selectedTab = .chat
+                                    triggerHaptic(.success)
+                                }
                             }
                         }
                     )
@@ -352,11 +723,63 @@ public struct PipiIOSCompanionRootView: View {
         }
     }
 
-    // MARK: - Tab 4: Settings
+    // MARK: - Tab 4: Settings, Mesh Hub Pairing & Open-Source Ecosystem
 
     private var settingsPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+                PipiListCard(
+                    title: s.t("多机 Mesh Hub 连接（免费自托管）", "Multi-Host Mesh Hub (Free Self-Hosted)"),
+                    subtitle: store.meshHubClient.isConnected
+                        ? s.t("已连接 · \(store.meshHubClient.nodes.filter(\.isOnline).count) 台主机在线", "Connected · \(store.meshHubClient.nodes.filter(\.isOnline).count) hosts online")
+                        : s.t("填写你的 Mac 或 Linux VPS Hub 地址，免切工作区访问全部机器", "Enter your Mac or Linux VPS Hub URL to reach all hosts"),
+                    badgeText: store.meshHubClient.isConnected ? s.t("已连接", "Live") : nil,
+                    badgeColor: PipiTokens.stateSuccess,
+                    footer: {
+                        VStack(spacing: PipiTokens.spacing8) {
+                            TextField("http://127.0.0.1:4242", text: $meshHubURLDraft)
+                                .textFieldStyle(.plain)
+                                .padding(PipiTokens.spacing12)
+                                .background(PipiTokens.bgInset)
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            SecureField(s.t("可选 Hub Token", "Optional Hub Token"), text: $meshHubTokenDraft)
+                                .textFieldStyle(.plain)
+                                .padding(PipiTokens.spacing12)
+                                .background(PipiTokens.bgInset)
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            PipiActionButton(s.t("连接并同步主机节点", "Connect & Sync Nodes"), systemImage: "network", tone: .primary, density: .mobile, fullWidth: true) {
+                                Task {
+                                    await store.connectMeshHub(url: meshHubURLDraft, token: meshHubTokenDraft)
+                                    triggerHaptic(.success)
+                                }
+                            }
+                        }
+                    }
+                )
+
+                PipiListCard(
+                    title: s.t("社区 MCP & SKILL.md 生态", "Community MCP & SKILL.md Ecosystem"),
+                    subtitle: s.t("已安装 \(store.ecosystemManager.installedSkills.count) 个技能包 · \(store.ecosystemManager.installedMCPServers.count) 个 MCP 服务", "\(store.ecosystemManager.installedSkills.count) skills · \(store.ecosystemManager.installedMCPServers.count) MCP servers"),
+                    footer: {
+                        VStack(spacing: PipiTokens.spacing8) {
+                            TextField(s.t("粘贴 GitHub 仓库或 SKILL.md 链接", "Paste GitHub repo or SKILL.md URL"), text: $ecoSkillURLDraft)
+                                .textFieldStyle(.plain)
+                                .padding(PipiTokens.spacing12)
+                                .background(PipiTokens.bgInset)
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            PipiActionButton(s.t("一键安装社区 Skill", "Install Skill Pack"), systemImage: "square.and.arrow.down", tone: .secondary, density: .mobile, fullWidth: true) {
+                                let src = ecoSkillURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !src.isEmpty else { return }
+                                ecoSkillURLDraft = ""
+                                Task {
+                                    _ = await store.installCommunitySkill(source: src)
+                                    triggerHaptic(.success)
+                                }
+                            }
+                        }
+                    }
+                )
+
                 PipiListCard(
                     title: s.languageSectionTitle,
                     subtitle: s.languageSectionDesc,

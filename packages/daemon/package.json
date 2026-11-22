@@ -7,7 +7,8 @@
   "main": "./src/server.ts",
   "types": "./src/server.ts",
   "bin": {
-    "pipibot-daemon": "./src/cli.ts"
+    "pipibot-daemon": "./src/cli.ts",
+    "pipibot": "./src/cli.ts"
   },
   "exports": {
     ".": {
@@ -21,6 +22,18 @@
     "./cue-fleet-sensor": {
       "types": "./src/cue-fleet-sensor.ts",
       "default": "./src/cue-fleet-sensor.ts"
+    },
+    "./mesh-hub": {
+      "types": "./src/mesh-hub.ts",
+      "default": "./src/mesh-hub.ts"
+    },
+    "./mesh-node": {
+      "types": "./src/mesh-node.ts",
+      "default": "./src/mesh-node.ts"
+    },
+    "./ecosystem": {
+      "types": "./src/ecosystem.ts",
+      "default": "./src/ecosystem.ts"
     },
     "./server": {
       "types": "./src/server.ts",
@@ -36,7 +49,7 @@
     "@pipibot/protocol": "workspace:*"
   },
   "scripts": {
-    "check": "node --experimental-strip-types ./src/outcome-engine.ts && node --experimental-strip-types ./src/cue-fleet-sensor.ts && node --experimental-strip-types ./src/server.ts && node --experimental-strip-types ./src/cli.ts --help >/dev/null",
+    "check": "node --experimental-strip-types ./src/outcome-engine.ts && node --experimental-strip-types ./src/cue-fleet-sensor.ts && node --experimental-strip-types ./src/ecosystem.ts && node --experimental-strip-types ./src/mesh-hub.ts && node --experimental-strip-types ./src/mesh-node.ts && node --experimental-strip-types ./src/server.ts && node --experimental-strip-types ./src/cli.ts --help >/dev/null",
     "start": "node --experimental-strip-types ./src/cli.ts",
     "test": "node --experimental-strip-types --test ./test/daemon.test.ts"
   },

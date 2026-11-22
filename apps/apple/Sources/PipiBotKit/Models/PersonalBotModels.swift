@@ -457,6 +457,7 @@ public enum PipiPersonaAccent: String, Codable, CaseIterable, Identifiable, Send
 public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
     public let id: String
     public var hostId: String
+    public var hostDisplayName: String?
     public var nameZh: String
     public var nameEn: String
     public var roleZh: String
@@ -483,6 +484,7 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
     public init(
         id: String = "bot_\(UUID().uuidString.prefix(8).lowercased())",
         hostId: String = PipiHostDescriptor.localHostId,
+        hostDisplayName: String? = nil,
         nameZh: String,
         nameEn: String,
         roleZh: String,
@@ -508,6 +510,7 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.hostId = hostId
+        self.hostDisplayName = hostDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.nameZh = nameZh
         self.nameEn = nameEn
         self.roleZh = roleZh
@@ -533,7 +536,7 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, hostId, nameZh, nameEn, roleZh, roleEn, greetingZh, greetingEn, systemPrompt
+        case id, hostId, hostDisplayName, nameZh, nameEn, roleZh, roleEn, greetingZh, greetingEn, systemPrompt
         case accent, avatarShape, idleAvatarState, preferredTarget, preferredModelId, permissionTier
         case starterPromptsZh, starterPromptsEn, isBuiltIn
         case voiceProfileId, assignedSkillSlugs, enabledTools, enabledConnectors
@@ -544,6 +547,7 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(String.self, forKey: .id)
         self.hostId = try c.decodeIfPresent(String.self, forKey: .hostId) ?? PipiHostDescriptor.localHostId
+        self.hostDisplayName = try c.decodeIfPresent(String.self, forKey: .hostDisplayName)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.nameZh = try c.decodeIfPresent(String.self, forKey: .nameZh) ?? ""
         self.nameEn = try c.decodeIfPresent(String.self, forKey: .nameEn) ?? ""
         self.roleZh = try c.decodeIfPresent(String.self, forKey: .roleZh) ?? ""
@@ -566,6 +570,17 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         self.enabledConnectors = try c.decodeIfPresent([String].self, forKey: .enabledConnectors) ?? []
         self.sharingPolicy = try c.decodeIfPresent(PipiBotSharingPolicy.self, forKey: .sharingPolicy) ?? .default
         self.learnedUpgrades = try c.decodeIfPresent([PipiBotPeerUpgradeRecord].self, forKey: .learnedUpgrades) ?? []
+    }
+
+    public var isRemoteHost: Bool {
+        !hostId.isEmpty && hostId != PipiHostDescriptor.localHostId
+    }
+
+    public func hostBadgeLabel(_ lang: PipiResolvedLanguage) -> String {
+        if !isRemoteHost {
+            return lang == .zhHans ? "本机 Mac" : "Local Mac"
+        }
+        return hostDisplayName ?? hostId
     }
 
     public func name(_ lang: PipiResolvedLanguage) -> String {

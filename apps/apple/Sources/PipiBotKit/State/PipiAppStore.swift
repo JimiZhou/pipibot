@@ -17,6 +17,38 @@ public enum PipiRunPhase: String, Sendable, Equatable {
     case running
 }
 
+public struct PipiGroupActiveLane: Identifiable, Sendable, Equatable {
+    public var id: String { runId }
+    public let runId: String
+    public let groupId: String
+    public let topicId: String?
+    public let personaId: String
+    public let personaName: String
+    public let hostLabel: String
+    public var statusText: String
+    public let startedAt: Date
+
+    public init(
+        runId: String,
+        groupId: String,
+        topicId: String?,
+        personaId: String,
+        personaName: String,
+        hostLabel: String,
+        statusText: String,
+        startedAt: Date = Date()
+    ) {
+        self.runId = runId
+        self.groupId = groupId
+        self.topicId = topicId
+        self.personaId = personaId
+        self.personaName = personaName
+        self.hostLabel = hostLabel
+        self.statusText = statusText
+        self.startedAt = startedAt
+    }
+}
+
 public struct PipiConversationRunState: Sendable {
     public let conversationId: String
     public let personaId: String
@@ -307,6 +339,10 @@ public final class PipiAppStore {
     public private(set) var localGateway: PipiLocalLLMGateway?
     /// Wave 5 (#09) Dual-Phase Computer Use coordinator (Phase A Chrome Seats + Phase B macOS AX/Cua + WAL + Human Yield).
     public let computerUseCoordinator: PipiComputerUseCoordinator
+    /// Multi-Machine Mesh Hub client (connects to built-in Mac Hub or remote 24h Linux VPS Hub).
+    public let meshHubClient: PipiMeshHubClient
+    /// Open-Source Ecosystem Manager (MCP Server stdio/SSE + standard SKILL.md packs).
+    public let ecosystemManager: PipiEcosystemManager
     /// Local storage root used for SQLite Wiki, Per-Bot memory, AlterEgo playgrounds, CLI overlays, WAL, and read-only builtin skills.
     public let localDataRootURL: URL
     private let persistenceUrl: URL?
@@ -315,6 +351,11 @@ public final class PipiAppStore {
     private let inferenceExecutor: PipiInferenceExecutor?
     private let sessionInferenceExecutor: PipiSessionInferenceExecutor?
     private let llmGuardrailJudge: PipiLLMGuardrailJudge?
+    private var progressCallbacksByConversation: [String: @Sendable (String) async -> Void] = [:]
+    private var pendingToolApprovalContextByApprovalId: [String: (toolCall: PipiLLMToolCall, workDir: String)] = [:]
+    private var lastMorningBriefingYmd: String? = nil
+    private var lastSentinelCheckAt: Date = .distantPast
+    private var lastSentinelAlertAtByCategory: [String: Date] = [:]
 
     public var themeMode: PipiThemeMode = .system
     public var language: PipiAppLanguage = .system
@@ -349,7 +390,8 @@ public final class PipiAppStore {
     public var activeGroupRuns: [String: Set<String>] = [:]
     public var activeGroupStreamingMessageIds: [String: [String: String]] = [:]
     public var activeGroupRunStartTimes: [String: [String: Date]] = [:]
-    private var groupRunTasks: [String: Task<[PipiGroupMessage], Never>] = [:]
+    public private(set) var activeGroupLanes: [PipiGroupActiveLane] = []
+    private var groupRunTasksByRunId: [String: (groupId: String, task: Task<[PipiGroupMessage], Never>)] = [:]
     public var memoryEnabled: Bool = true
     public var personalProfileNote: String = ""
     public var routines: [PipiBotRoutine] = []
@@ -530,7 +572,7 @@ public final class PipiAppStore {
     public var connectionMode: PipiConnectionMode = .nativeResident
     public var daemonEndpoint: String = "http://127.0.0.1:4242"
 
-    public var daemonVersion: String = "0.10.0"
+    public var daemonVersion: String = "0.12.0"
 
     public var appDisplayVersion: String {
         if let bundleVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
@@ -705,7 +747,7 @@ public final class PipiAppStore {
         self.remoteTunnelManager = PipiCloudflareTunnelManager()
         self.localModelPlatformManager = PipiLocalModelPlatformManager()
         self.telemetryMonitor = PipiSystemTelemetryMonitor()
-        let resolvedSecretStore = secretStore ?? (enableNativeRuntime ? PipiKeychainSecretStore() : PipiInMemorySecretStore())
+        let resolvedSecretStore = secretStore ?? (enableNativeRuntime ? PipiLocalEncryptedSecretStore() : PipiInMemorySecretStore())
         let defersKeychain = resolvedSecretStore is PipiKeychainSecretStore
         self.defersSystemKeychainReads = defersKeychain
         self.wechatILinkManager = PipiWeChatILinkManager(
@@ -742,6 +784,8 @@ public final class PipiAppStore {
                 .appendingPathComponent("pipibot-preview-\(UUID().uuidString.prefix(8))", isDirectory: true)
         }()
         self.localDataRootURL = wave2RootURL
+        self.meshHubClient = PipiMeshHubClient(hubURLString: baseUrl)
+        self.ecosystemManager = PipiEcosystemManager(storageRootURL: wave2RootURL)
         self.macOmnipotentEngine = PipiMacOmnipotentEngine(dataRootURL: wave2RootURL)
         let resolvedWiki: PipiPersonalWikiStore? = {
             if let personalWiki { return personalWiki }
@@ -1607,7 +1651,7 @@ public final class PipiAppStore {
         for convId in Array(activeRuns.keys) {
             stopGenerating(conversationId: convId)
         }
-        for groupId in Array(groupRunTasks.keys) {
+        for groupId in Set(groupRunTasksByRunId.values.map(\.groupId)) {
             stopGroupChat(groupId)
         }
         conversations = []
@@ -1702,6 +1746,25 @@ public final class PipiAppStore {
             saveResidentState()
         }
 
+        // Jarvis Proactive Butler #2: Daily morning briefing (08:30–10:30 local time, once per day)
+        if enableNativeRuntime,
+           let hour = comps.hour, let minute = comps.minute,
+           (hour == 8 && minute >= 30) || hour == 9 || (hour == 10 && minute <= 30),
+           lastMorningBriefingYmd != todayYmd {
+            lastMorningBriefingYmd = todayYmd
+            Task { @MainActor [weak self] in
+                await self?.triggerDailyBriefingNow()
+            }
+        }
+
+        // Jarvis Proactive Butler #4: Mac health & GitHub release sentinel (every 15 min, 4h per-category cooldown)
+        if enableNativeRuntime && now.timeIntervalSince(lastSentinelCheckAt) >= 900 {
+            lastSentinelCheckAt = now
+            Task { @MainActor [weak self] in
+                await self?.runProactiveSentinelSweep(now: now)
+            }
+        }
+
         guard hasConfiguredEngine else { return }
         let iso = ISO8601DateFormatter()
 
@@ -1738,7 +1801,17 @@ public final class PipiAppStore {
 
         for routine in dueRoutines {
             Task { @MainActor [weak self] in
-                await self?.runRoutineNow(routine)
+                guard let self else { return }
+                await self.runRoutineNow(routine)
+                if self.enableNativeRuntime,
+                   let conv = self.conversations.first(where: { $0.title == "⏰ \(routine.title)" }),
+                   let latestReply = conv.messages.last(where: { $0.role == .assistant })?.content {
+                    let preview = String(latestReply.prefix(400))
+                    await self.deliverSystemAndWeChatNotification(
+                        title: "⏰ 定时任务已完成：\(routine.title)",
+                        body: preview
+                    )
+                }
             }
         }
     }
@@ -2237,7 +2310,8 @@ public final class PipiAppStore {
         conversationId explicitConversationId: String? = nil,
         personaId explicitPersonaId: String? = nil,
         activateTargetConversation: Bool = true,
-        priority: PipiSchedulerPriority? = nil
+        priority: PipiSchedulerPriority? = nil,
+        onProgress: (@Sendable (String) async -> Void)? = nil
     ) async {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty else { return }
@@ -2258,11 +2332,16 @@ public final class PipiAppStore {
                 let created = createConversation(for: resolvedPersonaId, activate: activateTargetConversation)
                 convId = created.id
             }
+            if let onProgress {
+                await onProgress(PipiLivelyProgressNarrator.initialAck(for: trimmed, lang: resolvedLanguage))
+            }
             _ = await executeOmnipotentIntent(directIntent, userPrompt: trimmed, in: convId, personaId: resolvedPersonaId)
             return
         }
 
-        // On-demand or proactive natural-language external CLI sub-agent invocation (e.g. /codex OR "用 codex 帮我...")
+        // On-demand or explicit-CLI invocation (e.g. /codex OR "用 codex 帮我...").
+        // Note: General natural-language tasks go into PiPi's native Jarvis Agent Loop where PiPi can directly use
+        // native tools AND call `delegate_cli_agent` on demand with automatic recovery!
         var effectiveRawText = rawText
         var effectiveTargetOverride = targetOverride
         if effectiveTargetOverride == nil {
@@ -2275,6 +2354,16 @@ public final class PipiAppStore {
                       let natural = PipiExternalSubAgentRouter.detectNaturalLanguageInvocation(trimmed, usableAgents: usableKinds) {
                 effectiveTargetOverride = .localAgent(natural.kind)
                 effectiveRawText = natural.taskPrompt
+            }
+        }
+
+        let resolvedConvForProgress: String? = explicitConversationId
+        if let onProgress, let resolvedConvForProgress {
+            progressCallbacksByConversation[resolvedConvForProgress] = onProgress
+        }
+        defer {
+            if let resolvedConvForProgress {
+                progressCallbacksByConversation.removeValue(forKey: resolvedConvForProgress)
             }
         }
 
@@ -2357,6 +2446,44 @@ public final class PipiAppStore {
 
         let updatedApproval = conversations[cIdx].approvals[aIdx]
         appendSessionEvent(sessionId, kind: .approval, approval: updatedApproval)
+
+        if approved, let pendingTool = pendingToolApprovalContextByApprovalId.removeValue(forKey: approvalId) {
+            let personaId = conversations[cIdx].personaId
+            return Task { @MainActor [weak self] in
+                guard let self else { return }
+                let callbacks = self.makeAgentHostCallbacks(conversationId: sessionId, personaId: personaId)
+                let deliverablesDir = self.localDataRootURL.appendingPathComponent("deliverables", isDirectory: true)
+                let effectiveLLM = self.resolvedEffectiveLLMConfig(providerId: self.defaultLLMProviderId ?? self.readyLLMProviders.first?.id ?? "", for: self.personas.first(where: { $0.id == personaId }) ?? self.activePersona)
+                let toolRes = await PipiAgentToolbox.execute(
+                    toolCall: pendingTool.toolCall,
+                    workspaceDirectory: pendingTool.workDir,
+                    llmConfig: effectiveLLM,
+                    deliverablesDirectory: deliverablesDir,
+                    callbacks: callbacks,
+                    skipRiskCheck: true
+                )
+                let attachments: [PipiChatAttachment] = toolRes.artifacts.map { art in
+                    PipiChatAttachment(id: art.id, name: art.fileName, path: art.filePath, sizeBytes: Int(art.byteSize))
+                }
+                let replyText = toolRes.isError
+                    ? "😅 刚执行的时候遇到点小状况：\n\(toolRes.output)"
+                    : "✅ 已经按你的确认执行完毕啦！\n\n\(toolRes.output)"
+                let replyIso = ISO8601DateFormatter().string(from: Date())
+                if let idx = self.conversations.firstIndex(where: { $0.id == sessionId }) {
+                    self.conversations[idx].messages.append(PipiChatMessage(
+                        role: .assistant,
+                        content: replyText,
+                        createdAt: replyIso,
+                        engineLabel: "PiPi Jarvis",
+                        isError: toolRes.isError,
+                        attachments: attachments.isEmpty ? nil : attachments
+                    ))
+                    self.conversations[idx].updatedAt = replyIso
+                }
+                self.setSessionState(sessionId, to: toolRes.isError ? .failed : .done)
+                self.saveResidentState()
+            }
+        }
 
         if approved, let pendingPrompt = approval.pendingPrompt, !pendingPrompt.isEmpty {
             let personaId = conversations[cIdx].personaId
@@ -2941,10 +3068,15 @@ public final class PipiAppStore {
                                         onDelta
                                     )
                                 } else {
-                                    return try await PipiInferenceEngine.invokeLLM(
+                                    return try await self.runJarvisAgentLoop(
                                         config: cfg,
                                         systemPrompt: effectiveSystemPrompt,
                                         history: attemptHistory,
+                                        conversationId: convId,
+                                        persona: persona,
+                                        workDir: workDir,
+                                        runId: runId,
+                                        placeholderMessageId: placeholderId,
                                         onDelta: onDelta
                                     )
                                 }
@@ -2992,19 +3124,37 @@ public final class PipiAppStore {
                                         onDelta
                                     )
                                 } else {
-                                    let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: convId)
-                                    return try await PipiInferenceEngine.invokeLocalAgent(
-                                        kind: kind,
-                                        systemPrompt: effectiveSystemPrompt,
-                                        history: attemptHistory,
-                                        workingDirectory: workDir,
-                                        permissionTier: invocationPermission,
-                                        cliSessionId: attemptCliSessionId,
-                                        modelOverride: persona.preferredModelId,
-                                        extraEnvironment: injectedEnv,
-                                        onDelta: onDelta,
-                                        onEvent: onCLIEvent
-                                    )
+                                    do {
+                                        let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: convId)
+                                        return try await PipiInferenceEngine.invokeLocalAgent(
+                                            kind: kind,
+                                            systemPrompt: effectiveSystemPrompt,
+                                            history: attemptHistory,
+                                            workingDirectory: workDir,
+                                            permissionTier: invocationPermission,
+                                            cliSessionId: attemptCliSessionId,
+                                            modelOverride: persona.preferredModelId,
+                                            extraEnvironment: injectedEnv,
+                                            onDelta: onDelta,
+                                            onEvent: onCLIEvent
+                                        )
+                                    } catch {
+                                        if Task.isCancelled { throw error }
+                                        return try await self.recoverFromLocalCLIFailure(
+                                            failedKind: kind,
+                                            originalError: error,
+                                            systemPrompt: effectiveSystemPrompt,
+                                            history: attemptHistory,
+                                            conversationId: convId,
+                                            persona: persona,
+                                            workDir: workDir,
+                                            permissionTier: invocationPermission,
+                                            runId: runId,
+                                            placeholderMessageId: placeholderId,
+                                            onDelta: onDelta,
+                                            onCLIEvent: onCLIEvent
+                                        )
+                                    }
                                 }
                             }
 
@@ -3076,7 +3226,8 @@ public final class PipiAppStore {
                         steps: result.steps,
                         planItems: result.planItems,
                         fileChanges: result.fileChanges,
-                        summaryInfo: s
+                        summaryInfo: s,
+                        attachments: result.attachments
                     )
                 }
 
@@ -3089,7 +3240,8 @@ public final class PipiAppStore {
                     steps: finalResult.steps,
                     planItems: finalResult.planItems,
                     fileChanges: finalResult.fileChanges,
-                    summaryInfo: finalResult.summaryInfo
+                    summaryInfo: finalResult.summaryInfo,
+                    attachments: finalResult.attachments
                 )
                 self.telemetryMonitor.finishInference(
                     runId: runId,
@@ -3207,19 +3359,36 @@ public final class PipiAppStore {
                                 onCLIEvent
                             )
                         } else {
-                            let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: cliDir.agent, profileId: convId)
-                            cliResult = try await PipiInferenceEngine.invokeLocalAgent(
-                                kind: cliDir.agent,
-                                systemPrompt: effectiveSystemPrompt,
-                                history: cliHistory,
-                                workingDirectory: workDir,
-                                permissionTier: cliTier,
-                                cliSessionId: existingCliSessionId,
-                                modelOverride: persona.preferredModelId,
-                                extraEnvironment: injectedEnv,
-                                onDelta: nil,
-                                onEvent: onCLIEvent
-                            )
+                            do {
+                                let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: cliDir.agent, profileId: convId)
+                                cliResult = try await PipiInferenceEngine.invokeLocalAgent(
+                                    kind: cliDir.agent,
+                                    systemPrompt: effectiveSystemPrompt,
+                                    history: cliHistory,
+                                    workingDirectory: workDir,
+                                    permissionTier: cliTier,
+                                    cliSessionId: existingCliSessionId,
+                                    modelOverride: persona.preferredModelId,
+                                    extraEnvironment: injectedEnv,
+                                    onDelta: nil,
+                                    onEvent: onCLIEvent
+                                )
+                            } catch {
+                                cliResult = try await self.recoverFromLocalCLIFailure(
+                                    failedKind: cliDir.agent,
+                                    originalError: error,
+                                    systemPrompt: effectiveSystemPrompt,
+                                    history: cliHistory,
+                                    conversationId: convId,
+                                    persona: persona,
+                                    workDir: workDir,
+                                    permissionTier: cliTier,
+                                    runId: runId,
+                                    placeholderMessageId: placeholderId,
+                                    onDelta: onDelta,
+                                    onCLIEvent: onCLIEvent
+                                )
+                            }
                         }
                         if let sid = cliResult.cliSessionId, !sid.isEmpty,
                            let cIdx = self.conversations.firstIndex(where: { $0.id == convId }) {
@@ -3227,18 +3396,19 @@ public final class PipiAppStore {
                         }
                         let combinedText = [
                             preamble,
-                            "🔧 **\(cliDir.agent.displayName)**" + (cliDir.reason.isEmpty ? "" : "（\(cliDir.reason)）") + "\n\n" + cliResult.text
+                            cliResult.text
                         ].filter { !$0.isEmpty }.joined(separator: "\n\n")
                         self.finalizeStreamingMessage(
                             conversationId: convId,
                             messageId: placeholderId,
                             finalContent: combinedText,
-                            engineLabel: "\(engineLabel) → \(cliDir.agent.displayName)",
+                            engineLabel: "\(engineLabel) → \(cliResult.engineLabel)",
                             isError: false,
                             steps: cliResult.steps,
                             planItems: cliResult.planItems,
                             fileChanges: cliResult.fileChanges,
-                            summaryInfo: cliResult.summaryInfo
+                            summaryInfo: cliResult.summaryInfo,
+                            attachments: cliResult.attachments
                         )
                     }
                 }
@@ -3700,7 +3870,8 @@ public final class PipiAppStore {
         steps: [PipiStepEvent] = [],
         planItems: [PipiPlanItem] = [],
         fileChanges: [PipiFileChange] = [],
-        summaryInfo: PipiSessionSummaryInfo? = nil
+        summaryInfo: PipiSessionSummaryInfo? = nil,
+        attachments: [PipiChatAttachment] = []
     ) {
         guard let cIdx = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
         let nowIso = ISO8601DateFormatter().string(from: Date())
@@ -3708,6 +3879,13 @@ public final class PipiAppStore {
             conversations[cIdx].messages[mIdx].content = finalContent
             conversations[cIdx].messages[mIdx].engineLabel = engineLabel
             conversations[cIdx].messages[mIdx].isError = isError
+            if !attachments.isEmpty {
+                var existing = conversations[cIdx].messages[mIdx].attachments ?? []
+                for att in attachments where !existing.contains(where: { $0.path == att.path }) {
+                    existing.append(att)
+                }
+                conversations[cIdx].messages[mIdx].attachments = existing
+            }
             if !steps.isEmpty {
                 conversations[cIdx].messages[mIdx].steps = steps
             }
@@ -3833,23 +4011,38 @@ public final class PipiAppStore {
                 sections.append("[Personal Memory & Preferences]\n\(trimmedNote)")
             }
         }
+        let skillPackSection = ecosystemManager.activeSkillsPromptSection(forPersonaId: persona.id, hostId: persona.hostId)
+        if !skillPackSection.isEmpty {
+            sections.append(skillPackSection)
+        }
+
+        // Jarvis Companion Persona & Native Capabilities
+        sections.append(
+            """
+            [PiPiBot Jarvis 个人管家模式 · 轻松活泼伙伴风]
+            你是主人这台 Mac 上真正能干活的贴身个人管家（就像钢铁侠里的 Jarvis，但说话像微信好友一样轻松活泼、自然带表情、不打官腔）。
+            核心行为准则：
+            1. 主动动手，绝不推脱：你拥有完整的原生工具箱（list_directory / read_file / search_files / write_file / edit_file / run_shell / get_system_status / web_search / fetch_webpage / capture_screenshot / record_screen / synthesize_voice / send_local_file / render_visual_card / generate_image / delegate_cli_agent / read_calendar_and_reminders / create_routine_or_reminder / read_mail_or_sms / send_mail_or_sms / show_control_menu / list_or_switch_bot / create_bot / switch_session_or_project / configure_group_mode / update_settings / check_updates）。
+            2. 严禁说出“我只是纯文本对话模型”“我无法访问本地文件/磁盘”“我不能发语音/图片/附件”“我这里没有菜单”这类推脱话术！
+            3. 用户提到本地目录或项目（如“桌面上的 Projects/FSD”）：立刻调用 list_directory + read_file 亲自翻看源码和 README，直接总结核心架构与用途；不需要把命令贴给用户自己跑。
+            4. 用户要语音（如“发条语音给我”）：立刻调用 synthesize_voice 合成语音附件发给用户，同时配一句轻松文字。
+            5. 用户要图片/截图/文件/附件：立刻调用 capture_screenshot、render_visual_card、generate_image 或 send_local_file 真实发给用户。
+            6. 用户要看菜单、建 Bot、切 Bot/会话/项目、开群聊、改配置、查更新、设提醒或早报：直接调用对应管家控制工具落地生效。
+            7. 遇到任何工具或外部 CLI 报错，自己换方案兜底解决，最后用友好口吻汇报结果，绝对不要把原始 stderr 报错堆栈直接甩给用户！
+            当前默认工作区：\(workspaceDirectory)
+            """
+        )
+
         if !usableLocalAgents.isEmpty {
             let agents = usableLocalAgents.map(\.kind)
             let names = agents.map(\.displayName).joined(separator: ", ")
-            let preferredKind = agents.contains(.codex) ? PipiLocalAgentKind.codex : agents[0]
             if proactiveCLIDelegationEnabled {
                 sections.append(
-                    """
-                    [PiPi Built-in Engine & Proactive CLI Sub-Agents]
-                    You run on PiPi (built-in pi agent kernel). Enabled local CLI coding/terminal agents on this Mac: \(names).
-                    PROACTIVE DELEGATION RULE: Whenever the user's request requires reading/modifying local repository files, debugging code, running tests/builds, inspecting git status, or executing terminal commands, DO NOT say you lack terminal access and DO NOT ask the user to type `/codex`. Instead, proactively delegate by outputting a single XML tag:
-                    <pipibot_cli_delegate agent="\(preferredKind.rawValue)" mode="readonly|write" reason="short reason">exact actionable task for the CLI agent</pipibot_cli_delegate>
-                    Use `mode="readonly"` for inspection, diagnosis, git/test checks, and analysis; use `mode="write"` when files should be edited or builds/mutating commands must run (PiPi's Security Auditor & Guardrail will automatically review and ask the user if needed).
-                    """
+                    "[已就绪的本地工程 CLI 助手]\n本机已安装：\(names)。对于简单目录查看/读文件/运行命令请直接用你的原生工具完成；仅在需要大型多文件代码重构时调用 `delegate_cli_agent` 工具（失败时自动回退到你的原生工具继续完成）。"
                 )
             } else {
                 sections.append(
-                    "[PiPi Built-in Engine & External Sub-Agents]\nYou run on PiPi (built-in pi agent kernel). Enabled external CLI sub-agents available for on-demand coding/terminal delegation: \(names). The user can invoke them directly via /claude, /codex, or /opencode."
+                    "[已就绪的本地工程 CLI 助手]\n本机已安装：\(names)，用户可通过 /claude、/codex 或 /opencode 按需调用。"
                 )
             }
         }
@@ -3886,7 +4079,7 @@ public final class PipiAppStore {
         sseTask = nil
         routineSchedulerTask?.cancel()
         routineSchedulerTask = nil
-        for groupId in Array(groupRunTasks.keys) {
+        for groupId in Set(groupRunTasksByRunId.values.map(\.groupId)) {
             stopGroupChat(groupId)
         }
         if enableEmbeddedBridge || companionSyncEnabled {
@@ -4038,8 +4231,20 @@ public final class PipiAppStore {
     }
 
     public func isGroupRunning(_ groupId: String) -> Bool {
-        guard let set = activeGroupRuns[groupId] else { return false }
-        return !set.isEmpty
+        if let set = activeGroupRuns[groupId], !set.isEmpty {
+            return true
+        }
+        return groupRunTasksByRunId.values.contains(where: { $0.groupId == groupId })
+    }
+
+    public func activeLanes(forGroup groupId: String) -> [PipiGroupActiveLane] {
+        activeGroupLanes.filter { $0.groupId == groupId }
+    }
+
+    public func stopGroupLane(_ runId: String) {
+        groupRunTasksByRunId[runId]?.task.cancel()
+        groupRunTasksByRunId.removeValue(forKey: runId)
+        activeGroupLanes.removeAll { $0.runId == runId }
     }
 
     public func isBotWorkingInGroup(_ personaId: String, groupId: String) -> Bool {
@@ -4160,8 +4365,12 @@ public final class PipiAppStore {
     }
 
     public func stopGroupChat(_ groupId: String) {
-        groupRunTasks[groupId]?.cancel()
-        groupRunTasks.removeValue(forKey: groupId)
+        let matchingRunIds = groupRunTasksByRunId.filter { $0.value.groupId == groupId }.map(\.key)
+        for rid in matchingRunIds {
+            groupRunTasksByRunId[rid]?.task.cancel()
+            groupRunTasksByRunId.removeValue(forKey: rid)
+        }
+        activeGroupLanes.removeAll { $0.groupId == groupId }
         activeGroupRuns.removeValue(forKey: groupId)
         activeGroupStreamingMessageIds.removeValue(forKey: groupId)
         activeGroupRunStartTimes.removeValue(forKey: groupId)
@@ -4777,9 +4986,8 @@ public final class PipiAppStore {
             return []
         }
 
-        if groupRunTasks[groupId] != nil || isGroupRunning(groupId) {
-            stopGroupChat(groupId)
-        }
+        // Per-Task True Parallel Lanes: NEVER cancel in-flight tasks in the same group when new messages arrive!
+        let runId = "grun_\(UUID().uuidString.prefix(8).lowercased())"
 
         let resolvedTopicId: String? = {
             if let topicId {
@@ -4819,12 +5027,15 @@ public final class PipiAppStore {
                 forcedTargetPersonaIds: forcedTargetPersonaIds
             )
         }
-        groupRunTasks[groupId] = task
+        groupRunTasksByRunId[runId] = (groupId: groupId, task: task)
         let produced = await task.value
-        groupRunTasks.removeValue(forKey: groupId)
-        activeGroupRuns.removeValue(forKey: groupId)
-        activeGroupStreamingMessageIds.removeValue(forKey: groupId)
-        activeGroupRunStartTimes.removeValue(forKey: groupId)
+        groupRunTasksByRunId.removeValue(forKey: runId)
+        let stillHasOtherRuns = groupRunTasksByRunId.values.contains(where: { $0.groupId == groupId })
+        if !stillHasOtherRuns {
+            activeGroupRuns.removeValue(forKey: groupId)
+            activeGroupStreamingMessageIds.removeValue(forKey: groupId)
+            activeGroupRunStartTimes.removeValue(forKey: groupId)
+        }
         if !produced.isEmpty {
             incrementGroupUnreadIfNotVisible(groupId)
         }
@@ -5159,9 +5370,13 @@ public final class PipiAppStore {
         systemPromptSuffix: String,
         roleTag: String?,
         project: PipiProject?,
-        topicId: String?
+        topicId: String?,
+        handoffHop: Int = 0,
+        handoffArtifactIds: [String] = []
     ) async -> (message: PipiGroupMessage, succeeded: Bool) {
-        guard let target = resolvedActiveTarget(for: persona) else {
+        let isRemoteTarget = persona.isRemoteHost && sessionInferenceExecutor == nil && inferenceExecutor == nil
+        let target: PipiExecutionTarget? = isRemoteTarget ? .auto : resolvedActiveTarget(for: persona)
+        guard let target else {
             let errMsg = PipiGroupMessage(
                 senderKind: .bot(personaId: persona.id),
                 content: strings.noConfiguredEngineGuide,
@@ -5178,10 +5393,25 @@ public final class PipiAppStore {
             return (errMsg, false)
         }
 
+        let hostBadge = persona.hostBadgeLabel(resolvedLanguage)
+        let laneId = "lane_\(UUID().uuidString.prefix(8).lowercased())"
+        activeGroupLanes.append(PipiGroupActiveLane(
+            runId: laneId,
+            groupId: groupId,
+            topicId: topicId,
+            personaId: persona.id,
+            personaName: persona.name(resolvedLanguage),
+            hostLabel: hostBadge,
+            statusText: isRemoteTarget ? "正在连接 [\(hostBadge)]…" : "正在并行处理…"
+        ))
+
         let engineLabel: String = {
+            if isRemoteTarget {
+                return "🖥️ \(hostBadge)"
+            }
             switch target {
             case .llm(let pid):
-                if let cfg = llmProviders.first(where: { $0.id == pid }) {
+                if let cfg = resolvedEffectiveLLMConfig(providerId: pid, for: persona) {
                     return "\(cfg.name) · \(cfg.modelId)"
                 }
                 return strings.appName
@@ -5229,7 +5459,9 @@ public final class PipiAppStore {
         }
 
         defer {
-            if var set = activeGroupRuns[groupId] {
+            activeGroupLanes.removeAll { $0.runId == laneId }
+            let stillActiveSameBot = activeGroupLanes.contains { $0.groupId == groupId && $0.personaId == persona.id }
+            if !stillActiveSameBot, var set = activeGroupRuns[groupId] {
                 set.remove(persona.id)
                 if set.isEmpty {
                     activeGroupRuns.removeValue(forKey: groupId)
@@ -5307,91 +5539,173 @@ public final class PipiAppStore {
         do {
             if Task.isCancelled { throw CancellationError() }
             let result: PipiInferenceResult
-            switch target {
-            case .llm(let providerId):
-                guard let cfg = llmProviders.first(where: { $0.id == providerId }) else {
+            if isRemoteTarget {
+                let remoteOutcome = try await meshHubClient.dispatchAndAwaitTask(
+                    targetNodeId: persona.hostId,
+                    prompt: promptText,
+                    botId: persona.id,
+                    botName: persona.name(resolvedLanguage),
+                    groupId: groupId,
+                    topicId: topicId,
+                    handoffFromBot: handoffHop > 0 ? "handoff" : nil,
+                    handoffHop: handoffHop,
+                    artifactIds: handoffArtifactIds,
+                    onProgress: { [weak self] stepNote in
+                        await MainActor.run {
+                            if let idx = self?.activeGroupLanes.firstIndex(where: { $0.runId == laneId }) {
+                                self?.activeGroupLanes[idx].statusText = stepNote
+                            }
+                        }
+                    }
+                )
+                let deliverablesDir = localDataRootURL.appendingPathComponent("deliverables", isDirectory: true)
+                var downloadedNotes: [String] = []
+                for artId in remoteOutcome.artifactIds {
+                    if let art = await meshHubClient.downloadArtifact(artifactId: artId, deliverablesDir: deliverablesDir) {
+                        macOmnipotentEngine.registerArtifact(art)
+                        downloadedNotes.append("📎 跨机产物已同步：\(art.fileName) (`\(art.filePath)`)")
+                    }
+                }
+                let finalRemoteText = ([remoteOutcome.text] + downloadedNotes)
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .joined(separator: "\n\n")
+                result = PipiInferenceResult(text: finalRemoteText, engineLabel: "🖥️ \(hostBadge)")
+            } else {
+                switch target {
+                case .llm(let providerId):
+                    guard let cfg = resolvedEffectiveLLMConfig(providerId: providerId, for: persona) else {
+                        throw PipiInferenceError.emptyResponse
+                    }
+                    if let customSessionExecutor {
+                        result = try await customSessionExecutor(
+                            target,
+                            cfg,
+                            effectiveSystemPrompt,
+                            history,
+                            workDir,
+                            effectivePermission,
+                            nil,
+                            onDelta,
+                            onCLIEvent
+                        )
+                    } else if let customExecutor {
+                        result = try await customExecutor(
+                            target,
+                            cfg,
+                            effectiveSystemPrompt,
+                            history,
+                            workDir,
+                            onDelta
+                        )
+                    } else {
+                        result = try await PipiInferenceEngine.invokeLLM(
+                            config: cfg,
+                            systemPrompt: effectiveSystemPrompt,
+                            history: history,
+                            onDelta: onDelta
+                        )
+                    }
+
+                case .localAgent(let kind):
+                    let safePerm: PipiPermissionTier = (effectivePermission == .ask) ? .readOnly : effectivePermission
+                    if let customSessionExecutor {
+                        result = try await customSessionExecutor(
+                            target,
+                            nil,
+                            effectiveSystemPrompt,
+                            history,
+                            workDir,
+                            safePerm,
+                            nil,
+                            onDelta,
+                            onCLIEvent
+                        )
+                    } else if let customExecutor {
+                        result = try await customExecutor(
+                            target,
+                            nil,
+                            effectiveSystemPrompt,
+                            history,
+                            workDir,
+                            onDelta
+                        )
+                    } else {
+                        let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: groupId)
+                        result = try await PipiInferenceEngine.invokeLocalAgent(
+                            kind: kind,
+                            systemPrompt: effectiveSystemPrompt,
+                            history: history,
+                            workingDirectory: workDir,
+                            permissionTier: safePerm,
+                            cliSessionId: nil,
+                            extraEnvironment: injectedEnv,
+                            onDelta: onDelta,
+                            onEvent: onCLIEvent
+                        )
+                    }
+
+                case .auto:
                     throw PipiInferenceError.emptyResponse
                 }
-                if let customSessionExecutor {
-                    result = try await customSessionExecutor(
-                        target,
-                        cfg,
-                        effectiveSystemPrompt,
-                        history,
-                        workDir,
-                        effectivePermission,
-                        nil,
-                        onDelta,
-                        onCLIEvent
-                    )
-                } else if let customExecutor {
-                    result = try await customExecutor(
-                        target,
-                        cfg,
-                        effectiveSystemPrompt,
-                        history,
-                        workDir,
-                        onDelta
-                    )
-                } else {
-                    result = try await PipiInferenceEngine.invokeLLM(
-                        config: cfg,
-                        systemPrompt: effectiveSystemPrompt,
-                        history: history,
-                        onDelta: onDelta
-                    )
-                }
+            }
 
-            case .localAgent(let kind):
-                let safePerm: PipiPermissionTier = (effectivePermission == .ask) ? .readOnly : effectivePermission
-                if let customSessionExecutor {
-                    result = try await customSessionExecutor(
-                        target,
-                        nil,
-                        effectiveSystemPrompt,
-                        history,
-                        workDir,
-                        safePerm,
-                        nil,
-                        onDelta,
-                        onCLIEvent
-                    )
-                } else if let customExecutor {
-                    result = try await customExecutor(
-                        target,
-                        nil,
-                        effectiveSystemPrompt,
-                        history,
-                        workDir,
-                        onDelta
-                    )
-                } else {
-                    let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: groupId)
-                    result = try await PipiInferenceEngine.invokeLocalAgent(
-                        kind: kind,
-                        systemPrompt: effectiveSystemPrompt,
-                        history: history,
-                        workingDirectory: workDir,
-                        permissionTier: safePerm,
-                        cliSessionId: nil,
-                        extraEnvironment: injectedEnv,
-                        onDelta: onDelta,
-                        onEvent: onCLIEvent
-                    )
-                }
+            // Cross-Machine `@Agent` Handoff: detect `<pipi_handoff target="@name" artifact="optional/path">...</pipi_handoff>`
+            var displayResultText = result.text
+            if handoffHop < 3, let handoff = PipiHandoffParser.extract(from: result.text) {
+                let targetQuery = handoff.directive.targetQuery
+                let participants = groupChats.first(where: { $0.id == groupId })?.participantPersonaIds ?? []
+                if let targetPersona = personas.first(where: { p in
+                    p.id != persona.id &&
+                        participants.contains(p.id) &&
+                        (p.nameZh.localizedCaseInsensitiveContains(targetQuery)
+                            || p.nameEn.localizedCaseInsensitiveContains(targetQuery)
+                            || (p.hostDisplayName?.localizedCaseInsensitiveContains(targetQuery) == true))
+                }) {
+                    let targetHost = targetPersona.hostBadgeLabel(resolvedLanguage)
+                    let handoffNote = "🔀 已跨机交接给 @\(targetPersona.name(resolvedLanguage)) [\(targetHost)]：\(handoff.directive.instruction)"
+                    displayResultText = [handoff.cleanedText, handoffNote].filter { !$0.isEmpty }.joined(separator: "\n\n")
 
-            case .auto:
-                throw PipiInferenceError.emptyResponse
+                    var relayArtifactIds: [String] = []
+                    if let artPath = handoff.directive.artifactPath {
+                        let expanded = PipiJarvisToolRiskEvaluator.resolveExpandedPath(artPath, workspaceDirectory: workDir)
+                        if FileManager.default.fileExists(atPath: expanded),
+                           let uploadedId = await meshHubClient.uploadArtifact(fileURL: URL(fileURLWithPath: expanded), sourceNodeId: persona.hostId) {
+                            relayArtifactIds.append(uploadedId)
+                        }
+                    }
+
+                    let handoffRunId = "ghandoff_\(UUID().uuidString.prefix(8).lowercased())"
+                    let handoffTask = Task { @MainActor [weak self] () -> [PipiGroupMessage] in
+                        guard let self else { return [] }
+                        let res = await self.invokeSingleBotForGroup(
+                            groupId: groupId,
+                            persona: targetPersona,
+                            promptText: "[来自 @\(persona.name(self.resolvedLanguage)) (\(hostBadge)) 的跨机交接]\n\(handoff.directive.instruction)",
+                            systemPromptSuffix: systemPromptSuffix,
+                            roleTag: "跨机接力",
+                            project: project,
+                            topicId: topicId,
+                            handoffHop: handoffHop + 1,
+                            handoffArtifactIds: relayArtifactIds
+                        )
+                        return [res.message]
+                    }
+                    groupRunTasksByRunId[handoffRunId] = (groupId: groupId, task: handoffTask)
+                    Task { @MainActor [weak self] in
+                        _ = await handoffTask.value
+                        self?.groupRunTasksByRunId.removeValue(forKey: handoffRunId)
+                    }
+                }
             }
 
             let parsedOutMentions = parseGroupMentions(
-                in: result.text,
+                in: displayResultText,
                 participantPersonaIds: groupChats.first(where: { $0.id == groupId })?.participantPersonaIds ?? []
             )
             let updatedAt = ISO8601DateFormatter().string(from: Date())
             if let gIdx = groupChats.firstIndex(where: { $0.id == groupId }),
                let mIdx = groupChats[gIdx].messages.firstIndex(where: { $0.id == msgId }) {
-                groupChats[gIdx].messages[mIdx].content = result.text
+                groupChats[gIdx].messages[mIdx].content = displayResultText
                 groupChats[gIdx].messages[mIdx].engineLabel = result.engineLabel
                 groupChats[gIdx].messages[mIdx].mentionedPersonaIds = parsedOutMentions.mentionedIds
                 groupChats[gIdx].updatedAt = updatedAt
@@ -5399,7 +5713,7 @@ public final class PipiAppStore {
                 return (groupChats[gIdx].messages[mIdx], true)
             }
             var fallback = placeholder
-            fallback.content = result.text
+            fallback.content = displayResultText
             fallback.engineLabel = result.engineLabel
             fallback.mentionedPersonaIds = parsedOutMentions.mentionedIds
             return (fallback, true)
@@ -7504,7 +7818,7 @@ public final class PipiAppStore {
                     guard let self else {
                         return PipiRemoteControlSnapshot(
                             hostName: "Mac",
-                            appVersion: "0.10.0",
+                            appVersion: "0.11.0",
                             activeModelLabel: "",
                             language: "zh-Hans",
                             bots: [],
@@ -8167,6 +8481,7 @@ public final class PipiAppStore {
         var playableURL = URL(fileURLWithPath: filePath)
         var tempWavURL: URL? = nil
 
+        #if os(macOS)
         // Convert to WAV if non-native container and `ffmpeg` or `afconvert` is available
         if ext != "wav" && ext != "m4a" && ext != "mp3" && ext != "caf" {
             let candidateWav = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("pipi_wx_voice_\(UUID().uuidString.prefix(8)).wav")
@@ -8196,6 +8511,7 @@ public final class PipiAppStore {
                 }
             }
         }
+        #endif
         defer {
             if let tempWavURL {
                 try? FileManager.default.removeItem(at: tempWavURL)
@@ -8499,7 +8815,7 @@ public final class PipiAppStore {
                             proactiveCLIDelegationEnabled: true,
                             typingIndicatorEnabled: typingEnabled,
                             memoryEnabled: true,
-                            appVersion: "0.10.0"
+                            appVersion: "0.11.0"
                         )
                     }
                     let lang = self.resolvedLanguage
@@ -8576,6 +8892,886 @@ public final class PipiAppStore {
                         self.wechatILinkManager.groupMemberBotIds = memberIds
                     }
                     self.saveResidentState()
+                }
+            },
+            executeTurnWithProgress: { [weak self] botId, requestedConvId, projectId, prompt, attachments, fromUserId, onProgress in
+                guard let self else {
+                    return (PipiWeChatOutboundReply(botName: "PiPiBot", text: "Mac 端服务未就绪。"), nil)
+                }
+                let (convId, botName, beforeMsgCount) = await MainActor.run { () -> (String, String, Int) in
+                    let lang = self.resolvedLanguage
+                    let bot = self.personas.first(where: { $0.id == botId }) ?? self.activePersona
+                    let conv: PipiConversation
+                    if let requestedConvId,
+                       let found = self.conversations.first(where: { $0.id == requestedConvId && !$0.isArchived }) {
+                        conv = found
+                        if let projectId, found.projectId != projectId {
+                            self.moveConversation(found.id, toProject: projectId)
+                        }
+                    } else {
+                        let titleTag = "微信 · \(bot.name(lang))"
+                        if let existing = self.conversations.first(where: { $0.personaId == bot.id && $0.title == titleTag && !$0.isArchived }) {
+                            conv = existing
+                            if let projectId, existing.projectId != projectId {
+                                self.moveConversation(existing.id, toProject: projectId)
+                            }
+                        } else {
+                            conv = self.createConversation(for: bot.id, projectId: projectId, title: titleTag, activate: false)
+                        }
+                    }
+                    return (conv.id, bot.name(lang), conv.messages.count)
+                }
+
+                await self.sendPersonalMessage(
+                    prompt,
+                    attachments: attachments,
+                    conversationId: convId,
+                    personaId: botId,
+                    activateTargetConversation: false,
+                    onProgress: onProgress
+                )
+
+                return await MainActor.run {
+                    let conv = self.conversations.first(where: { $0.id == convId })
+                    let newAssistantMsgs = (conv?.messages.dropFirst(beforeMsgCount) ?? []).filter { $0.role == .assistant }
+                    let latest = newAssistantMsgs.last
+                    let replyText = latest?.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? "已在 Mac 端完成处理。"
+                    let artifacts: [PipiDeliverableArtifact] = (latest?.attachments ?? []).compactMap { att in
+                        if let art = self.macOmnipotentEngine.artifact(id: att.id) {
+                            return art
+                        }
+                        if FileManager.default.fileExists(atPath: att.path) {
+                            let (kind, mime) = PipiDeliverableArtifact.inferKindAndMime(for: att.path)
+                            let art = PipiDeliverableArtifact(
+                                id: att.id,
+                                kind: kind,
+                                fileName: att.name,
+                                filePath: att.path,
+                                mimeType: mime,
+                                byteSize: Int64(att.sizeBytes)
+                            )
+                            self.macOmnipotentEngine.registerArtifact(art)
+                            return art
+                        }
+                        return nil
+                    }
+
+                    let pendingAppr: PipiWeChatPendingApprovalInfo? = conv?.approvals
+                        .last(where: { $0.status == .pending })
+                        .map { appr in
+                            PipiWeChatPendingApprovalInfo(
+                                approvalId: appr.id,
+                                question: appr.question,
+                                rationale: appr.rationale ?? appr.detail ?? "需要您的安全确认。",
+                                riskLevel: appr.riskLevel ?? .medium,
+                                options: appr.options.map { ($0.id, $0.label) }
+                            )
+                        }
+
+                    _ = fromUserId
+                    return (
+                        PipiWeChatOutboundReply(
+                            botName: botName,
+                            text: replyText,
+                            artifacts: artifacts,
+                            pendingApproval: pendingAppr
+                        ),
+                        convId
+                    )
+                }
+            },
+            synthesizeVoiceReply: { [weak self] spokenText, botId in
+                guard let self else { return nil }
+                let voiceName: String? = await MainActor.run {
+                    if let bot = self.personas.first(where: { $0.id == botId }),
+                       let opt = PipiVoiceTimbreOption.builtInPresets.first(where: { $0.id == bot.voiceProfileId }) {
+                        return opt.systemVoiceIdentifier
+                    }
+                    return nil
+                }
+                let res = await self.macOmnipotentEngine.synthesizeVoiceClip(text: spokenText, voiceName: voiceName)
+                return res.artifacts.first
+            }
+        )
+    }
+
+    // MARK: - Jarvis Native Multi-Step Agent Loop, CLI Self-Recovery, Local Vault Migration & Proactive Butler
+
+    /// Manual one-time import from legacy macOS Keychain into the zero-popup local AES-256-GCM vault.
+    /// Never invoked automatically at launch.
+    @discardableResult
+    public func importSecretsFromLegacyKeychain() -> Int {
+        guard let vault = secretStore as? PipiLocalEncryptedSecretStore else {
+            return 0
+        }
+        var accounts = llmProviders.map(\.secretAccountKey)
+        accounts.append("wechat_ilink_bot_credentials_v1")
+        accounts.append(voiceConfig.cloudStt.keychainAccount)
+        accounts.append(voiceConfig.cloudTts.keychainAccount)
+
+        let imported = vault.migrateFromLegacyKeychain(accounts: accounts)
+        if imported > 0 {
+            for idx in llmProviders.indices {
+                let acct = llmProviders[idx].secretAccountKey
+                if llmProviders[idx].apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let sec = vault.secret(for: acct), !sec.isEmpty {
+                    llmProviders[idx].apiKey = sec
+                }
+            }
+            refreshLocalHostCapabilities()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let restored = await self.wechatILinkManager.restoreSavedCredentialsInBackground()
+                if restored && self.wechatAutoConnectEnabled {
+                    self.reconnectWeChatILink()
+                }
+            }
+            noticeBanner = "已从旧版 Keychain 成功导入 \(imported) 项凭据到本地加密保险库，以后再也不会弹密码窗啦！"
+        } else {
+            noticeBanner = "本地加密保险库已是最新状态，未发现需要迁入的旧版凭据。"
+        }
+        return imported
+    }
+
+    /// Connects to a local built-in or remote self-hosted Linux VPS Mesh Hub and syncs online nodes.
+    public func connectMeshHub(url: String, token: String = "") async {
+        meshHubClient.hubURLString = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        meshHubClient.hubToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = await refreshMeshNodes()
+    }
+
+    /// Refreshes online multi-machine nodes from the configured Mesh Hub.
+    @discardableResult
+    public func refreshMeshNodes() async -> [PipiMeshNodeInfo] {
+        let fetched = await meshHubClient.refreshNodes()
+        for node in fetched {
+            _ = ensurePersonaForMeshNode(node, saveImmediately: false)
+        }
+        if !fetched.isEmpty {
+            saveResidentState()
+        }
+        return fetched
+    }
+
+    /// Binds an existing Bot persona to run on a specific remote Mesh Hub node (or back to Local Mac when nil).
+    public func bindPersona(_ personaId: String, toHostNode node: PipiMeshNodeInfo?) {
+        guard let idx = personas.firstIndex(where: { $0.id == personaId }) else { return }
+        if let node {
+            personas[idx].hostId = node.nodeId
+            personas[idx].hostDisplayName = node.name
+        } else {
+            personas[idx].hostId = PipiHostDescriptor.localHostId
+            personas[idx].hostDisplayName = nil
+        }
+        saveResidentState()
+    }
+
+    /// Ensures a directly chat-able / group-mentionable Bot persona exists for a discovered remote Linux/Mac node
+    /// so users can @mention or chat with any machine's Agent without switching workspaces!
+    @discardableResult
+    public func ensurePersonaForMeshNode(_ node: PipiMeshNodeInfo, saveImmediately: Bool = true) -> PipiBotPersona {
+        let personaId = "bot_mesh_\(node.nodeId.lowercased().replacingOccurrences(of: " ", with: "_"))"
+        if let existingIdx = personas.firstIndex(where: { $0.id == personaId || $0.hostId == node.nodeId }) {
+            personas[existingIdx].hostDisplayName = node.name
+            if saveImmediately { saveResidentState() }
+            return personas[existingIdx]
+        }
+        let gpuHint = node.telemetry.gpuSummary.map { " · GPU: \($0)" } ?? ""
+        let cliHint = node.cliAgents.isEmpty ? "原生工具箱" : node.cliAgents.joined(separator: "/")
+        let created = PipiBotPersona(
+            id: personaId,
+            hostId: node.nodeId,
+            hostDisplayName: node.name,
+            nameZh: "\(node.name) · 节点管家",
+            nameEn: "\(node.name) · Node Agent",
+            roleZh: "\(node.platformBadge)/\(node.arch) 远程主机执行节点（\(cliHint)\(gpuHint)）",
+            roleEn: "\(node.platformBadge)/\(node.arch) remote execution node (\(cliHint)\(gpuHint))",
+            greetingZh: "嗨！我驻扎在「\(node.name)」(\(node.platformBadge)) 上，随时可以直接发指令或在群里 @我 跨机协作！",
+            greetingEn: "Hi! I run directly on \(node.name) (\(node.platformBadge)). Message or @mention me in any group!",
+            systemPrompt: "You are the remote node agent on \(node.name) (\(node.platformBadge)/\(node.arch)). Execute tasks directly on this machine and collaborate seamlessly with teammates across hosts.",
+            accent: node.platform.lowercased() == "linux" ? .emerald : .sky,
+            avatarShape: .orb,
+            idleAvatarState: .ambientBreathe,
+            preferredTarget: .auto,
+            permissionTier: .autoEdit
+        )
+        personas.append(created)
+        if saveImmediately { saveResidentState() }
+        return created
+    }
+
+    /// Installs a community SKILL.md pack (catalog ID, GitHub URL, or local directory) and syncs to Hub.
+    @discardableResult
+    public func installCommunitySkill(
+        source: String,
+        scope: PipiEcosystemScope = .global,
+        targetId: String? = nil
+    ) async -> PipiInstalledSkillPack {
+        let pack = await ecosystemManager.installSkill(
+            source: source,
+            scope: scope,
+            targetId: targetId,
+            hubClient: meshHubClient.isConnected ? meshHubClient : nil
+        )
+        noticeBanner = "已安装社区技能包「\(pack.name)」"
+        return pack
+    }
+
+    /// Installs a community MCP Server (stdio or SSE) and syncs to Hub.
+    @discardableResult
+    public func installCommunityMCP(
+        id: String? = nil,
+        name: String,
+        description: String = "Community MCP Server",
+        transport: PipiInstalledMCPServer.Transport = .stdio,
+        command: String? = nil,
+        args: [String] = [],
+        url: String? = nil,
+        scope: PipiEcosystemScope = .global,
+        targetId: String? = nil
+    ) async -> PipiInstalledMCPServer {
+        let srv = await ecosystemManager.installMCPServer(
+            id: id,
+            name: name,
+            description: description,
+            transport: transport,
+            command: command,
+            args: args,
+            url: url,
+            scope: scope,
+            targetId: targetId,
+            hubClient: meshHubClient.isConnected ? meshHubClient : nil
+        )
+        noticeBanner = "已安装 MCP 服务「\(srv.name)」"
+        return srv
+    }
+
+    /// Generates and delivers the Jarvis daily morning / pre-meeting briefing to Mac & WeChat.
+    public func triggerDailyBriefingNow() async {
+        let calSummary = await readCalendarAndRemindersSummary()
+        let failedCount = runRecords.prefix(20).filter { $0.status == .failed }.count
+        let briefing = await PipiProactiveButler.buildDailyBriefing(
+            calendarSummary: calSummary,
+            workspaceDirectory: workspaceDirectory,
+            recentFailedRunsCount: failedCount
+        )
+        await deliverSystemAndWeChatNotification(title: "☀️ PiPi 每日早报", body: briefing)
+    }
+
+    /// Runs the Mac health & GitHub release sentinel with 4-hour per-category anti-fatigue cooldown.
+    private func runProactiveSentinelSweep(now: Date = Date()) async {
+        let updateVer: String? = {
+            if case .updateAvailable(let rel) = updateManager.state {
+                return rel.version
+            }
+            return nil
+        }()
+        let alerts = await PipiProactiveButler.inspectSystemSentinel(availableUpdateVersion: updateVer)
+        for alert in alerts {
+            if let lastAt = lastSentinelAlertAtByCategory[alert.category],
+               now.timeIntervalSince(lastAt) < 14_400 {
+                continue
+            }
+            lastSentinelAlertAtByCategory[alert.category] = now
+            await deliverSystemAndWeChatNotification(title: "🔔 \(alert.title)", body: alert.body)
+        }
+    }
+
+    private func readCalendarAndRemindersSummary() async -> String {
+        let collectorInput = PipiNativeSignalCollectorInput(
+            enabledSources: Set([.calendarEventKit, .remindersEventKit]),
+            workspaceDirectories: [workspaceDirectory],
+            recentProfileNote: personalProfileNote,
+            now: Date()
+        )
+        let signals = await nativeSignalProvider.collectSignals(input: collectorInput)
+        let filtered = signals.filter { $0.source == .calendarEventKit || $0.source == .remindersEventKit }
+        var calLines: [String] = []
+        for sig in filtered.prefix(8) {
+            calLines.append("• \(sig.title)：\(sig.content)")
+        }
+        if calLines.isEmpty {
+            return "未来 24 小时内暂无待办日程或即将到期的提醒。"
+        }
+        return calLines.joined(separator: "\n")
+    }
+
+    /// Native multi-step Jarvis ReAct / Function-Calling loop with lively step-by-step narration,
+    /// workspace-wide auto-execution, Guard confirmation for high-risk actions, and artifact collection.
+    public func runJarvisAgentLoop(
+        config: PipiLLMProviderConfig,
+        systemPrompt: String,
+        history: [PipiChatMessage],
+        conversationId: String,
+        persona: PipiBotPersona,
+        workDir: String,
+        runId: String,
+        placeholderMessageId: String,
+        onDelta: (@Sendable (String) -> Void)?,
+        maxSteps: Int = 8
+    ) async throws -> PipiInferenceResult {
+        var wireMessages = PipiInferenceEngine.buildInitialAgentWireMessages(
+            systemPrompt: systemPrompt,
+            history: history
+        )
+        let deliverablesDir = localDataRootURL.appendingPathComponent("deliverables", isDirectory: true)
+        let callbacks = makeAgentHostCallbacks(conversationId: conversationId, personaId: persona.id)
+        let progressCallback = progressCallbacksByConversation[conversationId]
+        let lang = resolvedLanguage
+        let latestUserText = history.last(where: { $0.role == .user })?.content ?? ""
+
+        var collectedSteps: [PipiStepEvent] = []
+        var collectedArtifacts: [PipiDeliverableArtifact] = []
+        var sentInitialAck = false
+        var finalText = ""
+        var finalLabel = "\(config.name) · \(config.modelId)"
+
+        let dynamicMCPTools = ecosystemManager.dynamicMCPTools(forPersonaId: persona.id, hostId: persona.hostId)
+        let combinedTools = PipiAgentToolbox.allTools + dynamicMCPTools
+
+        for stepIdx in 1...maxSteps {
+            if Task.isCancelled { throw CancellationError() }
+
+            let stepResult = try await PipiInferenceEngine.invokeLLMWithTools(
+                config: config,
+                messages: wireMessages,
+                tools: combinedTools
+            )
+            finalLabel = stepResult.engineLabel
+
+            // No tool calls -> final answer ready!
+            if stepResult.toolCalls.isEmpty {
+                finalText = stepResult.text
+                if !finalText.isEmpty {
+                    onDelta?(finalText)
+                }
+                break
+            }
+
+            // Emit lively initial ack on the first tool round so user never waits in silence
+            if !sentInitialAck {
+                sentInitialAck = true
+                let ack = PipiLivelyProgressNarrator.initialAck(for: latestUserText, lang: lang)
+                if var runState = activeRuns[conversationId], runState.runId == runId {
+                    runState.statusText = ack
+                    activeRuns[conversationId] = runState
+                }
+                if let progressCallback {
+                    await progressCallback(ack)
+                }
+            }
+
+            wireMessages.append(.assistant(text: stepResult.text, toolCalls: stepResult.toolCalls))
+
+            var pausedForApprovalMessage: String? = nil
+
+            for tc in stepResult.toolCalls {
+                if Task.isCancelled { throw CancellationError() }
+
+                let narration = PipiLivelyProgressNarrator.narrateToolStep(tc, stepIndex: stepIdx, lang: lang)
+                if var runState = activeRuns[conversationId], runState.runId == runId {
+                    runState.statusText = narration
+                    activeRuns[conversationId] = runState
+                }
+                if let progressCallback {
+                    await progressCallback(narration)
+                }
+
+                let stepId = "jarvis_\(stepIdx)_\(UUID().uuidString.prefix(5).lowercased())"
+                let startedAt = Date()
+                var stepEvent = PipiStepEvent(
+                    id: stepId,
+                    verbPhrase: narration,
+                    detail: tc.argumentsJSON.count > 160 ? String(tc.argumentsJSON.prefix(160)) + "…" : tc.argumentsJSON,
+                    toolName: tc.name,
+                    status: .running
+                )
+                collectedSteps.append(stepEvent)
+
+                let execRes = await PipiAgentToolbox.execute(
+                    toolCall: tc,
+                    workspaceDirectory: workDir,
+                    llmConfig: config,
+                    deliverablesDirectory: deliverablesDir,
+                    callbacks: callbacks,
+                    skipRiskCheck: false
+                )
+                let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+                stepEvent.status = execRes.isError ? .failed : .succeeded
+                stepEvent.durationMs = elapsedMs
+                if let sIdx = collectedSteps.firstIndex(where: { $0.id == stepId }) {
+                    collectedSteps[sIdx] = stepEvent
+                }
+
+                if let risk = execRes.needsApproval, !risk.isHardDenied {
+                    emitToolApprovalCard(
+                        conversationId: conversationId,
+                        messageId: placeholderMessageId,
+                        toolCall: tc,
+                        workDir: workDir,
+                        risk: risk
+                    )
+                    pausedForApprovalMessage = "🛡️ 这一步涉及「\(risk.summary)」，\(risk.reason)\n\n我先帮你暂停在这里，等你确认后再动手～"
+                    break
+                }
+
+                if !execRes.artifacts.isEmpty {
+                    for art in execRes.artifacts where !collectedArtifacts.contains(where: { $0.filePath == art.filePath }) {
+                        collectedArtifacts.append(art)
+                    }
+                }
+
+                wireMessages.append(.toolResult(callId: tc.id, toolName: tc.name, content: execRes.output))
+            }
+
+            if let pausedMsg = pausedForApprovalMessage {
+                finalText = pausedMsg
+                onDelta?(pausedMsg)
+                break
+            }
+
+            // If we hit maxSteps without a final text turn, ask the model for a crisp wrap-up summary
+            if stepIdx == maxSteps {
+                wireMessages.append(.user(text: "请根据上面已拿到的全部工具结果，用轻松活泼、清晰明了的中文直接向主人汇报结论吧。", images: []))
+                let wrapUp = try await PipiInferenceEngine.invokeLLMWithTools(
+                    config: config,
+                    messages: wireMessages,
+                    tools: []
+                )
+                finalText = wrapUp.text
+                if !finalText.isEmpty { onDelta?(finalText) }
+            }
+        }
+
+        if finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            finalText = collectedArtifacts.isEmpty
+                ? "已经帮你处理好啦 ✨ 如果还想继续深入哪一块，随时告诉我！"
+                : "搞定啦！已经把你要的文件/媒体准备好并附在下面啦 ✨"
+        }
+
+        let chatAttachments: [PipiChatAttachment] = collectedArtifacts.map { art in
+            PipiChatAttachment(
+                id: art.id,
+                name: art.fileName,
+                path: art.filePath,
+                sizeBytes: Int(art.byteSize)
+            )
+        }
+
+        return PipiInferenceResult(
+            text: finalText,
+            engineLabel: collectedSteps.isEmpty ? finalLabel : "\(finalLabel) · Jarvis",
+            steps: collectedSteps,
+            attachments: chatAttachments
+        )
+    }
+
+    /// Automatically recovers when a local CLI agent (e.g. Codex) fails:
+    /// 1) tries another installed CLI agent; 2) falls back to PiPi's own Jarvis native tool loop;
+    /// NEVER dumps raw stderr stack traces to the user.
+    private func recoverFromLocalCLIFailure(
+        failedKind: PipiLocalAgentKind,
+        originalError: Error,
+        systemPrompt: String,
+        history: [PipiChatMessage],
+        conversationId: String,
+        persona: PipiBotPersona,
+        workDir: String,
+        permissionTier: PipiPermissionTier,
+        runId: String,
+        placeholderMessageId: String,
+        onDelta: (@Sendable (String) -> Void)?,
+        onCLIEvent: (@Sendable (PipiParsedCLIEvent) -> Void)?
+    ) async throws -> PipiInferenceResult {
+        let progressCallback = progressCallbacksByConversation[conversationId]
+
+        // 1. Try another usable local CLI agent if available
+        let alternativeAgents = usableLocalAgents
+            .map(\.kind)
+            .filter { $0 != failedKind }
+        for altKind in alternativeAgents {
+            if let progressCallback {
+                await progressCallback("\(failedKind.displayName) 这边刚才卡壳了，我自动换 \(altKind.displayName) 接着帮你跑 🔄")
+            }
+            if let injectedEnv = Optional(await resolveCLIReverseInjectionEnvironment(for: altKind, profileId: conversationId)),
+               let altResult = try? await PipiInferenceEngine.invokeLocalAgent(
+                   kind: altKind,
+                   systemPrompt: systemPrompt,
+                   history: history,
+                   workingDirectory: workDir,
+                   permissionTier: permissionTier,
+                   cliSessionId: nil,
+                   modelOverride: persona.preferredModelId,
+                   extraEnvironment: injectedEnv,
+                   onDelta: onDelta,
+                   onEvent: onCLIEvent
+               ) {
+                return altResult
+            }
+        }
+
+        // 2. Fall back to PiPi's own native Jarvis tool loop so the task STILL succeeds!
+        let fallbackProviderId = defaultLLMProviderId ?? readyLLMProviders.first?.id
+        if let pid = fallbackProviderId,
+           let cfg = resolvedEffectiveLLMConfig(providerId: pid, for: persona) {
+            if let progressCallback {
+                await progressCallback("本地 CLI 暂时连不上，别急！我自己直接动手翻本地文件和跑工具帮你搞定 💪")
+            }
+            return try await runJarvisAgentLoop(
+                config: cfg,
+                systemPrompt: systemPrompt,
+                history: history,
+                conversationId: conversationId,
+                persona: persona,
+                workDir: workDir,
+                runId: runId,
+                placeholderMessageId: placeholderMessageId,
+                onDelta: onDelta
+            )
+        }
+
+        // 3. Only if literally no fallback engine exists, explain in warm human language (no ugly raw stderr dump)
+        let cleanDetail = (originalError as? PipiInferenceError)?.localizedMessage(resolvedLanguage)
+            ?? originalError.localizedDescription
+        let shortHint = cleanDetail.count > 140 ? String(cleanDetail.prefix(140)) + "…" : cleanDetail
+        return PipiInferenceResult(
+            text: "😅 刚才调用 \(failedKind.displayName) 时遇到网络/环境异常，而且当前还没有配置可兜底的云端大模型。\n\n建议：在 Mac 端「设置 → 模型」确认一个可用 LLM，或者在终端检查一下 `\(failedKind.binaryName)` 登录与代理状态，弄好跟我说一声我马上继续！\n（简要原因：\(shortHint)）",
+            engineLabel: "PiPi Jarvis"
+        )
+    }
+
+    private func emitToolApprovalCard(
+        conversationId convId: String,
+        messageId: String,
+        toolCall: PipiLLMToolCall,
+        workDir: String,
+        risk: PipiToolRiskAssessment
+    ) {
+        guard let cIdx = conversations.firstIndex(where: { $0.id == convId }) else { return }
+        let nextSeq = (conversations[cIdx].events.last?.seq ?? 0) + 1
+        let approval = PipiSessionApproval(
+            sessionId: convId,
+            eventSeq: nextSeq,
+            question: "确认执行「\(risk.summary)」吗？",
+            detail: risk.reason,
+            options: [
+                PipiSessionApproval.Option(id: "allow_once", label: strings.allowOnceAction, style: .primary),
+                PipiSessionApproval.Option(id: "allow_session", label: strings.allowSessionAction, style: .secondary),
+                PipiSessionApproval.Option(id: "deny", label: "取消执行", style: .destructive)
+            ],
+            recommendedOptionId: "allow_once",
+            status: .pending,
+            pendingPrompt: nil,
+            pendingTarget: nil,
+            riskLevel: risk.actionKind == .destructive || risk.actionKind == .externalEffect ? .high : .medium,
+            userAuthorization: .medium,
+            rationale: risk.reason,
+            operationId: "op_tool_\(UUID().uuidString.prefix(8).lowercased())",
+            actionToolName: toolCall.name,
+            actionKind: risk.actionKind,
+            actionTarget: risk.target,
+            projectId: conversations[cIdx].projectId
+        )
+        pendingToolApprovalContextByApprovalId[approval.id] = (toolCall: toolCall, workDir: workDir)
+        conversations[cIdx].approvals.append(approval)
+        appendSessionEvent(convId, kind: .approval, approval: approval)
+        setSessionState(convId, to: .needsYou)
+        avatarEngine.setState(.needsYouApproval)
+        saveResidentState()
+        _ = messageId
+    }
+
+    private func makeAgentHostCallbacks(conversationId: String, personaId: String) -> PipiAgentHostCallbacks {
+        PipiAgentHostCallbacks(
+            captureScreenshot: { [weak self] in
+                guard let self else { return PipiMacOmnipotentCommandResult(succeeded: false, summary: "服务未就绪") }
+                return await self.macOmnipotentEngine.captureScreenshot()
+            },
+            recordScreen: { [weak self] seconds in
+                guard let self else { return PipiMacOmnipotentCommandResult(succeeded: false, summary: "服务未就绪") }
+                return await self.macOmnipotentEngine.recordScreenVideo(durationSeconds: seconds)
+            },
+            synthesizeVoice: { [weak self] text in
+                guard let self else { return PipiMacOmnipotentCommandResult(succeeded: false, summary: "服务未就绪") }
+                let voiceName: String? = await MainActor.run {
+                    if let bot = self.personas.first(where: { $0.id == personaId }),
+                       let opt = PipiVoiceTimbreOption.builtInPresets.first(where: { $0.id == bot.voiceProfileId }) {
+                        return opt.systemVoiceIdentifier
+                    }
+                    return nil
+                }
+                return await self.macOmnipotentEngine.synthesizeVoiceClip(text: text, voiceName: voiceName)
+            },
+            prepareLocalFile: { [weak self] path in
+                guard let self else { return PipiMacOmnipotentCommandResult(succeeded: false, summary: "服务未就绪") }
+                return await self.macOmnipotentEngine.prepareFileDeliverable(path: path)
+            },
+            registerArtifact: { [weak self] art in
+                await MainActor.run {
+                    self?.macOmnipotentEngine.registerArtifact(art)
+                }
+            },
+            delegateCLIAgent: { [weak self] agentRaw, mode, taskPrompt, workingDir in
+                guard let self else { return (false, "服务未就绪") }
+                let preferred: PipiLocalAgentKind = {
+                    let low = agentRaw.lowercased()
+                    if low.contains("claude") { return .claudeCode }
+                    if low.contains("open") { return .opencode }
+                    return .codex
+                }()
+                let candidates: [PipiLocalAgentKind] = await MainActor.run {
+                    let usable = self.usableLocalAgents.map(\.kind)
+                    var ordered: [PipiLocalAgentKind] = []
+                    if usable.contains(preferred) { ordered.append(preferred) }
+                    for k in usable where !ordered.contains(k) { ordered.append(k) }
+                    return ordered
+                }
+                guard !candidates.isEmpty else {
+                    return (false, "本机未启用外部 CLI Agent，请直接改用 list_directory / read_file / run_shell 等原生工具自己完成任务。")
+                }
+                let tier: PipiPermissionTier = (mode.lowercased() == "write") ? .autoEdit : .readOnly
+                let cliHist = [PipiChatMessage(role: .user, content: taskPrompt)]
+                var lastErr = ""
+                for kind in candidates {
+                    let env = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: conversationId)
+                    do {
+                        let res = try await PipiInferenceEngine.invokeLocalAgent(
+                            kind: kind,
+                            systemPrompt: "",
+                            history: cliHist,
+                            workingDirectory: workingDir,
+                            permissionTier: tier,
+                            extraEnvironment: env
+                        )
+                        return (true, "[\(kind.displayName) 完成]\n\(res.text)")
+                    } catch {
+                        lastErr = error.localizedDescription
+                    }
+                }
+                return (false, "外部 CLI 暂时不可用（\(lastErr.prefix(120))）。请立刻改用你自己的原生工具（list_directory / read_file / search_files / run_shell）亲自完成任务，不要向用户展示报错。")
+            },
+            readCalendarAndReminders: { [weak self] in
+                guard let self else { return "服务未就绪" }
+                return await self.readCalendarAndRemindersSummary()
+            },
+            createRoutineOrReminder: { [weak self] title, prompt, intervalMinutes, scheduleHint in
+                await MainActor.run {
+                    guard let self else { return "服务未就绪" }
+                    let parsed = PipiScheduleParser.parseIntervalMinutes(from: scheduleHint, fallback: intervalMinutes)
+                    let cal = Calendar.current
+                    let now = Date()
+                    let targetDate = parsed.isOneShot
+                        ? now.addingTimeInterval(TimeInterval(parsed.minutes * 60))
+                        : now
+                    let comps = cal.dateComponents([.hour, .minute, .weekday], from: targetDate)
+                    let schedule: PipiRoutineSchedule = parsed.minutes <= 60 ? .hourly : (parsed.minutes >= 1440 * 7 ? .weekly : .daily)
+                    // Extract explicit hour like "早上9点" or "21点" if present
+                    var resolvedHour = comps.hour ?? 9
+                    var resolvedMinute = comps.minute ?? 0
+                    if let rx = try? NSRegularExpression(pattern: #"(\d{1,2})\s*[点时:](\d{1,2})?"#),
+                       let m = rx.firstMatch(in: scheduleHint, range: NSRange(scheduleHint.startIndex..<scheduleHint.endIndex, in: scheduleHint)) {
+                        let ns = scheduleHint as NSString
+                        if let h = Int(ns.substring(with: m.range(at: 1))), (0...23).contains(h) {
+                            resolvedHour = h
+                            if m.range(at: 2).location != NSNotFound, let min = Int(ns.substring(with: m.range(at: 2))), (0...59).contains(min) {
+                                resolvedMinute = min
+                            } else {
+                                resolvedMinute = 0
+                            }
+                        }
+                    }
+                    let routine = PipiBotRoutine(
+                        personaId: personaId,
+                        title: title,
+                        prompt: prompt,
+                        schedule: schedule,
+                        hour: resolvedHour,
+                        minute: resolvedMinute,
+                        weekday: comps.weekday ?? 2,
+                        isEnabled: true
+                    )
+                    self.routines.append(routine)
+                    self.saveResidentState()
+                    return "✅ 已为你创建持久化定时任务「\(title)」：\(parsed.display)（\(String(format: "%02d:%02d", resolvedHour, resolvedMinute))），到期后会自动执行并同步推送到 Mac 和微信！"
+                }
+            },
+            readMailOrSMS: { [weak self] channel, limit in
+                guard let self else { return "服务未就绪" }
+                if channel == "sms" {
+                    return await self.macOmnipotentEngine.readRecentSMS(limit: limit).summary
+                }
+                return await self.macOmnipotentEngine.readRecentMail(limit: limit).summary
+            },
+            sendMailOrSMS: { [weak self] channel, recipient, subject, body in
+                guard let self else { return PipiMacOmnipotentCommandResult(succeeded: false, summary: "服务未就绪") }
+                if channel == "sms" {
+                    return await self.macOmnipotentEngine.sendSMS(recipient: recipient, body: body)
+                }
+                return await self.macOmnipotentEngine.sendOrDraftMail(to: recipient, subject: subject, body: body, sendImmediately: false)
+            },
+            showControlMenu: { [weak self] in
+                await MainActor.run {
+                    guard let self else { return "" }
+                    let primary = self.personas.first(where: { $0.id == self.wechatILinkManager.primaryBotId }) ?? self.activePersona
+                    let activeConv = self.conversations.first(where: { $0.id == conversationId })
+                    let activeProj = activeConv?.projectId.flatMap { pid in self.projects.first(where: { $0.id == pid }) }
+                    let snap = PipiWeChatConfigSnapshot(
+                        primaryBotId: primary.id,
+                        primaryBotName: primary.name(self.resolvedLanguage),
+                        routingMode: self.wechatILinkManager.routingMode,
+                        activeConversationTitle: activeConv?.title,
+                        activeProjectName: activeProj?.name,
+                        defaultModelLabel: self.activeEngineDisplayLabel(for: PipiBotPersona.defaultPersonas[0]),
+                        llmJudgeEnabled: self.llmGuardrailJudgeEnabled,
+                        proactiveCLIDelegationEnabled: self.proactiveCLIDelegationEnabled,
+                        typingIndicatorEnabled: self.wechatILinkManager.typingIndicatorEnabled,
+                        memoryEnabled: self.memoryEnabled,
+                        appVersion: self.appDisplayVersion
+                    )
+                    return self.wechatILinkManager.coordinator.renderMainMenu(config: snap)
+                }
+            },
+            listOrSwitchBot: { [weak self] targetQuery in
+                await MainActor.run {
+                    guard let self else { return "" }
+                    let lang = self.resolvedLanguage
+                    if let q = targetQuery?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty {
+                        if let matched = self.personas.first(where: {
+                            $0.name(lang).localizedCaseInsensitiveContains(q) || $0.role(lang).localizedCaseInsensitiveContains(q)
+                        }) {
+                            self.selectPersona(matched.id)
+                            self.wechatILinkManager.primaryBotId = matched.id
+                            self.saveResidentState()
+                            return "✅ 已切换当前对话助手为「\(matched.name(lang))」（模型：\(self.activeEngineDisplayLabel(for: matched))）！"
+                        }
+                        return "没找到包含「\(q)」的助手。当前可用助手：\n" + self.personas.map { "• \($0.name(lang))（\($0.role(lang))）" }.joined(separator: "\n")
+                    }
+                    return "🤖 当前所有助手：\n" + self.personas.map {
+                        let cur = $0.id == self.wechatILinkManager.primaryBotId ? " ✅当前" : ""
+                        return "• \($0.name(lang))\(cur) — 模型：\(self.activeEngineDisplayLabel(for: $0))"
+                    }.joined(separator: "\n")
+                }
+            },
+            createBot: { [weak self] name, role, modelId in
+                await MainActor.run {
+                    guard let self else { return "" }
+                    let tpl = PipiBotPersonaTemplate.catalog.last!
+                    var created = tpl.instantiate(
+                        customName: name,
+                        customPrompt: nil,
+                        permissionTier: .ask,
+                        preferredTarget: .auto,
+                        preferredModelId: modelId
+                    )
+                    created.roleZh = role
+                    created.roleEn = role
+                    created.systemPrompt = "你是 \(name)，\(role)。用轻松活泼、自然贴心的伙伴口吻帮主人真正动手解决问题。"
+                    self.upsertPersona(created)
+                    self.wechatILinkManager.primaryBotId = created.id
+                    self.saveResidentState()
+                    return "✅ 已创建新助手「\(name)」（职责：\(role)，模型：\(self.activeEngineDisplayLabel(for: created))），并已自动为你切到 TA 啦！"
+                }
+            },
+            switchSessionOrProject: { [weak self] kind, query in
+                await MainActor.run {
+                    guard let self else { return "" }
+                    if kind == "project" {
+                        if let q = query, !q.isEmpty,
+                           let proj = self.projects.first(where: { $0.name.localizedCaseInsensitiveContains(q) }) {
+                            self.moveConversation(conversationId, toProject: proj.id)
+                            return "✅ 已将当前会话绑定到项目「\(proj.name)」(\(proj.workspacePath ?? "默认目录"))。"
+                        }
+                        if self.projects.isEmpty {
+                            return "当前还没有新建项目，目前使用默认工作区：\(self.workspaceDirectory)"
+                        }
+                        return "📁 可用项目：\n" + self.projects.map { "• \($0.name) (\($0.workspacePath ?? "-"))" }.joined(separator: "\n")
+                    } else {
+                        if let q = query?.lowercased(), (q == "new" || q.contains("新建")) {
+                            let created = self.createConversation(for: personaId, activate: true)
+                            return "✅ 已为你开启全新会话「\(created.title)」！"
+                        }
+                        let recent = self.conversations.filter { !$0.isArchived }.sorted { $0.updatedAt > $1.updatedAt }.prefix(8)
+                        return "💬 最近会话：\n" + recent.map { "• \($0.title)（\($0.messages.count)条）" }.joined(separator: "\n")
+                    }
+                }
+            },
+            configureGroupMode: { [weak self] enable, memberQuery in
+                await MainActor.run {
+                    guard let self else { return "" }
+                    if enable {
+                        self.wechatILinkManager.routingMode = .groupPrefixMode
+                        let lang = self.resolvedLanguage
+                        if let mq = memberQuery, !mq.isEmpty {
+                            let matched = self.personas.filter { mq.localizedCaseInsensitiveContains($0.name(lang)) }.map(\.id)
+                            if !matched.isEmpty {
+                                self.wechatILinkManager.groupMemberBotIds = matched
+                            }
+                        }
+                        if self.wechatILinkManager.groupMemberBotIds.isEmpty {
+                            self.wechatILinkManager.groupMemberBotIds = Array(self.personas.prefix(3).map(\.id))
+                        }
+                        self.saveResidentState()
+                        let names = self.wechatILinkManager.groupMemberBotIds.compactMap { id in
+                            self.personas.first(where: { $0.id == id })?.name(lang)
+                        }.joined(separator: "、")
+                        return "✅ 已进入微信群聊模式！当前群成员：\(names)。你发消息时大家会按【助手名】前缀协作回复，随时说「退出群聊」切回 1v1。"
+                    } else {
+                        self.wechatILinkManager.routingMode = .directMainBot
+                        self.saveResidentState()
+                        return "✅ 已切回 1v1 单聊模式！"
+                    }
+                }
+            },
+            updateSettings: { [weak self] key, value in
+                await MainActor.run {
+                    guard let self else { return "" }
+                    switch key.lowercased() {
+                    case "proactive_cli":
+                        let next = value.map { ["on", "true", "1"].contains($0.lowercased()) } ?? !self.proactiveCLIDelegationEnabled
+                        self.setProactiveCLIDelegationEnabled(next)
+                        return "✅ 主动调用 CLI 工具已\(next ? "开启" : "关闭")。"
+                    case "llm_judge":
+                        let next = value.map { ["on", "true", "1"].contains($0.lowercased()) } ?? !self.llmGuardrailJudgeEnabled
+                        self.setLLMGuardrailJudgeEnabled(next)
+                        return "✅ 安全审计官自动评估已\(next ? "开启" : "关闭")。"
+                    case "typing":
+                        let next = value.map { ["on", "true", "1"].contains($0.lowercased()) } ?? !self.wechatILinkManager.typingIndicatorEnabled
+                        self.wechatILinkManager.typingIndicatorEnabled = next
+                        self.saveResidentState()
+                        return "✅ 微信正在输入状态已\(next ? "开启" : "关闭")。"
+                    case "bot_model":
+                        if let idx = self.personas.firstIndex(where: { $0.id == personaId }) {
+                            let v = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+                            self.personas[idx].preferredModelId = (v == nil || v == "default" || v == "默认") ? nil : v
+                            self.saveResidentState()
+                            return "✅ 已更新当前 Bot 模型为：\(self.activeEngineDisplayLabel(for: self.personas[idx]))"
+                        }
+                        return "未找到当前 Bot。"
+                    default:
+                        return """
+                        ⚙️ 当前管家配置（v\(self.appDisplayVersion)）：
+                        • 默认工作区：\(self.workspaceDirectory)
+                        • 主动 CLI 协作：\(self.proactiveCLIDelegationEnabled ? "开启" : "关闭")
+                        • 安全审计官：\(self.llmGuardrailJudgeEnabled ? "开启" : "关闭")
+                        • 微信输入状态：\(self.wechatILinkManager.typingIndicatorEnabled ? "开启" : "关闭")
+                        • 跨会话记忆：\(self.memoryEnabled ? "开启" : "关闭")
+                        """
+                    }
+                }
+            },
+            checkUpdates: { [weak self] in
+                guard let self else { return "服务未就绪" }
+                let current = await MainActor.run { self.appDisplayVersion }
+                let state = await self.updateManager.checkForUpdates(currentVersion: current, silent: false)
+                switch state {
+                case .updateAvailable(let rel):
+                    return "🚀 发现新版本 \(rel.tagName)（当前 v\(current)）：\(rel.title)\n在微信回复「更新」或到 Mac 设置页即可一键升级！"
+                case .upToDate(let v, _):
+                    return "✅ 当前 v\(v) 已经是最新 GitHub Release 啦！"
+                case .error(let msg):
+                    return "检查更新时网络有点小波动：\(msg)"
+                default:
+                    return "正在检查更新中..."
                 }
             }
         )

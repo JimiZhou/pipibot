@@ -39,9 +39,11 @@ import {
 } from '../../core/src/harness-router.ts';
 import { PipiEvolutionLoop, PipiMemoryEngine } from '../../core/src/memory-engine.ts';
 import { PipiCueSensor, PipiFleetManager } from './cue-fleet-sensor.ts';
+import { EcosystemRegistry } from './ecosystem.ts';
+import { MeshHubManager, buildLinuxSystemdService, type MeshTaskEvent, type MeshTaskRequest } from './mesh-hub.ts';
 import { PipiOutcomeEngine } from './outcome-engine.ts';
 
-export const DAEMON_VERSION = '0.2.0-beta' as const;
+export const DAEMON_VERSION = '0.12.0' as const;
 export const DEFAULT_DAEMON_PORT = 4242;
 
 export interface PipiResidentServerOptions {
@@ -55,6 +57,7 @@ export interface PipiResidentServerOptions {
   seedMemoryIfEmpty?: boolean;
   seedDefaults?: boolean;
   seedFleet?: boolean;
+  hubToken?: string;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -167,6 +170,8 @@ export class PipiResidentServer {
   readonly outcomeEngine: PipiOutcomeEngine;
   readonly cueSensor: PipiCueSensor;
   readonly fleetManager: PipiFleetManager;
+  readonly meshHub: MeshHubManager;
+  readonly ecosystem: EcosystemRegistry;
 
   private server?: Server;
   private boundPort = 0;
@@ -256,6 +261,8 @@ export class PipiResidentServer {
     this.outcomeEngine = new PipiOutcomeEngine({ seedDefaults: options.seedDefaults !== false });
     this.cueSensor = new PipiCueSensor({ memory: this.memoryEngine, workspacePath: this.workspacePath });
     this.fleetManager = new PipiFleetManager({ memory: this.memoryEngine, seedFleet: options.seedFleet !== false });
+    this.meshHub = new MeshHubManager({ storageDir: this.dataDir, hubToken: options.hubToken ?? process.env.PIPIBOT_HUB_TOKEN });
+    this.ecosystem = new EcosystemRegistry(this.dataDir);
 
     this.outcomeEngine.onEvent((evt) => {
       if (evt.type === 'decision.needs_you') {
@@ -337,6 +344,7 @@ export class PipiResidentServer {
       client.end();
     }
     this.sseClients.clear();
+    this.meshHub.closeAllStreams();
     await this.mcpBridge.stop();
 
     if (this.server) {
@@ -441,6 +449,11 @@ export class PipiResidentServer {
             chat: '/api/v1/chat/turn',
             memory: '/api/v1/memory',
             launchdPlist: '/api/v1/launchd-plist',
+            systemdService: '/api/v1/systemd-service',
+            meshNodes: '/api/v1/mesh/nodes',
+            meshDispatch: '/api/v1/mesh/dispatch',
+            meshArtifacts: '/api/v1/mesh/artifacts',
+            ecosystem: '/api/v1/ecosystem',
             resources: '/api/v1/resources',
             designSystem: '/design-system/',
             iosCompanion: '/ios/',
@@ -829,6 +842,260 @@ export class PipiResidentServer {
           'Content-Type': 'application/xml; charset=utf-8',
         });
         res.end(plistXml);
+        return;
+      }
+
+      // Linux systemd unit generator
+      if (method === 'GET' && pathname === '/api/v1/systemd-service') {
+        const role = reqUrl.searchParams.get('role') === 'node' ? 'node' : 'hub';
+        const unit = buildLinuxSystemdService({
+          role,
+          port: this.boundPort || this.requestedPort,
+          hubUrl: reqUrl.searchParams.get('hub') || this.baseUrl,
+          nodeName: reqUrl.searchParams.get('name') || 'linux-node',
+          workspace: reqUrl.searchParams.get('workspace') || this.workspacePath,
+        });
+        res.writeHead(200, { ...this.corsHeaders(), 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(unit);
+        return;
+      }
+
+      // Multi-Machine Mesh Hub API (/api/v1/mesh/*)
+      if (pathname.startsWith('/api/v1/mesh/')) {
+        if (!this.meshHub.verifyToken(req.headers.authorization, reqUrl.searchParams.get('token'))) {
+          this.sendJson(res, 401, { error: 'Unauthorized mesh hub token' });
+          return;
+        }
+
+        if (method === 'GET' && pathname === '/api/v1/mesh/nodes') {
+          this.sendJson(res, 200, {
+            hubVersion: DAEMON_VERSION,
+            nodes: this.meshHub.listNodes(),
+            recentTasks: this.meshHub.listRecentTasks(15),
+          });
+          return;
+        }
+
+        if (method === 'POST' && pathname === '/api/v1/mesh/nodes/register') {
+          const body = (await this.readJsonBody(req)) as Record<string, unknown>;
+          const node = this.meshHub.registerNode({
+            nodeId: typeof body.nodeId === 'string' ? body.nodeId : undefined,
+            name: typeof body.name === 'string' ? body.name : 'remote-node',
+            platform: typeof body.platform === 'string' ? body.platform : 'linux',
+            arch: typeof body.arch === 'string' ? body.arch : 'x64',
+            hostname: typeof body.hostname === 'string' ? body.hostname : 'unknown',
+            workspacePath: typeof body.workspacePath === 'string' ? body.workspacePath : '.',
+            capabilities: Array.isArray(body.capabilities) ? (body.capabilities as string[]) : undefined,
+            cliAgents: Array.isArray(body.cliAgents) ? (body.cliAgents as string[]) : undefined,
+            hostedAgents: Array.isArray(body.hostedAgents) ? (body.hostedAgents as never[]) : undefined,
+            telemetry: (body.telemetry as Record<string, unknown> | undefined) as never,
+          });
+          this.broadcastSse('mesh.node.updated', node);
+          this.sendJson(res, 200, { ok: true, node });
+          return;
+        }
+
+        if (method === 'POST' && pathname === '/api/v1/mesh/nodes/heartbeat') {
+          const body = (await this.readJsonBody(req)) as Record<string, unknown>;
+          const nodeId = typeof body.nodeId === 'string' ? body.nodeId : '';
+          const updated = this.meshHub.heartbeatNode({
+            nodeId,
+            telemetry: (body.telemetry as Record<string, unknown> | undefined) as never,
+            cliAgents: Array.isArray(body.cliAgents) ? (body.cliAgents as string[]) : undefined,
+            activeTaskCount: typeof body.activeTaskCount === 'number' ? body.activeTaskCount : undefined,
+          });
+          if (!updated) {
+            this.sendJson(res, 404, { error: 'Node not registered' });
+            return;
+          }
+          this.sendJson(res, 200, { ok: true, node: updated });
+          return;
+        }
+
+        const nodeStreamMatch = pathname.match(/^\/api\/v1\/mesh\/nodes\/([^/]+)\/stream$/);
+        if (method === 'GET' && nodeStreamMatch) {
+          const nodeId = decodeURIComponent(nodeStreamMatch[1] ?? '');
+          res.writeHead(200, {
+            ...this.corsHeaders(),
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          });
+          res.write(`event: mesh.connected\ndata: ${JSON.stringify({ nodeId, version: DAEMON_VERSION })}\n\n`);
+          this.meshHub.attachNodeStream(nodeId, res);
+          req.on('close', () => {
+            this.meshHub.detachNodeStream(nodeId, res);
+          });
+          return;
+        }
+
+        if (method === 'POST' && pathname === '/api/v1/mesh/dispatch') {
+          const body = (await this.readJsonBody(req)) as unknown as MeshTaskRequest;
+          const result = this.meshHub.dispatchTask(body);
+          if (!result.ok) {
+            this.sendJson(res, 400, { error: result.error });
+            return;
+          }
+          this.broadcastSse('mesh.task.dispatched', result.task);
+          this.sendJson(res, 201, { ok: true, task: result.task });
+          return;
+        }
+
+        const taskEventMatch = pathname.match(/^\/api\/v1\/mesh\/tasks\/([^/]+)\/event$/);
+        if (method === 'POST' && taskEventMatch) {
+          const taskId = decodeURIComponent(taskEventMatch[1] ?? '');
+          const body = (await this.readJsonBody(req)) as {
+            type: MeshTaskEvent['type'];
+            text?: string;
+            stepTitle?: string;
+            artifactId?: string;
+            error?: string;
+          };
+          const updated = this.meshHub.ingestTaskEvent(taskId, body);
+          if (!updated) {
+            this.sendJson(res, 404, { error: 'Task not found' });
+            return;
+          }
+          this.broadcastSse('mesh.task.event', { taskId, ...body });
+          this.sendJson(res, 200, { ok: true, task: updated });
+          return;
+        }
+
+        const taskEventsStreamMatch = pathname.match(/^\/api\/v1\/mesh\/tasks\/([^/]+)\/events$/);
+        if (method === 'GET' && taskEventsStreamMatch) {
+          const taskId = decodeURIComponent(taskEventsStreamMatch[1] ?? '');
+          if (!this.meshHub.getTask(taskId)) {
+            this.sendJson(res, 404, { error: 'Task not found' });
+            return;
+          }
+          res.writeHead(200, {
+            ...this.corsHeaders(),
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          });
+          this.meshHub.attachTaskStream(taskId, res);
+          req.on('close', () => {
+            this.meshHub.detachTaskStream(taskId, res);
+          });
+          return;
+        }
+
+        const taskGetMatch = pathname.match(/^\/api\/v1\/mesh\/tasks\/([^/]+)$/);
+        if (method === 'GET' && taskGetMatch) {
+          const taskId = decodeURIComponent(taskGetMatch[1] ?? '');
+          const task = this.meshHub.getTask(taskId);
+          if (!task) {
+            this.sendJson(res, 404, { error: 'Task not found' });
+            return;
+          }
+          this.sendJson(res, 200, { ok: true, task });
+          return;
+        }
+
+        if (method === 'POST' && pathname === '/api/v1/mesh/artifacts') {
+          const body = (await this.readJsonBody(req)) as {
+            fileName?: string;
+            mimeType?: string;
+            contentBase64?: string;
+            sourceNodeId?: string;
+          };
+          const meta = this.meshHub.storeArtifact({
+            fileName: body.fileName ?? 'artifact.bin',
+            mimeType: body.mimeType,
+            contentBase64: body.contentBase64 ?? '',
+            sourceNodeId: body.sourceNodeId,
+          });
+          this.sendJson(res, 201, { ok: true, artifact: meta });
+          return;
+        }
+
+        const artGetMatch = pathname.match(/^\/api\/v1\/mesh\/artifacts\/([^/]+)$/);
+        if (method === 'GET' && artGetMatch) {
+          const artId = decodeURIComponent(artGetMatch[1] ?? '');
+          const found = this.meshHub.readArtifact(artId);
+          if (!found) {
+            this.sendJson(res, 404, { error: 'Artifact not found' });
+            return;
+          }
+          res.writeHead(200, {
+            ...this.corsHeaders(),
+            'Content-Type': found.meta.mimeType,
+            'Content-Length': String(found.data.length),
+            'X-Pipi-Filename': found.meta.fileName,
+          });
+          res.end(found.data);
+          return;
+        }
+      }
+
+      // Open-Source MCP & SKILL.md Ecosystem API (/api/v1/ecosystem*)
+      if (pathname === '/api/v1/ecosystem' && method === 'GET') {
+        this.sendJson(res, 200, this.ecosystem.getSnapshot());
+        return;
+      }
+      if (pathname === '/api/v1/ecosystem/skills' && method === 'POST') {
+        const body = (await this.readJsonBody(req)) as {
+          source?: string;
+          rawMarkdown?: string;
+          name?: string;
+          scope?: 'global' | 'host' | 'bot';
+          targetId?: string;
+        };
+        const skill = body.rawMarkdown
+          ? this.ecosystem.upsertSkill({
+              source: body.source ?? 'inline',
+              rawMarkdown: body.rawMarkdown,
+              name: body.name,
+              scope: body.scope,
+              targetId: body.targetId,
+            })
+          : await this.ecosystem.installSkillFromGitHubOrSource({
+              source: body.source ?? '',
+              scope: body.scope,
+              targetId: body.targetId,
+            });
+        this.sendJson(res, 201, { ok: true, skill });
+        return;
+      }
+      if (pathname === '/api/v1/ecosystem/mcp' && method === 'POST') {
+        const body = (await this.readJsonBody(req)) as {
+          id?: string;
+          name?: string;
+          description?: string;
+          transport?: 'stdio' | 'sse';
+          command?: string;
+          args?: string[];
+          url?: string;
+          env?: Record<string, string>;
+          scope?: 'global' | 'host' | 'bot';
+          targetId?: string;
+        };
+        const server = this.ecosystem.upsertMCPServer({
+          id: body.id,
+          name: body.name ?? 'Custom MCP',
+          description: body.description,
+          transport: body.transport,
+          command: body.command,
+          args: body.args,
+          url: body.url,
+          env: body.env,
+          scope: body.scope,
+          targetId: body.targetId,
+        });
+        this.sendJson(res, 201, { ok: true, server });
+        return;
+      }
+      const ecoSkillDel = pathname.match(/^\/api\/v1\/ecosystem\/skills\/([^/]+)$/);
+      if (method === 'DELETE' && ecoSkillDel) {
+        const removed = this.ecosystem.removeSkill(decodeURIComponent(ecoSkillDel[1] ?? ''));
+        this.sendJson(res, removed ? 200 : 404, { ok: removed });
+        return;
+      }
+      const ecoMcpDel = pathname.match(/^\/api\/v1\/ecosystem\/mcp\/([^/]+)$/);
+      if (method === 'DELETE' && ecoMcpDel) {
+        const removed = this.ecosystem.removeMCPServer(decodeURIComponent(ecoMcpDel[1] ?? ''));
+        this.sendJson(res, removed ? 200 : 404, { ok: removed });
         return;
       }
 

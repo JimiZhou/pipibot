@@ -1,7 +1,7 @@
 {
   "name": "pipibot",
-  "version": "0.2.0-beta",
-  "description": "From Tasks to Outcomes, From Chatbots to a Living Cross-Device AI Manager powered by Pi Core, Multi-Harness BYOK Routing, 120Hz Procedural Avatar, 4-Tier Self-Evolving Memory, and $0/mo Cloudflare Edge.",
+  "version": "0.13.0",
+  "description": "Your private AI assistant team on macOS and Linux, connected seamlessly to your phone with end-to-end encryption.",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -26,6 +26,7 @@
     "pipibot": "node --experimental-strip-types packages/core/src/pipibot-cli.ts",
     "test:core": "node --experimental-strip-types --test packages/core/test/wave1.test.ts packages/core/test/wave2.test.ts packages/core/test/wave3.test.ts packages/core/test/wave4.test.ts packages/core/test/wave5.test.ts",
     "test:daemon": "node --experimental-strip-types --test packages/daemon/test/daemon.test.ts",
+    "test:relay": "node --experimental-strip-types --test packages/relay/test/relay.test.ts",
     "build:apple": "cd apps/apple && swift build",
     "test:apple": "cd apps/apple && swift test",
     "app:mac": "bash scripts/build-mac-app.sh",
@@ -34,7 +35,7 @@
     "check:workspaces": "npm run check --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "verify": "npm run check:avatar && npm run check:ios && npm run audit:design && npm run audit:protocol && npm run check:workspaces && npm run test:core && npm run test:daemon && npm run typecheck"
+    "verify": "npm run check:avatar && npm run check:ios && npm run audit:design && npm run audit:protocol && npm run check:workspaces && npm run test:core && npm run test:daemon && npm run test:relay && npm run typecheck"
   },
   "keywords": [
     "ai-agent",

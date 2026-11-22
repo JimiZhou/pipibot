@@ -9,7 +9,7 @@
  * - Static hosting for `/design-system/*` and `/ios` (`apps/ios-web/*`)
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFile, stat, statfs } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import * as os from 'node:os';
@@ -38,12 +38,22 @@ import {
   type HarnessDriver,
 } from '../../core/src/harness-router.ts';
 import { PipiEvolutionLoop, PipiMemoryEngine } from '../../core/src/memory-engine.ts';
+import { formatUniversalPairingLink, generateE2EEIdentity, type E2EEIdentity } from '../../relay/src/e2e.ts';
+import { renderUniversalIconSVG, renderUniversalManifest, renderUniversalPWAHTML } from '../../relay/src/pwa-bundle.ts';
+import { runBotBoxSelfCheck } from './bot-box.ts';
+import { PipiCredentialBrokerServer } from './credential-broker.ts';
 import { PipiCueSensor, PipiFleetManager } from './cue-fleet-sensor.ts';
 import { EcosystemRegistry } from './ecosystem.ts';
+import { DaemonEventTriggerRegistry } from './event-triggers.ts';
+import { routeGroupMessage, type DecisionModelConfig, type GroupRouteCandidate } from './group-router.ts';
 import { MeshHubManager, buildLinuxSystemdService, type MeshTaskEvent, type MeshTaskRequest } from './mesh-hub.ts';
 import { PipiOutcomeEngine } from './outcome-engine.ts';
+import { parsePortableTemplate, type PortableTemplate } from './portable-template.ts';
+import { DaemonProofAndHarnessEngine } from './proof-harness.ts';
+import { scanSentinelSamples, type SentinelIssue, type SentinelSample } from './sentinel.ts';
+import { DaemonWorktreeManager } from './worktree.ts';
 
-export const DAEMON_VERSION = '0.12.0' as const;
+export const DAEMON_VERSION = '0.15.0' as const;
 export const DEFAULT_DAEMON_PORT = 4242;
 
 export interface PipiResidentServerOptions {
@@ -172,6 +182,17 @@ export class PipiResidentServer {
   readonly fleetManager: PipiFleetManager;
   readonly meshHub: MeshHubManager;
   readonly ecosystem: EcosystemRegistry;
+  readonly worktreeManager: DaemonWorktreeManager;
+  readonly eventTriggers: DaemonEventTriggerRegistry;
+  readonly proofHarness: DaemonProofAndHarnessEngine;
+  readonly credentialBroker: PipiCredentialBrokerServer;
+  readonly e2eeIdentity: E2EEIdentity;
+
+  private pairingChallenges = new Map<string, { code: string; scope: 'owner' | 'chat' | 'mcp_bounded'; expiresAt: number; consumed: boolean }>();
+  private pairedDevices = new Map<string, { id: string; label: string; scope: 'owner' | 'chat' | 'mcp_bounded'; tokenHash: string; revoked: boolean; createdAt: string }>();
+  private appliedTemplates: PortableTemplate[] = [];
+  private sentinelSamples: SentinelSample[] = [];
+  private sentinelIssues: SentinelIssue[] = [];
 
   private server?: Server;
   private boundPort = 0;
@@ -263,6 +284,11 @@ export class PipiResidentServer {
     this.fleetManager = new PipiFleetManager({ memory: this.memoryEngine, seedFleet: options.seedFleet !== false });
     this.meshHub = new MeshHubManager({ storageDir: this.dataDir, hubToken: options.hubToken ?? process.env.PIPIBOT_HUB_TOKEN });
     this.ecosystem = new EcosystemRegistry(this.dataDir);
+    this.worktreeManager = new DaemonWorktreeManager();
+    this.eventTriggers = new DaemonEventTriggerRegistry();
+    this.proofHarness = new DaemonProofAndHarnessEngine();
+    this.credentialBroker = new PipiCredentialBrokerServer();
+    this.e2eeIdentity = generateE2EEIdentity();
 
     this.outcomeEngine.onEvent((evt) => {
       if (evt.type === 'decision.needs_you') {
@@ -346,6 +372,7 @@ export class PipiResidentServer {
     this.sseClients.clear();
     this.meshHub.closeAllStreams();
     await this.mcpBridge.stop();
+    await this.credentialBroker.stop();
 
     if (this.server) {
       await new Promise<void>((resolveClose) => {
@@ -454,6 +481,9 @@ export class PipiResidentServer {
             meshDispatch: '/api/v1/mesh/dispatch',
             meshArtifacts: '/api/v1/mesh/artifacts',
             ecosystem: '/api/v1/ecosystem',
+            worktrees: '/api/v1/worktrees',
+            triggers: '/api/v1/triggers',
+            webhooks: '/api/v1/webhooks/:routineId',
             resources: '/api/v1/resources',
             designSystem: '/design-system/',
             iosCompanion: '/ios/',
@@ -495,6 +525,16 @@ export class PipiResidentServer {
             fleetOnline: nodes.filter((n) => n.vitality === 'alive' || n.vitality === 'busy').length,
           },
         });
+        return;
+      }
+
+      // Hard bounded MCP scope guard at router entry: external MCP clients can NEVER approve, merge, or delete.
+      const callerScopeEarly = typeof req.headers['x-pipibot-scope'] === 'string' ? req.headers['x-pipibot-scope'] : '';
+      if (
+        callerScopeEarly === 'mcp_bounded' &&
+        (pathname.endsWith('/merge') || pathname.endsWith('/resolve') || method === 'DELETE')
+      ) {
+        this.sendJson(res, 403, { error: 'FORBIDDEN_BOUNDED_MCP' });
         return;
       }
 
@@ -1102,6 +1142,365 @@ export class PipiResidentServer {
       // Static routes: /design-system/* and /ios/*
       if (method === 'GET' && (pathname === '/design-system' || pathname.startsWith('/design-system/'))) {
         await this.serveStaticDirectory(res, join(this.repoRoot, 'design-system'), pathname.slice('/design-system'.length));
+        return;
+      }
+
+      // Event-Driven Routine Webhooks & Triggers (/api/v1/triggers, /api/v1/webhooks/:routineId)
+      if (method === 'GET' && pathname === '/api/v1/triggers') {
+        this.sendJson(res, 200, {
+          routines: this.eventTriggers.listRoutines(),
+          logs: this.eventTriggers.listLogs(),
+        });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/triggers') {
+        const body = await this.readJsonBody(req);
+        const created = this.eventTriggers.registerRoutine({
+          id: typeof body.id === 'string' ? body.id : undefined,
+          botId: String(body.botId ?? 'bot_pipi_general'),
+          title: String(body.title ?? 'Event Routine'),
+          prompt: String(body.prompt ?? ''),
+          triggerKind: (body.triggerKind as 'schedule' | 'webhook' | 'file_or_git_watch' | 'channel_message' | 'host_health') ?? 'webhook',
+          cronExpression: typeof body.cronExpression === 'string' ? body.cronExpression : undefined,
+          webhookSecret: typeof body.webhookSecret === 'string' ? body.webhookSecret : undefined,
+          watchPath: typeof body.watchPath === 'string' ? body.watchPath : undefined,
+          messageKeyword: typeof body.messageKeyword === 'string' ? body.messageKeyword : undefined,
+          cooldownSeconds: typeof body.cooldownSeconds === 'number' ? body.cooldownSeconds : 60,
+          enabled: body.enabled !== false,
+        });
+        this.sendJson(res, 201, { routine: created });
+        return;
+      }
+
+      if (method === 'POST' && pathname.startsWith('/api/v1/webhooks/')) {
+        const routineId = decodeURIComponent(pathname.slice('/api/v1/webhooks/'.length)).replace(/^\/+|\/+$/g, '');
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        const rawBody = Buffer.concat(chunks);
+        const sigHeader =
+          (typeof req.headers['x-pipibot-signature'] === 'string' ? req.headers['x-pipibot-signature'] : undefined) ??
+          (typeof req.headers['x-hub-signature-256'] === 'string' ? req.headers['x-hub-signature-256'] : undefined);
+        const result = this.eventTriggers.fireWebhook({
+          routineId,
+          authorizationHeader: typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined,
+          signatureHeader: sigHeader,
+          body: rawBody,
+        });
+        if (result.log) {
+          this.broadcastSse('trigger.fired', result.log);
+        }
+        this.sendJson(res, result.status, { ok: result.status < 400, message: result.message, log: result.log });
+        return;
+      }
+
+      // Git Worktree Isolation & Diff Review API (/api/v1/worktrees/*)
+      if (method === 'GET' && pathname === '/api/v1/worktrees') {
+        this.sendJson(res, 200, { sessions: this.worktreeManager.listSessions() });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/worktrees') {
+        const body = await this.readJsonBody(req);
+        const session = await this.worktreeManager.createWorktree({
+          repoPath: String(body.repoPath ?? this.workspacePath),
+          taskTitle: String(body.taskTitle ?? 'parallel-task'),
+          botId: String(body.botId ?? 'bot_pipi_coder'),
+        });
+        this.sendJson(res, 201, { session });
+        return;
+      }
+
+      if (method === 'POST' && /^\/api\/v1\/worktrees\/[^/]+\/diff$/.test(pathname)) {
+        const id = decodeURIComponent(pathname.split('/')[4] ?? '');
+        const session = await this.worktreeManager.captureDiff(id);
+        this.sendJson(res, 200, { session });
+        return;
+      }
+
+      if (method === 'POST' && /^\/api\/v1\/worktrees\/[^/]+\/verify$/.test(pathname)) {
+        const id = decodeURIComponent(pathname.split('/')[4] ?? '');
+        const session = await this.worktreeManager.captureDiff(id);
+        const proof = await this.proofHarness.verifyWorktree(session);
+        this.sendJson(res, 200, { session, proof });
+        return;
+      }
+
+      // Knowledge Gaps Roadmap & Loop Draft Gate API (/api/v1/gaps, /api/v1/loops/drafts)
+      if (method === 'GET' && pathname === '/api/v1/gaps') {
+        this.sendJson(res, 200, { gaps: this.proofHarness.listGaps() });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/gaps') {
+        const body = await this.readJsonBody(req);
+        const gap = this.proofHarness.recordGap({
+          botId: String(body.botId ?? 'bot_pipi_operator'),
+          question: String(body.question ?? ''),
+          sourceChannel: typeof body.sourceChannel === 'string' ? body.sourceChannel : 'support',
+        });
+        this.sendJson(res, 201, { gap });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/api/v1/loops/drafts') {
+        this.sendJson(res, 200, {
+          drafts: this.proofHarness.listDrafts(),
+          harnessRules: this.proofHarness.listHarnessRules(),
+        });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/loops/drafts') {
+        const body = await this.readJsonBody(req);
+        const draft = this.proofHarness.enqueueDraft({
+          loopName: String(body.loopName ?? 'Support Loop'),
+          botId: String(body.botId ?? 'bot_pipi_operator'),
+          inputSummary: String(body.inputSummary ?? ''),
+          draftContent: String(body.draftContent ?? ''),
+          citedSources: Array.isArray(body.citedSources) ? body.citedSources.map(String) : [],
+        });
+        this.sendJson(res, 201, { draft });
+        return;
+      }
+
+      if (method === 'POST' && /^\/api\/v1\/loops\/drafts\/[^/]+\/resolve$/.test(pathname)) {
+        const id = decodeURIComponent(pathname.split('/')[5] ?? '');
+        const body = await this.readJsonBody(req);
+        const draft = this.proofHarness.resolveDraft(id, {
+          action: (body.action as 'approve' | 'edit_and_add_rule' | 'discard') ?? 'approve',
+          editedDraft: typeof body.editedDraft === 'string' ? body.editedDraft : undefined,
+          newRule: typeof body.newRule === 'string' ? body.newRule : undefined,
+        });
+        if (!draft) {
+          this.sendJson(res, 404, { error: 'Draft not found' });
+          return;
+        }
+        this.sendJson(res, 200, { draft, harnessRules: this.proofHarness.listHarnessRules() });
+        return;
+      }
+
+      if (method === 'POST' && /^\/api\/v1\/worktrees\/[^/]+\/feedback$/.test(pathname)) {
+        const id = decodeURIComponent(pathname.split('/')[4] ?? '');
+        const body = await this.readJsonBody(req);
+        const session = this.worktreeManager.addFeedback(
+          id,
+          String(body.comment ?? ''),
+          typeof body.filePath === 'string' ? body.filePath : undefined,
+          typeof body.lineNumber === 'number' ? body.lineNumber : undefined,
+        );
+        this.sendJson(res, 200, { session });
+        return;
+      }
+
+      if (method === 'POST' && /^\/api\/v1\/worktrees\/[^/]+\/merge$/.test(pathname)) {
+        const id = decodeURIComponent(pathname.split('/')[4] ?? '');
+        const body = await this.readJsonBody(req);
+        const result = await this.worktreeManager.mergeAndCleanup(
+          id,
+          (body.strategy as 'squash' | 'merge_commit' | 'keep_branch_for_pr') ?? 'squash',
+          typeof body.commitMessage === 'string' ? body.commitMessage : undefined,
+        );
+        this.sendJson(res, 200, result);
+        return;
+      }
+
+      if (method === 'DELETE' && /^\/api\/v1\/worktrees\/[^/]+$/.test(pathname)) {
+        const id = decodeURIComponent(pathname.split('/')[4] ?? '');
+        const session = await this.worktreeManager.discardAndCleanup(id);
+        this.sendJson(res, 200, { session });
+        return;
+      }
+
+      // v0.15.0 Universal Pairing, Device Revocation & Bounded MCP Scope Enforcement
+      if (method === 'POST' && pathname === '/api/v1/auth/pair/start') {
+        const body = await this.readJsonBody(req);
+        const scope = (body.scope === 'chat' || body.scope === 'mcp_bounded' ? body.scope : 'owner') as 'owner' | 'chat' | 'mcp_bounded';
+        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const pick = (n: number) => Array.from({ length: n }, () => alphabet[randomBytes(1)[0]! % alphabet.length]).join('');
+        const code = `${pick(4)}-${pick(4)}`;
+        const norm = code.replace(/-/g, '');
+        const expiresAt = Date.now() + 300_000;
+        this.pairingChallenges.set(norm, { code, scope, expiresAt, consumed: false });
+        const relayOrigin = typeof body.relayOrigin === 'string' && body.relayOrigin.trim()
+          ? body.relayOrigin.trim()
+          : 'https://pipibot.jimizhou.com';
+        const universalLink = formatUniversalPairingLink({
+          relayOrigin,
+          hostId: this.e2eeIdentity.hostId,
+          hostPublicKeyB64Url: this.e2eeIdentity.publicKeyB64Url,
+          oneTimeToken: code,
+          lanHintURL: `http://${this.host}:${this.boundPort}`,
+        });
+        this.sendJson(res, 201, {
+          code,
+          scope,
+          expiresAt: new Date(expiresAt).toISOString(),
+          hostId: this.e2eeIdentity.hostId,
+          universalLink,
+        });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/auth/pair') {
+        const body = await this.readJsonBody(req);
+        const rawCode = String(body.code ?? '').toUpperCase().replace(/[-\s]/g, '');
+        const challenge = this.pairingChallenges.get(rawCode);
+        if (!challenge || challenge.consumed || Date.now() > challenge.expiresAt) {
+          this.sendJson(res, 401, { error: 'invalid_or_expired_pairing_code' });
+          return;
+        }
+        challenge.consumed = true;
+        const rawToken = `pipi_dev_${randomBytes(18).toString('hex')}`;
+        const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+        const device = {
+          id: `dev_${randomUUID().slice(0, 8)}`,
+          label: String(body.label ?? 'Remote Companion'),
+          scope: challenge.scope,
+          tokenHash,
+          revoked: false,
+          createdAt: new Date().toISOString(),
+        };
+        this.pairedDevices.set(device.id, device);
+        this.sendJson(res, 200, {
+          ok: true,
+          token: rawToken,
+          deviceId: device.id,
+          scope: device.scope,
+          hostName: os.hostname(),
+        });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/api/v1/auth/devices') {
+        const devices = [...this.pairedDevices.values()].map((d) => ({
+          id: d.id,
+          label: d.label,
+          scope: d.scope,
+          revoked: d.revoked,
+          createdAt: d.createdAt,
+        }));
+        this.sendJson(res, 200, { devices });
+        return;
+      }
+
+      if (method === 'DELETE' && /^\/api\/v1\/auth\/devices\/[^/]+$/.test(pathname)) {
+        const id = decodeURIComponent(pathname.split('/')[5] ?? '');
+        const dev = this.pairedDevices.get(id);
+        if (!dev) {
+          this.sendJson(res, 404, { error: 'device_not_found' });
+          return;
+        }
+        dev.revoked = true;
+        this.sendJson(res, 200, { ok: true, id, revoked: true });
+        return;
+      }
+
+      // Bounded MCP scope guard on privileged routes (merges, draft approvals, deletions)
+      const callerScopeHeader = typeof req.headers['x-pipibot-scope'] === 'string' ? req.headers['x-pipibot-scope'] : '';
+      if (
+        callerScopeHeader === 'mcp_bounded' &&
+        (pathname.endsWith('/merge') || pathname.endsWith('/resolve') || method === 'DELETE')
+      ) {
+        this.sendJson(res, 403, { error: 'FORBIDDEN_BOUNDED_MCP' });
+        return;
+      }
+
+      // Sentinel Zero-LLM Health Scanner API
+      if (method === 'GET' && pathname === '/api/v1/sentinel/health') {
+        this.sentinelIssues = scanSentinelSamples(this.sentinelSamples);
+        this.sendJson(res, 200, {
+          scannedAt: new Date().toISOString(),
+          issueCount: this.sentinelIssues.length,
+          issues: this.sentinelIssues,
+        });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/sentinel/samples') {
+        const body = await this.readJsonBody(req);
+        const incoming = Array.isArray(body.samples) ? (body.samples as SentinelSample[]) : [];
+        this.sentinelSamples.push(...incoming);
+        this.sentinelIssues = scanSentinelSamples(this.sentinelSamples);
+        this.sendJson(res, 200, { issues: this.sentinelIssues });
+        return;
+      }
+
+      // Bot Box OS-Level Sandbox Self-Check Probe
+      if (method === 'GET' && pathname === '/api/v1/security/box-check') {
+        this.sendJson(res, 200, runBotBoxSelfCheck());
+        return;
+      }
+
+      // Portable Redacted Team / Bot Template API (`bot.md` / `team.md` / `team.yaml`)
+      if (method === 'POST' && pathname === '/api/v1/templates/preview') {
+        const body = await this.readJsonBody(req);
+        const tpl = parsePortableTemplate(String(body.markdown ?? ''));
+        this.sendJson(res, 200, { template: tpl });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/templates/apply') {
+        const body = await this.readJsonBody(req);
+        const tpl = parsePortableTemplate(String(body.markdown ?? ''));
+        this.appliedTemplates.push(tpl);
+        this.sendJson(res, 201, { applied: true, template: tpl, totalTeams: this.appliedTemplates.length });
+        return;
+      }
+
+      // Three-Tier Fast Group Auto-Routing API
+      if (method === 'POST' && pathname === '/api/v1/groups/route') {
+        const body = await this.readJsonBody(req);
+        const decision = await routeGroupMessage(
+          String(body.message ?? ''),
+          Array.isArray(body.candidates) ? (body.candidates as GroupRouteCandidate[]) : [],
+          String(body.leadBotId ?? 'bot_pipi_general'),
+          (body.config as DecisionModelConfig | undefined) ?? { enabled: false, providerKind: 'disabled' },
+        );
+        this.sendJson(res, 200, { decision });
+        return;
+      }
+
+      // Unified 5-Tab Mobile PWA endpoints on Daemon Hub
+      if (method === 'GET' && pathname === '/api/v1/mobile/snapshot') {
+        this.sendJson(res, 200, {
+          hostName: `${os.hostname()} (Daemon Hub)`,
+          messages: [],
+          bots: this.appliedTemplates.flatMap((t) => t.bots.map((b) => ({ id: b.slug, name: b.name, role: b.role }))),
+          approvals: [],
+          draftGates: this.proofHarness.listDrafts().filter((d) => d.status === 'pending_gate'),
+          evolutions: [],
+          worktrees: this.worktreeManager.listSessions().map((w) => ({
+            id: w.id,
+            branchName: w.branchName,
+            summary: w.diffSummary,
+            diffText: w.unifiedDiff,
+            proofScore: 100,
+          })),
+          sentinelIssues: this.sentinelIssues,
+          triggers: this.eventTriggers.listRoutines().map((r) => ({ id: r.id, title: r.title, enabled: r.enabled })),
+          usageSummary: { todayTokens: 0, todayCostUSD: 0 },
+        });
+        return;
+      }
+
+      if (method === 'GET' && (pathname === '/mobile' || /^\/c\/[a-zA-Z0-9_-]{4,64}$/.test(pathname))) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(renderUniversalPWAHTML({ relayMode: false, defaultHostTitle: `${os.hostname()} · PiPiBot` }));
+        return;
+      }
+
+      if (method === 'GET' && (pathname === '/manifest.webmanifest' || pathname === '/manifest.json')) {
+        res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8' });
+        res.end(renderUniversalManifest());
+        return;
+      }
+
+      if (method === 'GET' && (pathname === '/icon.svg' || pathname === '/icon-192.svg')) {
+        res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8' });
+        res.end(renderUniversalIconSVG());
         return;
       }
 

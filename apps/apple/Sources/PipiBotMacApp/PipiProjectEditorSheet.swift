@@ -16,6 +16,7 @@ public struct PipiProjectEditorSheet: View {
     @State private var workspacePath: String = ""
     @State private var instructions: String = ""
     @State private var permissionOverride: PipiPermissionTier? = nil
+    @State private var alwaysUseWorktree: Bool = false
 
     public init(
         store: PipiAppStore,
@@ -185,6 +186,18 @@ public struct PipiProjectEditorSheet: View {
                 .labelsHidden()
             }
 
+            Toggle(isOn: $alwaysUseWorktree) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.t("始终使用 Git Worktree 隔离改动", "Always isolate code changes in Git Worktree"))
+                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Text(s.t("开启后，即使 1v1 单任务也会自动拉隔离分支，经 Diff 审查后再合并", "When enabled, even single 1v1 coding tasks run in an isolated branch for Diff review"))
+                        .font(PipiTokens.fontMicro)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                }
+            }
+            .toggleStyle(.switch)
+
             Spacer(minLength: 4)
 
             HStack {
@@ -203,6 +216,7 @@ public struct PipiProjectEditorSheet: View {
                         workspacePath: workspacePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : workspacePath,
                         instructions: instructions,
                         permissionTierOverride: permissionOverride,
+                        alwaysUseWorktree: alwaysUseWorktree,
                         isCollapsed: existing?.isCollapsed ?? false,
                         createdAt: existing?.createdAt ?? ISO8601DateFormatter().string(from: Date())
                     )
@@ -225,6 +239,7 @@ public struct PipiProjectEditorSheet: View {
                 workspacePath = existing.workspacePath ?? ""
                 instructions = existing.instructions
                 permissionOverride = existing.permissionTierOverride
+                alwaysUseWorktree = existing.alwaysUseWorktree
             }
         }
     }

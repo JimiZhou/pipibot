@@ -283,6 +283,55 @@ public struct PipiSessionInspectorView: View {
                     PipiKeyValueRow(key: s.t("工作目录", "Workspace"), value: (workspacePath as NSString).abbreviatingWithTildeInPath, monospaced: true)
                 }
 
+                // v0.13.0 Automation Blueprint + Worktree + Usage Quick Card
+                if let bp = sessionPersona.automationBlueprint, bp.isConfigured {
+                    inspectorCard(title: s.t("自动化蓝图 (v\(bp.blueprintVersion))", "Automation Blueprint (v\(bp.blueprintVersion))")) {
+                        PipiKeyValueRow(key: s.t("终极目标", "Goal"), value: bp.goal)
+                        PipiKeyValueRow(key: s.t("流程步骤", "Steps"), value: "\(bp.processSteps.count)", monospaced: true)
+                        PipiKeyValueRow(key: s.t("验收标准", "Checks"), value: "\(bp.verificationCriteria.count)", monospaced: true)
+                        Button {
+                            _ = store.proposeBlueprintEvolution(
+                                botId: sessionPersona.id,
+                                rationale: lang == .zhHans
+                                    ? "主人主动发起对照原始目标的蓝图自检优化"
+                                    : "Owner-initiated blueprint review against original Goal",
+                                addedVerification: [lang == .zhHans ? "交付前显式核对每条验收标准" : "Explicitly verify every criterion before closing"]
+                            )
+                        } label: {
+                            Label(s.t("对照目标生成自进化提案", "Propose Goal Review Diff"), systemImage: "wand.and.stars")
+                                .font(PipiTokens.fontCaption.weight(.medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+
+                let convWorktrees = store.worktreeSessions.filter { $0.conversationId == sessionId }
+                if !convWorktrees.isEmpty {
+                    inspectorCard(title: s.t("隔离 Worktree (\(convWorktrees.count))", "Worktree Sandbox (\(convWorktrees.count))")) {
+                        ForEach(convWorktrees.prefix(3)) { wt in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(wt.branchName)
+                                    .font(PipiTokens.fontMonoSmall.weight(.semibold))
+                                    .foregroundStyle(PipiTokens.soulPrimary)
+                                Text(wt.diffSummary)
+                                    .font(PipiTokens.fontCaption)
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                            }
+                        }
+                    }
+                }
+
+                let sessionUsage = store.usageRecords.filter { $0.conversationId == sessionId }
+                if !sessionUsage.isEmpty {
+                    let tokens = sessionUsage.reduce(0) { $0 + $1.totalTokens }
+                    let usd = sessionUsage.reduce(0.0) { $0 + $1.estimatedCostUSD }
+                    inspectorCard(title: s.t("本会话用量（仅统计不拦截）", "Session Usage (Alert-Only)")) {
+                        PipiKeyValueRow(key: "Tokens", value: "\(tokens)", monospaced: true)
+                        PipiKeyValueRow(key: s.t("估算费用", "Est. USD"), value: "$\(String(format: "%.4f", usd))", monospaced: true)
+                    }
+                }
+
                 if !bgTasks.isEmpty {
                     inspectorCard(title: s.t("后台任务 (\(bgTasks.count))", "Background Tasks (\(bgTasks.count))")) {
                         ForEach(bgTasks.prefix(5)) { task in

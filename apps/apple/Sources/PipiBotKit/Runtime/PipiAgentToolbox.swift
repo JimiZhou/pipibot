@@ -172,11 +172,24 @@ public struct PipiLLMToolStepResult: Sendable, Equatable {
     public let text: String
     public let toolCalls: [PipiLLMToolCall]
     public let engineLabel: String
+    public let promptTokens: Int?
+    public let completionTokens: Int?
+    public let cachedTokens: Int?
 
-    public init(text: String, toolCalls: [PipiLLMToolCall] = [], engineLabel: String) {
+    public init(
+        text: String,
+        toolCalls: [PipiLLMToolCall] = [],
+        engineLabel: String,
+        promptTokens: Int? = nil,
+        completionTokens: Int? = nil,
+        cachedTokens: Int? = nil
+    ) {
         self.text = text
         self.toolCalls = toolCalls
         self.engineLabel = engineLabel
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+        self.cachedTokens = cachedTokens
     }
 }
 
@@ -225,7 +238,9 @@ public enum PipiJarvisToolRiskEvaluator {
              "capture_screenshot", "record_screen", "synthesize_voice", "send_local_file",
              "render_visual_card", "generate_image",
              "show_control_menu", "list_or_switch_bot", "create_bot", "switch_session_or_project",
-             "configure_group_mode", "update_settings", "check_updates", "create_routine_or_reminder":
+             "configure_group_mode", "update_settings", "check_updates", "create_routine_or_reminder",
+             "materialize_blueprint_bot", "record_entity_ledger", "query_entity_ledger", "propose_blueprint_evolution",
+             "trigger_list", "trigger_upsert", "trigger_delete":
             return PipiToolRiskAssessment(
                 requiresApproval: false,
                 actionKind: .readOnly,
@@ -487,6 +502,8 @@ public enum PipiLivelyProgressNarrator {
             return isZh ? "收到，正在帮你调整助手和配置 ⚙️" : "Updating your assistant settings ⚙️"
         case "check_updates":
             return isZh ? "正在查一下 GitHub 有没有新版本 🚀" : "Checking GitHub Releases for updates 🚀"
+        case "trigger_list", "trigger_upsert", "trigger_delete":
+            return isZh ? "正在管理自动化触发器 ⏱️" : "Managing automation triggers ⏱️"
         default:
             return isZh ? "正在处理第 \(stepIndex) 步，马上好啦 ✨" : "Working on step \(stepIndex) ✨"
         }
@@ -542,6 +559,11 @@ public struct PipiAgentHostCallbacks: Sendable {
     public var configureGroupMode: @Sendable (_ enable: Bool, _ memberQuery: String?) async -> String
     public var updateSettings: @Sendable (_ settingKey: String, _ value: String?) async -> String
     public var checkUpdates: @Sendable () async -> String
+    public var materializeBlueprintBot: @Sendable (_ args: [String: String]) async -> String
+    public var recordEntityLedger: @Sendable (_ entityKey: String, _ entityType: String, _ source: String, _ status: String, _ summary: String) async -> String
+    public var queryEntityLedger: @Sendable (_ entityKey: String?, _ search: String?) async -> String
+    public var proposeBlueprintEvolution: @Sendable (_ botQuery: String?, _ rationale: String, _ newRule: String?, _ newVerification: String?, _ newStepsCSV: String?) async -> String
+    public var manageTriggers: @Sendable (_ action: String, _ args: [String: String]) async -> String
 
     public init(
         captureScreenshot: @escaping @Sendable () async -> PipiMacOmnipotentCommandResult,
@@ -560,7 +582,12 @@ public struct PipiAgentHostCallbacks: Sendable {
         switchSessionOrProject: @escaping @Sendable (String, String?) async -> String,
         configureGroupMode: @escaping @Sendable (Bool, String?) async -> String,
         updateSettings: @escaping @Sendable (String, String?) async -> String,
-        checkUpdates: @escaping @Sendable () async -> String
+        checkUpdates: @escaping @Sendable () async -> String,
+        materializeBlueprintBot: @escaping @Sendable ([String: String]) async -> String = { _ in "Blueprint materialization is not connected in this host context." },
+        recordEntityLedger: @escaping @Sendable (String, String, String, String, String) async -> String = { key, _, _, status, _ in "Recorded entity \(key) (\(status))." },
+        queryEntityLedger: @escaping @Sendable (String?, String?) async -> String = { _, _ in "No matching entity records." },
+        proposeBlueprintEvolution: @escaping @Sendable (String?, String, String?, String?, String?) async -> String = { _, rationale, _, _, _ in "Evolution proposal queued: \(rationale)" },
+        manageTriggers: @escaping @Sendable (String, [String: String]) async -> String = { action, _ in "Trigger action '\(action)' queued." }
     ) {
         self.captureScreenshot = captureScreenshot
         self.recordScreen = recordScreen
@@ -579,6 +606,11 @@ public struct PipiAgentHostCallbacks: Sendable {
         self.configureGroupMode = configureGroupMode
         self.updateSettings = updateSettings
         self.checkUpdates = checkUpdates
+        self.materializeBlueprintBot = materializeBlueprintBot
+        self.recordEntityLedger = recordEntityLedger
+        self.queryEntityLedger = queryEntityLedger
+        self.proposeBlueprintEvolution = proposeBlueprintEvolution
+        self.manageTriggers = manageTriggers
     }
 }
 
@@ -791,6 +823,81 @@ public enum PipiAgentToolbox {
             name: "check_updates",
             description: "Check GitHub Releases for a newer PiPiBot version.",
             parameters: []
+        ),
+        PipiAgentToolDefinition(
+            name: "materialize_blueprint_bot",
+            description: "Create or upgrade an autonomous Bot with a full Goal-First Automation Blueprint (goal, process steps, source-of-truth rules, verification criteria, escalation rules, entity IDs) and an optional event/schedule Routine. Call this only after confirming the Goal & Process with the user.",
+            parameters: [
+                PipiAgentToolParam(name: "name", description: "Bot display name", required: true),
+                PipiAgentToolParam(name: "role", description: "Concise one-line role summary", required: true),
+                PipiAgentToolParam(name: "goal", description: "The true end Goal this Bot owns", required: true),
+                PipiAgentToolParam(name: "process_steps", description: "Semicolon-separated ordered process steps (e.g. 'Step 1; Step 2; Step 3')", required: true),
+                PipiAgentToolParam(name: "source_of_truth_rules", description: "Optional semicolon-separated conflict resolution rules", required: false),
+                PipiAgentToolParam(name: "verification_criteria", description: "Optional semicolon-separated checks that define Done", required: false),
+                PipiAgentToolParam(name: "escalation_rules", description: "Optional semicolon-separated conditions when the Bot must ask the owner", required: false),
+                PipiAgentToolParam(name: "feedback_sources", description: "Optional semicolon-separated feedback sources for self-improvement", required: false),
+                PipiAgentToolParam(name: "entity_ids", description: "Optional semicolon-separated cross-source entity ID names (e.g. 'order_id; customer_email')", required: false),
+                PipiAgentToolParam(name: "trigger_kind", description: "Optional Routine trigger: schedule, webhook, file_or_git_watch, channel_message, or host_health", required: false),
+                PipiAgentToolParam(name: "trigger_value", description: "Optional trigger detail (cron expr, watch path, keyword, or metric)", required: false),
+                PipiAgentToolParam(name: "model_id", description: "Optional dedicated model ID; omit to inherit default model", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "record_entity_ledger",
+            description: "Record or update a structured cross-source entity record (keyed by unique ID such as order_id, PR#, or customer_email) so the Bot remembers state across tools and runs.",
+            parameters: [
+                PipiAgentToolParam(name: "entity_key", description: "Unique entity identifier (e.g. PR-142, order_8821, alice@example.com)", required: true),
+                PipiAgentToolParam(name: "entity_type", description: "Entity category (e.g. pr, customer, booking, task)", required: false),
+                PipiAgentToolParam(name: "source", description: "Data source (e.g. github, wechat, email, local_git)", required: false),
+                PipiAgentToolParam(name: "status", description: "Current lifecycle status (e.g. waiting_details, confirmed, resolved)", required: false),
+                PipiAgentToolParam(name: "summary", description: "Concise structured summary of the latest known state", required: true)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "query_entity_ledger",
+            description: "Search previously recorded cross-source entity ledger entries by entity_key or free-text query.",
+            parameters: [
+                PipiAgentToolParam(name: "entity_key", description: "Exact or partial entity key", required: false),
+                PipiAgentToolParam(name: "search", description: "Keyword to search across entity summaries and sources", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "propose_blueprint_evolution",
+            description: "Propose a structured EvolutionDiff improvement to a Bot's Automation Blueprint based on execution outcomes or feedback. Always routed for owner approval (never silently mutates rules).",
+            parameters: [
+                PipiAgentToolParam(name: "bot_query", description: "Optional Bot name or ID (defaults to current Bot)", required: false),
+                PipiAgentToolParam(name: "rationale", description: "Why this change improves attainment of the original Goal", required: true),
+                PipiAgentToolParam(name: "new_rule", description: "Optional new source-of-truth or decision rule to add", required: false),
+                PipiAgentToolParam(name: "new_verification", description: "Optional new verification criterion to add", required: false),
+                PipiAgentToolParam(name: "new_steps", description: "Optional semicolon-separated revised process steps", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "trigger_list",
+            description: "List active or paused schedules, webhooks, and event triggers for this Bot or the workspace. Never exposes raw webhook secrets.",
+            parameters: [
+                PipiAgentToolParam(name: "bot_query", description: "Optional Bot name or ID filter", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "trigger_upsert",
+            description: "Create, update, pause, or resume a schedule/webhook/file_watch/channel_message/host_health trigger. Webhook secrets are write-only and shown once to the human in UI, never returned to the bot.",
+            parameters: [
+                PipiAgentToolParam(name: "routine_id", description: "Existing routine ID to update (omit to create new)", required: false),
+                PipiAgentToolParam(name: "title", description: "Short human-readable trigger title", required: true),
+                PipiAgentToolParam(name: "prompt", description: "Task prompt executed when triggered", required: true),
+                PipiAgentToolParam(name: "trigger_kind", description: "schedule | webhook | file_or_git_watch | channel_message | host_health", required: false),
+                PipiAgentToolParam(name: "cron", description: "Optional 5-field cron expression", required: false),
+                PipiAgentToolParam(name: "watch_path", description: "Optional directory or Git repo path for file_or_git_watch", required: false),
+                PipiAgentToolParam(name: "enabled", description: "true or false", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "trigger_delete",
+            description: "Delete a routine trigger by its ID.",
+            parameters: [
+                PipiAgentToolParam(name: "routine_id", description: "Routine ID to remove", required: true)
+            ]
         )
     ]
 
@@ -1034,6 +1141,53 @@ public enum PipiAgentToolbox {
 
         case "check_updates":
             return PipiAgentToolExecutionResult(output: await callbacks.checkUpdates())
+
+        case "materialize_blueprint_bot":
+            var payload: [String: String] = [:]
+            for key in ["name", "role", "goal", "process_steps", "source_of_truth_rules",
+                        "verification_criteria", "escalation_rules", "feedback_sources",
+                        "entity_ids", "trigger_kind", "trigger_value", "model_id"] {
+                if let val = toolCall.string(key) {
+                    payload[key] = val
+                }
+            }
+            return PipiAgentToolExecutionResult(output: await callbacks.materializeBlueprintBot(payload))
+
+        case "record_entity_ledger":
+            let key = toolCall.string("entity_key") ?? "entity_\(UUID().uuidString.prefix(6))"
+            let type = toolCall.string("entity_type") ?? "generic"
+            let source = toolCall.string("source") ?? "pipibot"
+            let status = toolCall.string("status") ?? "active"
+            let summary = toolCall.string("summary") ?? ""
+            return PipiAgentToolExecutionResult(
+                output: await callbacks.recordEntityLedger(key, type, source, status, summary)
+            )
+
+        case "query_entity_ledger":
+            return PipiAgentToolExecutionResult(
+                output: await callbacks.queryEntityLedger(toolCall.string("entity_key"), toolCall.string("search"))
+            )
+
+        case "propose_blueprint_evolution":
+            let rationale = toolCall.string("rationale") ?? "Workflow optimization against Goal"
+            return PipiAgentToolExecutionResult(
+                output: await callbacks.proposeBlueprintEvolution(
+                    toolCall.string("bot_query"),
+                    rationale,
+                    toolCall.string("new_rule"),
+                    toolCall.string("new_verification"),
+                    toolCall.string("new_steps")
+                )
+            )
+
+        case "trigger_list", "trigger_upsert", "trigger_delete":
+            var argMap: [String: String] = [:]
+            for key in ["bot_query", "routine_id", "title", "prompt", "trigger_kind", "cron", "watch_path", "enabled"] {
+                if let val = toolCall.string(key) { argMap[key] = val }
+            }
+            return PipiAgentToolExecutionResult(
+                output: await callbacks.manageTriggers(toolCall.name, argMap)
+            )
 
         default:
             return PipiAgentToolExecutionResult(output: "未知工具：\(toolCall.name)", isError: true)

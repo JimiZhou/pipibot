@@ -82,6 +82,9 @@ struct PipiBotMacApp: App {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init() {
+        if PipiShowcaseScreenshotExporter.exportIfRequested() {
+            Darwin.exit(0)
+        }
         let residentStore = PipiAppStore(
             autoConnect: true,
             enableNativeRuntime: true,

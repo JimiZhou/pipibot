@@ -11,6 +11,9 @@ public struct PipiInferenceResult: Sendable, Equatable {
     public let fileChanges: [PipiFileChange]
     public let summaryInfo: PipiSessionSummaryInfo?
     public let attachments: [PipiChatAttachment]
+    public let promptTokens: Int?
+    public let completionTokens: Int?
+    public let cachedTokens: Int?
 
     public init(
         text: String,
@@ -20,7 +23,10 @@ public struct PipiInferenceResult: Sendable, Equatable {
         planItems: [PipiPlanItem] = [],
         fileChanges: [PipiFileChange] = [],
         summaryInfo: PipiSessionSummaryInfo? = nil,
-        attachments: [PipiChatAttachment] = []
+        attachments: [PipiChatAttachment] = [],
+        promptTokens: Int? = nil,
+        completionTokens: Int? = nil,
+        cachedTokens: Int? = nil
     ) {
         self.text = text
         self.engineLabel = engineLabel
@@ -30,6 +36,9 @@ public struct PipiInferenceResult: Sendable, Equatable {
         self.fileChanges = fileChanges
         self.summaryInfo = summaryInfo
         self.attachments = attachments
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+        self.cachedTokens = cachedTokens
     }
 }
 
@@ -1727,18 +1736,33 @@ public struct PipiInferenceEngine: Sendable {
             }
         }
 
+        let usageDict = root["usage"] as? [String: Any]
+        let promptTokens = (usageDict?["prompt_tokens"] as? Int) ?? (usageDict?["input_tokens"] as? Int)
+        let completionTokens = (usageDict?["completion_tokens"] as? Int) ?? (usageDict?["output_tokens"] as? Int)
+        let cachedTokens = ((usageDict?["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? Int) ?? 0
+
         // Also support inline `<pipi_tool>` tags if a model emitted them in text
         if parsedCalls.isEmpty {
             let inline = PipiAgentToolbox.extractInlineToolCalls(from: rawContent)
             if !inline.calls.isEmpty {
-                return PipiLLMToolStepResult(text: inline.cleanedText, toolCalls: inline.calls, engineLabel: engineLabel)
+                return PipiLLMToolStepResult(
+                    text: inline.cleanedText,
+                    toolCalls: inline.calls,
+                    engineLabel: engineLabel,
+                    promptTokens: promptTokens,
+                    completionTokens: completionTokens,
+                    cachedTokens: cachedTokens
+                )
             }
         }
 
         return PipiLLMToolStepResult(
             text: rawContent.trimmingCharacters(in: .whitespacesAndNewlines),
             toolCalls: parsedCalls,
-            engineLabel: engineLabel
+            engineLabel: engineLabel,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            cachedTokens: cachedTokens
         )
     }
 
@@ -1861,10 +1885,18 @@ public struct PipiInferenceEngine: Sendable {
                 toolCalls.append(PipiLLMToolCall(id: id, name: name, argumentsJSON: argStr))
             }
         }
+        let usageDict = root["usage"] as? [String: Any]
+        let promptTokens = usageDict?["input_tokens"] as? Int
+        let completionTokens = usageDict?["output_tokens"] as? Int
+        let cachedTokens = (usageDict?["cache_read_input_tokens"] as? Int) ?? 0
+
         return PipiLLMToolStepResult(
             text: textParts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines),
             toolCalls: toolCalls,
-            engineLabel: engineLabel
+            engineLabel: engineLabel,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            cachedTokens: cachedTokens
         )
     }
 

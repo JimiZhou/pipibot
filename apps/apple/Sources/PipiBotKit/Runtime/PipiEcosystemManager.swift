@@ -293,6 +293,15 @@ public final class PipiEcosystemManager {
         }
     }
 
+    public func upsertSkillPack(_ pack: PipiInstalledSkillPack) {
+        if let idx = installedSkills.firstIndex(where: { $0.id == pack.id }) {
+            installedSkills[idx] = pack
+        } else {
+            installedSkills.insert(pack, at: 0)
+        }
+        save()
+    }
+
     /// Installs a SKILL.md pack from curated catalog ID, GitHub repo URL, raw URL, or local file/folder.
     @discardableResult
     public func installSkill(

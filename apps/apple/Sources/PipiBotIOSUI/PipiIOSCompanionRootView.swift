@@ -48,6 +48,8 @@ public struct PipiIOSCompanionRootView: View {
     @State private var modelBaseURL: String = PipiLLMProviderKind.openai.defaultBaseURL
     @State private var modelId: String = PipiLLMProviderKind.openai.defaultModelId
     @State private var testResultText: String?
+    @State private var tasksSubTab: Int = 0
+    @State private var iosWorktreeFeedbackDraft: String = ""
 
     public init(store: PipiAppStore) {
         self.store = store
@@ -172,7 +174,7 @@ public struct PipiIOSCompanionRootView: View {
                 case .bots:
                     botsPage
                 case .tasks:
-                    NeedsYouSwipeDeckView(store: store, onHaptic: triggerHaptic)
+                    iosMissionHubPage
                 case .settings:
                     settingsPage
                 }
@@ -662,6 +664,62 @@ public struct PipiIOSCompanionRootView: View {
                     .foregroundStyle(PipiTokens.textPrimary)
                     .padding(.top, PipiTokens.spacing8)
 
+                PipiListCard(
+                    title: s.t("蛋宝 · AI 访谈设计新 Bot", "Eggbot · Interview-Driven Bot Architect"),
+                    subtitle: s.t("用语音或文字倒出想法，蛋宝一次只问一个问题，帮你理清目标、流程与验收标准并一键装配上线。", "Brain-dump your goal via voice or text; Eggbot interviews you one question at a time and builds the Bot + Routine."),
+                    badgeText: s.t("推荐", "Recommended"),
+                    badgeColor: PipiTokens.soulPrimary,
+                    footer: {
+                        PipiActionButton(
+                            s.t("开始和蛋宝设计新 Bot", "Design Bot with Eggbot"),
+                            systemImage: "sparkles",
+                            tone: .primary,
+                            density: .mobile,
+                            fullWidth: true
+                        ) {
+                            _ = store.openBotArchitectSession()
+                            chatSurfaceMode = 0
+                            selectedTab = .chat
+                            triggerHaptic(.success)
+                        }
+                    }
+                )
+
+                Text(s.t("MIT 精选人设市场（一键装配蓝图与技能）", "Curated MIT Bot Marketplace"))
+                    .font(PipiTokens.fontSubheadline.weight(.semibold))
+                    .foregroundStyle(PipiTokens.textPrimary)
+                    .padding(.top, PipiTokens.spacing8)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: PipiTokens.spacing12) {
+                        ForEach(PipiBotMarketplaceCatalog.curatedBots) { item in
+                            let installed = store.personas.contains(where: { $0.id == item.id })
+                            PipiListCard(
+                                title: item.name(lang),
+                                subtitle: item.tagline(lang),
+                                badgeText: installed ? s.t("已装", "Added") : item.license,
+                                badgeColor: PipiTokens.stateSuccess,
+                                footer: {
+                                    PipiActionButton(
+                                        installed ? s.t("进入对话", "Open Chat") : s.t("一键安装", "Install"),
+                                        systemImage: installed ? "bubble.left.fill" : "plus.circle.fill",
+                                        tone: installed ? .secondary : .primary,
+                                        density: .mobile,
+                                        fullWidth: true
+                                    ) {
+                                        let bot = store.installMarketplaceBot(item)
+                                        store.selectPersona(bot.id)
+                                        chatSurfaceMode = 0
+                                        selectedTab = .chat
+                                        triggerHaptic(.success)
+                                    }
+                                }
+                            )
+                            .frame(width: 260)
+                        }
+                    }
+                }
+
                 ForEach(store.personas) { persona in
                     let isSelected = store.activePersona.id == persona.id
                     let accent = PipiTokens.color(for: persona.accent)
@@ -849,6 +907,161 @@ public struct PipiIOSCompanionRootView: View {
             }
             .padding(.horizontal, PipiTokens.spacing16)
             .padding(.bottom, PipiTokens.spacing24)
+        }
+    }
+
+    // MARK: - iOS Mission Hub (Approvals + Evolution + Worktree Diff + Triggers & Usage)
+
+    private var iosMissionHubPage: some View {
+        VStack(spacing: PipiTokens.spacing12) {
+            Picker("", selection: $tasksSubTab) {
+                Text(s.t("审批与进化", "Review & Evolve")).tag(0)
+                Text(s.t("代码 Diff", "Diffs")).tag(1)
+                Text(s.t("事件与用量", "Triggers & Usage")).tag(2)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, PipiTokens.spacing16)
+
+            if tasksSubTab == 0 {
+                ScrollView {
+                    VStack(spacing: PipiTokens.spacing12) {
+                        NeedsYouSwipeDeckView(store: store, onHaptic: triggerHaptic)
+                            .frame(minHeight: 260)
+
+                        if !store.blueprintEvolutionProposals.isEmpty {
+                            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                                Text(s.t("蓝图自进化提案（EvolutionDiff）", "Blueprint Self-Evolution"))
+                                    .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                    .padding(.horizontal, PipiTokens.spacing16)
+
+                                ForEach(store.blueprintEvolutionProposals) { prop in
+                                    PipiListCard(
+                                        title: "\(prop.botName) · \(prop.diffs.count) Diff",
+                                        subtitle: prop.rationale,
+                                        badgeText: prop.status.rawValue,
+                                        badgeColor: prop.status == .pending ? PipiTokens.stateWarning : PipiTokens.stateSuccess,
+                                        footer: {
+                                            if prop.status == .pending {
+                                                HStack(spacing: PipiTokens.spacing8) {
+                                                    PipiActionButton(s.t("批准生效", "Approve"), systemImage: "checkmark", tone: .primary, density: .mobile, fullWidth: true) {
+                                                        store.approveBlueprintEvolutionProposal(id: prop.id)
+                                                        triggerHaptic(.success)
+                                                    }
+                                                    PipiActionButton(s.t("拒绝", "Reject"), systemImage: "xmark", tone: .secondary, density: .mobile, fullWidth: true) {
+                                                        store.rejectBlueprintEvolutionProposal(id: prop.id)
+                                                        triggerHaptic(.light)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    )
+                                    .padding(.horizontal, PipiTokens.spacing16)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.bottom, PipiTokens.spacing24)
+                }
+            } else if tasksSubTab == 1 {
+                ScrollView {
+                    VStack(spacing: PipiTokens.spacing12) {
+                        if store.worktreeSessions.isEmpty {
+                            PipiListCard(
+                                title: s.t("暂无隔离 Worktree Diff", "No Active Worktree Diffs"),
+                                subtitle: s.t("当群聊并行写代码或 Mac/Linux 节点拉起隔离分支时，代码 Diff 会实时同步到这里，支持手机打回续改或一键合并。", "Parallel coding Worktree Diffs from your Mac/Linux nodes appear here for mobile review, feedback, or merge."),
+                                badgeText: s.t("智能隔离就绪", "Auto-Isolation Ready"),
+                                badgeColor: PipiTokens.stateSuccess
+                            )
+                        } else {
+                            ForEach(store.worktreeSessions) { wt in
+                                PipiListCard(
+                                    title: "\(wt.taskTitle) · \(wt.branchName)",
+                                    subtitle: "\(wt.botName) · \(wt.diffSummary)",
+                                    badgeText: wt.status.label(lang),
+                                    badgeColor: wt.status == .readyForReview ? PipiTokens.stateWarning : PipiTokens.soulPrimary,
+                                    footer: {
+                                        VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                                            if let proof = store.proofBundle(for: wt.id) {
+                                                Text("🛡️ \(proof.overallStatus.label(lang)) · \(proof.evidenceSummary)")
+                                                    .font(PipiTokens.fontCaption.weight(.semibold))
+                                                    .foregroundStyle(proof.overallStatus == .verified ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
+                                            }
+                                            PipiActionButton(s.t("生成验证证据包 (Checks + Panel)", "Verify Proof Bundle"), systemImage: "checkmark.shield.fill", tone: .secondary, density: .mobile, fullWidth: true) {
+                                                Task {
+                                                    _ = await store.verifyWorktreeProof(sessionId: wt.id)
+                                                    triggerHaptic(.success)
+                                                }
+                                            }
+                                            if !wt.unifiedDiff.isEmpty {
+                                                Text(String(wt.unifiedDiff.prefix(600)))
+                                                    .font(PipiTokens.fontMonoSmall)
+                                                    .foregroundStyle(PipiTokens.textSecondary)
+                                                    .padding(8)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .background(PipiTokens.bgInset)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                            }
+                                            TextField(s.t("输入修改意见打回给 Agent…", "Review comment to send back…"), text: $iosWorktreeFeedbackDraft)
+                                                .textFieldStyle(.plain)
+                                                .padding(10)
+                                                .background(PipiTokens.bgInset)
+                                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                                            HStack(spacing: PipiTokens.spacing8) {
+                                                PipiActionButton(s.t("打回修改", "Send Back"), systemImage: "arrow.uturn.backward", tone: .secondary, density: .mobile, fullWidth: true) {
+                                                    let fb = iosWorktreeFeedbackDraft
+                                                    iosWorktreeFeedbackDraft = ""
+                                                    Task {
+                                                        await store.sendBackWorktreeFeedback(sessionId: wt.id, feedback: fb)
+                                                        triggerHaptic(.medium)
+                                                    }
+                                                }
+                                                PipiActionButton(s.t("合并清理", "Merge"), systemImage: "checkmark.circle.fill", tone: .primary, density: .mobile, fullWidth: true) {
+                                                    _ = store.mergeWorktreeSession(sessionId: wt.id)
+                                                    triggerHaptic(.success)
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    .padding(.horizontal, PipiTokens.spacing16)
+                    .padding(.bottom, PipiTokens.spacing24)
+                }
+            } else {
+                let summary = store.usageSummary
+                ScrollView {
+                    VStack(spacing: PipiTokens.spacing12) {
+                        PipiListCard(
+                            title: s.t("Token 与估算费用（仅统计提醒不拦截）", "Tokens & Est. Spend (Alert-Only)"),
+                            subtitle: s.t("今日：\(summary.todayTokens) tokens（~$\(String(format: "%.3f", summary.todayCostUSD))） · 7日：\(summary.sevenDayTokens) tokens（~$\(String(format: "%.3f", summary.sevenDayCostUSD))）", "Today: \(summary.todayTokens) tok (~$\(String(format: "%.3f", summary.todayCostUSD))) · 7d: \(summary.sevenDayTokens) tok (~$\(String(format: "%.3f", summary.sevenDayCostUSD)))"),
+                            badgeText: s.t("不阻断执行", "Non-Blocking"),
+                            badgeColor: PipiTokens.stateSuccess
+                        )
+
+                        ForEach(store.routines) { rt in
+                            PipiListCard(
+                                title: rt.title.isEmpty ? rt.triggerKind.label(lang) : rt.title,
+                                subtitle: "\(rt.triggerKind.label(lang)) · \(rt.scheduleBadge(lang))",
+                                badgeText: rt.isEnabled ? s.enabled : s.disabled,
+                                badgeColor: rt.isEnabled ? PipiTokens.soulPrimary : PipiTokens.textMuted,
+                                footer: {
+                                    PipiActionButton(s.t("立即触发运行", "Run Now"), systemImage: "play.fill", tone: .secondary, density: .mobile, fullWidth: true) {
+                                        Task {
+                                            await store.runRoutineNow(rt)
+                                            triggerHaptic(.light)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, PipiTokens.spacing16)
+                    .padding(.bottom, PipiTokens.spacing24)
+                }
+            }
         }
     }
 

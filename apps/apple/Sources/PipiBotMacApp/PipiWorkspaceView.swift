@@ -17,6 +17,7 @@ public struct PipiWorkspaceView: View {
 
     private enum WorkspaceDestination: Equatable {
         case home
+        case missionBoard
         case needsYou
         case knowledge
         case session(String)
@@ -70,6 +71,8 @@ public struct PipiWorkspaceView: View {
     @State private var undoKeyMonitor: Any?
     #endif
     @FocusState private var isComposerFocused: Bool
+    @State private var isNativeComposerFocused: Bool = false
+    @State private var composerFocusToken: Int = 0
 
     public init(
         store: PipiAppStore,
@@ -343,7 +346,7 @@ public struct PipiWorkspaceView: View {
                                     }
                                 )
 
-                            case .needsYou:
+                            case .needsYou, .missionBoard:
                                 PipiNeedsYouInspectorView(
                                     store: store,
                                     onOpenSettings: onOpenSettings,
@@ -638,6 +641,16 @@ public struct PipiWorkspaceView: View {
                             .foregroundStyle(PipiTokens.textPrimary)
                     }
 
+                case .missionBoard:
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Image(systemName: "rectangle.3.group")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(PipiTokens.soulPrimary)
+                        Text(s.t("任务台", "Mission Board"))
+                            .font(PipiTokens.fontHeadline)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                    }
+
                 case .needsYou:
                     HStack(spacing: PipiTokens.spacing8) {
                         Image(systemName: "bell")
@@ -833,7 +846,7 @@ public struct PipiWorkspaceView: View {
                 case .home: helpTopic = .gettingStarted
                 case .session, .group: helpTopic = .shortcuts
                 case .knowledge: helpTopic = .knowledgeMemory
-                case .needsYou: helpTopic = .desktopSafety
+                case .needsYou, .missionBoard: helpTopic = .desktopSafety
                 }
                 showHelpSheet = true
             } label: {
@@ -849,7 +862,7 @@ public struct PipiWorkspaceView: View {
                 case .session: return s.t("显示或隐藏会话详情", "Toggle Session Details")
                 case .group: return s.t("显示或隐藏协作群详情", "Toggle Group Inspector")
                 case .knowledge: return s.t("显示或隐藏知识库概览", "Toggle Knowledge Overview")
-                case .needsYou: return s.t("显示或隐藏安全策略栏", "Toggle Policy Sidebar")
+                case .needsYou, .missionBoard: return s.t("显示或隐藏安全策略栏", "Toggle Policy Sidebar")
                 }
             }()
             Button {
@@ -1145,7 +1158,20 @@ public struct PipiWorkspaceView: View {
                     showGroupCreatorSheet = true
                 }
 
-                // 3. 待我确认
+                // 3. 任务台 (Mission Board — 看板 / Worktree Diff / 事件与进化 / 用量)
+                let missionBadge = store.worktreeSessions.filter { $0.status == .readyForReview }.count
+                    + store.blueprintEvolutionProposals.filter { $0.status == .pending }.count
+                sidebarNavRow(
+                    icon: "rectangle.3.group",
+                    title: s.t("任务台", "Mission Board"),
+                    isSelected: destination == .missionBoard,
+                    badgeCount: missionBadge,
+                    showPulseDot: !store.activeGroupLanes.isEmpty
+                ) {
+                    destination = .missionBoard
+                }
+
+                // 4. 待我确认
                 sidebarNavRow(
                     icon: "bell",
                     title: s.needsYouInboxTitle,
@@ -2230,6 +2256,18 @@ public struct PipiWorkspaceView: View {
                     destination = .session(convId)
                 }
             )
+        case .missionBoard:
+            PipiMissionBoardView(
+                store: store,
+                onOpenArchitect: {
+                    let conv = store.openBotArchitectSession()
+                    destination = .session(conv.id)
+                },
+                onOpenConversation: { sessionId in
+                    store.selectConversation(sessionId)
+                    destination = .session(sessionId)
+                }
+            )
         case .needsYou:
             PipiNeedsYouInboxView(store: store) { sessionId in
                 store.selectConversation(sessionId)
@@ -3080,17 +3118,25 @@ public struct PipiWorkspaceView: View {
                 .transition(.opacity)
             }
 
-            TextField(s.chatPlaceholder, text: $draftMessage, axis: .vertical)
-                .lineLimit(1...8)
-                .textFieldStyle(.plain)
-                .font(PipiTokens.fontBody)
-                .foregroundStyle(PipiTokens.textPrimary)
-                .focused($isComposerFocused)
-                .padding(.top, 2)
-                .frame(minHeight: 44, alignment: .topLeading)
-                .onSubmit {
+            PipiAutoGrowingComposerEditor(
+                text: $draftMessage,
+                placeholder: s.chatPlaceholder,
+                minHeight: 44,
+                maxHeight: 220,
+                focusRequestToken: composerFocusToken,
+                onFocusChanged: { focused in
+                    isNativeComposerFocused = focused
+                },
+                onSubmit: {
                     submitDraft()
                 }
+            )
+            .padding(.top, 2)
+            .onChange(of: isComposerFocused) { _, newValue in
+                if newValue {
+                    composerFocusToken += 1
+                }
+            }
 
             // Tier 1 Bottom Row: strictly 4 controls (+ Menu, Permission Picker, Engine Picker, Send/Stop)
             HStack(spacing: 6) {
@@ -3178,17 +3224,17 @@ public struct PipiWorkspaceView: View {
         .background(PipiTokens.composerSurface, in: shape)
         .overlay(
             shape.stroke(
-                isDropTargeted ? PipiTokens.textPrimary : (isComposerFocused ? PipiTokens.composerBorderFocused : PipiTokens.composerBorder),
+                isDropTargeted ? PipiTokens.textPrimary : ((isComposerFocused || isNativeComposerFocused) ? PipiTokens.composerBorderFocused : PipiTokens.composerBorder),
                 lineWidth: isDropTargeted ? 1.5 : 1
             )
         )
         .clipShape(shape)
         .shadow(
             color: PipiTokens.composerShadow,
-            radius: isComposerFocused ? 14 : 10,
-            y: isComposerFocused ? 4 : 3
+            radius: (isComposerFocused || isNativeComposerFocused) ? 14 : 10,
+            y: (isComposerFocused || isNativeComposerFocused) ? 4 : 3
         )
-        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isComposerFocused)
+        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isComposerFocused || isNativeComposerFocused)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDroppedFiles(providers)
         }

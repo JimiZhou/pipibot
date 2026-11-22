@@ -223,6 +223,7 @@ public struct PipiRemoteControlBridge: Sendable {
     public let stopGeneration: @Sendable (_ conversationId: String?) async -> Void
     public let resolvePending: @Sendable (_ kind: String, _ id: String, _ optionId: String, _ note: String?) async -> Bool
     public let loadDeliverableData: @Sendable (_ artifactId: String) async -> (data: Data, mimeType: String, fileName: String)?
+    public let handleWebhook: @Sendable (_ routineId: String, _ authHeader: String?, _ signatureHeader: String?, _ body: Data) async -> (status: Int, message: String)
 
     public init(
         fetchSnapshot: @escaping @Sendable (_ requestedConversationId: String?) async -> PipiRemoteControlSnapshot,
@@ -230,7 +231,8 @@ public struct PipiRemoteControlBridge: Sendable {
         createConversation: @escaping @Sendable (_ personaId: String?) async -> String,
         stopGeneration: @escaping @Sendable (_ conversationId: String?) async -> Void,
         resolvePending: @escaping @Sendable (_ kind: String, _ id: String, _ optionId: String, _ note: String?) async -> Bool,
-        loadDeliverableData: @escaping @Sendable (_ artifactId: String) async -> (data: Data, mimeType: String, fileName: String)? = { _ in nil }
+        loadDeliverableData: @escaping @Sendable (_ artifactId: String) async -> (data: Data, mimeType: String, fileName: String)? = { _ in nil },
+        handleWebhook: @escaping @Sendable (_ routineId: String, _ authHeader: String?, _ signatureHeader: String?, _ body: Data) async -> (status: Int, message: String) = { _, _, _, _ in (404, "Webhook handler not connected") }
     ) {
         self.fetchSnapshot = fetchSnapshot
         self.sendMessage = sendMessage
@@ -238,6 +240,7 @@ public struct PipiRemoteControlBridge: Sendable {
         self.stopGeneration = stopGeneration
         self.resolvePending = resolvePending
         self.loadDeliverableData = loadDeliverableData
+        self.handleWebhook = handleWebhook
     }
 }
 
@@ -445,6 +448,18 @@ public actor PipiRemotePWAServer {
             return httpJSON(status: 200, payload: ["status": "ok"])
         default:
             break
+        }
+
+        // Event-Driven Routine Webhooks (authenticated per-routine via HMAC-SHA256 or Bearer secret)
+        if method == "POST", path.hasPrefix("/api/v1/webhooks/") {
+            let routineId = String(path.dropFirst("/api/v1/webhooks/".count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !routineId.isEmpty else {
+                return httpJSON(status: 400, payload: ["error": "Missing routine ID"])
+            }
+            let sigHeader = headers["x-pipibot-signature"] ?? headers["x-hub-signature-256"]
+            let res = await bridge.handleWebhook(routineId, headers["authorization"], sigHeader, bodyData)
+            return httpJSON(status: res.status, payload: ["ok": res.status < 400, "message": res.message, "routineId": routineId])
         }
 
         // Token authentication for all /api/* routes

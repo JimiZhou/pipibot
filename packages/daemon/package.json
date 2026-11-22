@@ -49,7 +49,7 @@
     "@pipibot/protocol": "workspace:*"
   },
   "scripts": {
-    "check": "node --experimental-strip-types ./src/outcome-engine.ts && node --experimental-strip-types ./src/cue-fleet-sensor.ts && node --experimental-strip-types ./src/ecosystem.ts && node --experimental-strip-types ./src/mesh-hub.ts && node --experimental-strip-types ./src/mesh-node.ts && node --experimental-strip-types ./src/server.ts && node --experimental-strip-types ./src/cli.ts --help >/dev/null",
+    "check": "node --experimental-strip-types ./src/outcome-engine.ts && node --experimental-strip-types ./src/cue-fleet-sensor.ts && node --experimental-strip-types ./src/ecosystem.ts && node --experimental-strip-types ./src/mesh-hub.ts && node --experimental-strip-types ./src/mesh-node.ts && node --experimental-strip-types ./src/credential-broker.ts && node --experimental-strip-types ./src/bot-box.ts && node --experimental-strip-types ./src/sentinel.ts && node --experimental-strip-types ./src/portable-template.ts && node --experimental-strip-types ./src/group-router.ts && node --experimental-strip-types ./src/mcp-server.ts && node --experimental-strip-types ./src/server.ts && node --experimental-strip-types ./src/cli.ts --help >/dev/null",
     "start": "node --experimental-strip-types ./src/cli.ts",
     "test": "node --experimental-strip-types --test ./test/daemon.test.ts"
   },

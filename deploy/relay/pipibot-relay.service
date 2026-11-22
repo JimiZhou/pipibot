@@ -1,0 +1,22 @@
+[Unit]
+Description=PiPiBot Zero-Knowledge E2EE Relay (pipibot.jimizhou.com -> 127.0.0.1:9191)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pipibot-relay
+ExecStart=/usr/bin/env node --experimental-strip-types /opt/pipibot-relay/src/cli.ts --host 127.0.0.1 --port 9191
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=PIPIBOT_RELAY_HOST=127.0.0.1
+Environment=PIPIBOT_RELAY_PORT=9191
+Environment=PIPIBOT_RELAY_MAX_CONN_PER_IP=24
+Environment=PIPIBOT_RELAY_MAX_CLIENTS_HOST=12
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

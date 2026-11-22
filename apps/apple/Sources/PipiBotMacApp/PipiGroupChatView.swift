@@ -27,6 +27,8 @@ public struct PipiGroupChatView: View {
     @State private var savedDeliverableMessageId: String?
     @State private var savedMemoryMessageId: String?
     @FocusState private var isComposerFocused: Bool
+    @State private var isNativeComposerFocused: Bool = false
+    @State private var composerFocusToken: Int = 0
 
     public init(
         store: PipiAppStore,
@@ -796,20 +798,24 @@ public struct PipiGroupChatView: View {
             }
 
             VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                TextField(
-                    s.t("输入协作目标，或用 @成员名 指定智能体…", "Describe goal, or type @Name to mention an agent…"),
+                PipiAutoGrowingComposerEditor(
                     text: $draftText,
-                    axis: .vertical
+                    placeholder: s.t("输入协作目标，或用 @成员名 指定智能体…", "Describe goal, or type @Name to mention an agent…"),
+                    minHeight: 44,
+                    maxHeight: 220,
+                    focusRequestToken: composerFocusToken,
+                    onFocusChanged: { focused in
+                        isNativeComposerFocused = focused
+                    },
+                    onSubmit: {
+                        sendDraft(groupId: group.id)
+                    }
                 )
-                .textFieldStyle(.plain)
-                .font(PipiTokens.fontBody)
-                .foregroundStyle(PipiTokens.textPrimary)
-                .focused($isComposerFocused)
-                .lineLimit(1...6)
                 .padding(.top, 2)
-                .frame(minHeight: 44, alignment: .topLeading)
-                .onSubmit {
-                    sendDraft(groupId: group.id)
+                .onChange(of: isComposerFocused) { _, newValue in
+                    if newValue {
+                        composerFocusToken += 1
+                    }
                 }
 
                 HStack(spacing: PipiTokens.spacing8) {
@@ -866,15 +872,15 @@ public struct PipiGroupChatView: View {
             .background(PipiTokens.composerSurface, in: shape)
             .overlay(
                 shape.stroke(
-                    isComposerFocused ? PipiTokens.composerBorderFocused : PipiTokens.composerBorder,
+                    (isComposerFocused || isNativeComposerFocused) ? PipiTokens.composerBorderFocused : PipiTokens.composerBorder,
                     lineWidth: 1
                 )
             )
             .clipShape(shape)
             .shadow(
                 color: PipiTokens.composerShadow,
-                radius: isComposerFocused ? 10 : 6,
-                y: isComposerFocused ? 3 : 2
+                radius: (isComposerFocused || isNativeComposerFocused) ? 10 : 6,
+                y: (isComposerFocused || isNativeComposerFocused) ? 3 : 2
             )
         }
         .frame(maxWidth: 780)

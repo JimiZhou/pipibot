@@ -29,6 +29,21 @@ public struct PipiBotCreatorSheet: View {
         }
     }
 
+    private enum CreationMode: String, CaseIterable, Identifiable {
+        case aiInterview
+        case manualForm
+
+        var id: String { rawValue }
+    }
+
+    @State private var creationMode: CreationMode = .aiInterview
+    @State private var architectBotName: String = ""
+    @State private var architectGoal: String = ""
+    @State private var architectProcessDump: String = ""
+    @State private var architectSourceRules: String = ""
+    @State private var architectVerification: String = ""
+    @State private var architectTriggerKind: PipiRoutineTriggerKind = .schedule
+    @State private var architectTriggerValue: String = ""
     @State private var editorTab: EditorTab = .basic
     @State private var selectedCategory: PipiBotPersonaTemplate.Category? = nil
     @State private var selectedTemplateId: String = PipiBotPersonaTemplate.catalog.first?.id ?? "tpl_general"
@@ -95,15 +110,19 @@ public struct PipiBotCreatorSheet: View {
 
             Group {
                 if isCreateMode {
-                    HStack(spacing: 0) {
-                        templateGalleryPane
-                            .frame(width: 280)
+                    if creationMode == .aiInterview {
+                        architectInterviewPane
+                    } else {
+                        HStack(spacing: 0) {
+                            templateGalleryPane
+                                .frame(width: 280)
 
-                        Rectangle()
-                            .fill(PipiTokens.borderSubtle)
-                            .frame(width: 1)
+                            Rectangle()
+                                .fill(PipiTokens.borderSubtle)
+                                .frame(width: 1)
 
-                        studioConfigurationPane
+                            studioConfigurationPane
+                        }
                     }
                 } else {
                     studioConfigurationPane
@@ -146,6 +165,188 @@ public struct PipiBotCreatorSheet: View {
         }
     }
 
+    // MARK: - Dr Eggbot AI Architect Interview Mode
+
+    private var architectInterviewPane: some View {
+        HStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(PipiTokens.soulPrimary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.t("蛋宝 · 目标优先自动化蓝图设计器", "Eggbot · Goal-First Automation Designer"))
+                                .font(PipiTokens.fontHeadline)
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(s.t("先说清楚终极目标，再倒出你平时的步骤、裁决规则与验收标准；也可直接启动 1v1 语音/文字逐题访谈。", "Start with the Goal, brain-dump your process & verification criteria, or launch a live 1v1 voice/text interview with Eggbot."))
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                        }
+                    }
+                    .padding(PipiTokens.spacing12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(PipiTokens.soulPrimary.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(s.t("1. 终极目标（Goal — 你真正想要的结果，而不是某个步骤）", "1. Primary Goal (End outcome, not a single step)"))
+                            .font(PipiTokens.fontCaption.weight(.semibold))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        TextField(
+                            s.t("例如：每天自动汇总客户反馈并定位体验瓶颈，给出改进行动建议", "e.g. Automatically track PR reviews and verify tests pass before merge"),
+                            text: $architectGoal,
+                            axis: .vertical
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(2...4)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(s.t("2. 平时做法脑暴（用分号或换行分隔步骤）", "2. Current Process Brain-Dump (steps separated by ; or newlines)"))
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textSecondary)
+                            Spacer()
+                            if !store.voiceLiveTranscript.isEmpty {
+                                Button(s.t("填入语音转写", "Insert Voice Transcript")) {
+                                    let spoken = store.voiceLiveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if !spoken.isEmpty {
+                                        architectProcessDump = architectProcessDump.isEmpty ? spoken : "\(architectProcessDump)\n\(spoken)"
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                            }
+                        }
+                        TextEditor(text: $architectProcessDump)
+                            .font(PipiTokens.fontBody)
+                            .frame(height: 86)
+                            .padding(6)
+                            .background(PipiTokens.bgSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                    .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+                            )
+                    }
+
+                    HStack(spacing: PipiTokens.spacing12) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(s.t("3. 冲突数据源优先级（信谁？）", "3. Source-of-Truth Rules"))
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textSecondary)
+                            TextField(s.t("例：以系统记录为准，不以邮件为准", "e.g. Booking DB wins over email"), text: $architectSourceRules)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(s.t("4. 验收完成标准（怎样算做完？）", "4. Verification Criteria"))
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textSecondary)
+                            TextField(s.t("例：单测通过且已回复确认回执", "e.g. Tests pass and receipt sent"), text: $architectVerification)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                    }
+
+                    HStack(spacing: PipiTokens.spacing12) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(s.t("5. Bot 名称（留空自动起名）", "5. Bot Name (optional)"))
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textSecondary)
+                            TextField(s.t("例：巡检管家 / Potato", "e.g. Release Guardian"), text: $architectBotName)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(s.t("6. 自动触发方式（Routine）", "6. Event / Schedule Trigger"))
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textSecondary)
+                            Picker("", selection: $architectTriggerKind) {
+                                ForEach(PipiRoutineTriggerKind.allCases) { k in
+                                    Text(k.label(lang)).tag(k)
+                                }
+                            }
+                            .labelsHidden()
+                        }
+                    }
+
+                    TextField(
+                        s.t("触发参数（可选：Cron 如 30 9 * * 1-5 / Webhook 密钥 / 监听目录 / 微信关键词）", "Optional trigger detail (cron, webhook secret, path, or keyword)"),
+                        text: $architectTriggerValue
+                    )
+                    .textFieldStyle(.roundedBorder)
+
+                    HStack(spacing: PipiTokens.spacing12) {
+                        Button {
+                            let stepsJoined = architectProcessDump
+                                .replacingOccurrences(of: "\n", with: ";")
+                            let result = store.materializeBlueprintBot(from: [
+                                "name": architectBotName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? (lang == .zhHans ? "自动化伙伴" : "Auto Worker")
+                                    : architectBotName,
+                                "role": architectGoal,
+                                "goal": architectGoal,
+                                "process_steps": stepsJoined,
+                                "source_of_truth_rules": architectSourceRules,
+                                "verification_criteria": architectVerification,
+                                "trigger_kind": architectTriggerKind.rawValue,
+                                "trigger_value": architectTriggerValue
+                            ])
+                            onSaved?(result.persona)
+                            onDismiss()
+                        } label: {
+                            Label(s.t("一键装配蓝图并上线", "Materialize Bot & Routine"), systemImage: "checkmark.seal.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(architectGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                        Button {
+                            _ = store.openBotArchitectSession()
+                            onDismiss()
+                        } label: {
+                            Label(s.t("和蛋宝 1v1 逐题访谈", "1v1 Interview with Eggbot"), systemImage: "bubble.left.and.bubble.right")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .padding(PipiTokens.spacing20)
+            }
+
+            Rectangle().fill(PipiTokens.borderSubtle).frame(width: 1)
+
+            // Live Blueprint Preview Column
+            ScrollView {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    Text(s.t("实时蓝图预览", "Live Blueprint Preview"))
+                        .font(PipiTokens.fontSubheadline.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textSecondary)
+
+                    let previewSteps = architectProcessDump
+                        .replacingOccurrences(of: "\n", with: ";")
+                        .replacingOccurrences(of: "；", with: ";")
+                        .split(separator: ";")
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    let previewBp = PipiBotAutomationBlueprint(
+                        goal: architectGoal.isEmpty ? s.t("等待输入终极目标…", "Waiting for primary goal…") : architectGoal,
+                        processSteps: previewSteps,
+                        sourceOfTruthRules: architectSourceRules.isEmpty ? [] : [architectSourceRules],
+                        verificationCriteria: architectVerification.isEmpty ? [] : [architectVerification]
+                    )
+                    Text(previewBp.renderedPromptBlock())
+                        .font(PipiTokens.fontMonoSmall)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(PipiTokens.spacing12)
+                        .background(PipiTokens.bgSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                }
+                .padding(PipiTokens.spacing16)
+            }
+            .frame(width: 280)
+            .background(PipiTokens.bgCanvas)
+        }
+    }
+
     // MARK: - Header & Footer
 
     private var headerBar: some View {
@@ -162,6 +363,14 @@ public struct PipiBotCreatorSheet: View {
                     .foregroundStyle(PipiTokens.textSecondary)
             }
             Spacer()
+            if isCreateMode {
+                Picker("", selection: $creationMode) {
+                    Text(s.t("AI 访谈生成（推荐）", "AI Architect")).tag(CreationMode.aiInterview)
+                    Text(s.t("手动表单", "Manual Form")).tag(CreationMode.manualForm)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 250)
+            }
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .semibold))

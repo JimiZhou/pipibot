@@ -1,0 +1,42 @@
+{
+  "name": "@pipibot/relay",
+  "version": "0.13.0",
+  "private": true,
+  "description": "PiPiBot Zero-Knowledge E2EE Relay, Encrypted WebRTC Signaling, UDP STUN Reflector, and Universal Mobile PWA Host (Clean-Room MIT).",
+  "type": "module",
+  "main": "./src/server.ts",
+  "types": "./src/server.ts",
+  "bin": {
+    "pipibot-relay": "./src/cli.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/server.ts",
+      "default": "./src/server.ts"
+    },
+    "./e2e": {
+      "types": "./src/e2e.ts",
+      "default": "./src/e2e.ts"
+    },
+    "./ws": {
+      "types": "./src/ws-minimal.ts",
+      "default": "./src/ws-minimal.ts"
+    },
+    "./pwa": {
+      "types": "./src/pwa-bundle.ts",
+      "default": "./src/pwa-bundle.ts"
+    },
+    "./server": {
+      "types": "./src/server.ts",
+      "default": "./src/server.ts"
+    }
+  },
+  "scripts": {
+    "check": "node --experimental-strip-types ./src/e2e.ts && node --experimental-strip-types ./src/ws-minimal.ts && node --experimental-strip-types ./src/landing-page.ts && node --experimental-strip-types ./src/pwa-bundle.ts && node --experimental-strip-types ./src/server.ts && node --experimental-strip-types ./src/cli.ts --help >/dev/null",
+    "start": "node --experimental-strip-types ./src/cli.ts",
+    "test": "node --experimental-strip-types --test ./test/relay.test.ts"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

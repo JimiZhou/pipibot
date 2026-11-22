@@ -3,7 +3,8 @@
  */
 
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { get as httpGet } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -11,6 +12,7 @@ import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { parseCliArgs } from '../src/cli.ts';
+import { computeWebhookHmac, matchesCronExpression } from '../src/event-triggers.ts';
 import { DAEMON_VERSION, PipiResidentServer } from '../src/server.ts';
 import { PipiMeshNodeAgent } from '../src/mesh-node.ts';
 
@@ -618,5 +620,337 @@ describe('PipiBot V1 Mac Resident Daemon (@pipibot/daemon)', () => {
       nodeA.stop();
       nodeB.stop();
     }
+  });
+
+  test('v0.13.0 Event-Driven HMAC Webhook, Cron Matcher & Live Git Worktree Diff/Merge API', async () => {
+    // 1. Cron matcher verification (2026-11-23 09:30 is Monday)
+    assert.equal(matchesCronExpression('30 9 * * 1-5', new Date(2026, 10, 23, 9, 30)), true);
+    assert.equal(matchesCronExpression('30 9 * * 1-5', new Date(2026, 10, 22, 9, 30)), false);
+
+    // 2. Register HMAC-protected webhook routine & test auth + cooldown
+    const reg = await requestJson<{ routine: { id: string } }>(baseUrl, '/api/v1/triggers', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: 'rt_gh_pr',
+        botId: 'bot_pipi_coder',
+        title: 'PR Review Hook',
+        prompt: 'Review PR diff',
+        triggerKind: 'webhook',
+        webhookSecret: 'whsec_test_99',
+        cooldownSeconds: 60,
+      }),
+    });
+    assert.equal(reg.status, 201);
+
+    const payload = JSON.stringify({ action: 'opened', pr: 128 });
+    const badHook = await fetch(`${baseUrl}/api/v1/webhooks/rt_gh_pr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PiPiBot-Signature': 'sha256=invalid' },
+      body: payload,
+    });
+    assert.equal(badHook.status, 401);
+
+    const goodSig = computeWebhookHmac('whsec_test_99', payload);
+    const okHook = await fetch(`${baseUrl}/api/v1/webhooks/rt_gh_pr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PiPiBot-Signature': goodSig },
+      body: payload,
+    });
+    assert.equal(okHook.status, 202);
+
+    const cooldownHook = await fetch(`${baseUrl}/api/v1/webhooks/rt_gh_pr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PiPiBot-Signature': goodSig },
+      body: payload,
+    });
+    assert.equal(cooldownHook.status, 429);
+
+    // 3. Real temporary Git repository Worktree create -> edit -> diff -> feedback -> squash merge -> cleanup
+    const gitRepo = mkdtempSync(join(tmpdir(), 'pipibot-daemon-wt-'));
+    try {
+      execFileSync('git', ['init', '-b', 'main'], { cwd: gitRepo });
+      execFileSync('git', ['config', 'user.email', 'ci@pipibot.dev'], { cwd: gitRepo });
+      execFileSync('git', ['config', 'user.name', 'PiPi CI'], { cwd: gitRepo });
+      writeFileSync(join(gitRepo, 'app.ts'), 'export const v = 1;\n');
+      execFileSync('git', ['add', '-A'], { cwd: gitRepo });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: gitRepo });
+
+      const created = await requestJson<{ session: { id: string; worktreePath: string; branchName: string } }>(
+        baseUrl,
+        '/api/v1/worktrees',
+        {
+          method: 'POST',
+          body: JSON.stringify({ repoPath: gitRepo, taskTitle: 'Refactor Auth', botId: 'bot_pipi_coder' }),
+        },
+      );
+      assert.equal(created.status, 201);
+      const wtId = created.data.session.id;
+      const wtPath = created.data.session.worktreePath;
+      assert.ok(existsSync(wtPath));
+
+      writeFileSync(join(wtPath, 'app.ts'), '// HACK temp\nexport const v = 2;\n');
+      const blockedVerify = await requestJson<{ proof: { overallStatus: string; proofScore: number } }>(
+        baseUrl,
+        `/api/v1/worktrees/${wtId}/verify`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      assert.equal(blockedVerify.status, 200);
+      assert.equal(blockedVerify.data.proof.overallStatus, 'blocked');
+
+      writeFileSync(join(wtPath, 'app.ts'), 'export const v = 2;\n');
+      const passVerify = await requestJson<{ proof: { overallStatus: string; proofScore: number } }>(
+        baseUrl,
+        `/api/v1/worktrees/${wtId}/verify`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      assert.equal(passVerify.status, 200);
+      assert.equal(passVerify.data.proof.overallStatus, 'verified');
+      assert.equal(passVerify.data.proof.proofScore, 100);
+
+      // Loop Draft Gate: hard no-draft escalation + edit-and-add-rule + knowledge gaps
+      const refundDraft = await requestJson<{ draft: { status: string; draftContent: string } }>(
+        baseUrl,
+        '/api/v1/loops/drafts',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            loopName: 'Support Loop',
+            botId: 'bot_pipi_operator',
+            inputSummary: 'Need a refund for duplicate charge',
+            draftContent: 'should stay empty',
+          }),
+        },
+      );
+      assert.equal(refundDraft.status, 201);
+      assert.equal(refundDraft.data.draft.status, 'flagged_undrafted');
+      assert.equal(refundDraft.data.draft.draftContent, '');
+
+      const normalDraft = await requestJson<{ draft: { id: string; status: string } }>(
+        baseUrl,
+        '/api/v1/loops/drafts',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            loopName: 'Support Loop',
+            botId: 'bot_pipi_operator',
+            inputSummary: 'How to reset key?',
+            draftContent: 'See docs/keys.md',
+          }),
+        },
+      );
+      assert.equal(normalDraft.data.draft.status, 'pending_gate');
+
+      const resolvedDraft = await requestJson<{ draft: { status: string }; harnessRules: string[] }>(
+        baseUrl,
+        `/api/v1/loops/drafts/${normalDraft.data.draft.id}/resolve`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'edit_and_add_rule',
+            editedDraft: 'Go to Settings -> Vault -> Rotate Key (docs/keys.md).',
+            newRule: 'Always include exact Settings navigation path',
+          }),
+        },
+      );
+      assert.equal(resolvedDraft.status, 200);
+      assert.equal(resolvedDraft.data.draft.status, 'edited_and_sent');
+      assert.ok(resolvedDraft.data.harnessRules.includes('Always include exact Settings navigation path'));
+
+      const gapRes = await requestJson<{ gap: { id: string; occurrenceCount: number } }>(
+        baseUrl,
+        '/api/v1/gaps',
+        { method: 'POST', body: JSON.stringify({ botId: 'bot_pipi_operator', question: 'How to configure SSO?' }) },
+      );
+      assert.equal(gapRes.status, 201);
+      assert.equal(gapRes.data.gap.occurrenceCount, 1);
+
+      const diffRes = await requestJson<{ session: { status: string; files: unknown[]; unifiedDiff: string } }>(
+        baseUrl,
+        `/api/v1/worktrees/${wtId}/diff`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      assert.equal(diffRes.status, 200);
+      assert.equal(diffRes.data.session.status, 'ready_for_review');
+      assert.equal(diffRes.data.session.files.length, 1);
+      assert.ok(diffRes.data.session.unifiedDiff.includes('export const v = 2;'));
+
+      const fbRes = await requestJson<{ session: { status: string; comments: unknown[] } }>(
+        baseUrl,
+        `/api/v1/worktrees/${wtId}/feedback`,
+        { method: 'POST', body: JSON.stringify({ comment: 'Add JSDoc', filePath: 'app.ts', lineNumber: 1 }) },
+      );
+      assert.equal(fbRes.status, 200);
+      assert.equal(fbRes.data.session.status, 'changes_requested');
+      assert.equal(fbRes.data.session.comments.length, 1);
+
+      const mergeRes = await requestJson<{ session: { status: string }; summary: string }>(
+        baseUrl,
+        `/api/v1/worktrees/${wtId}/merge`,
+        { method: 'POST', body: JSON.stringify({ strategy: 'squash', commitMessage: 'feat: bump v2' }) },
+      );
+      assert.equal(mergeRes.status, 200);
+      assert.equal(mergeRes.data.session.status, 'merged');
+      assert.equal(existsSync(wtPath), false);
+      assert.equal(readFileSync(join(gitRepo, 'app.ts'), 'utf8'), 'export const v = 2;\n');
+    } finally {
+      rmSync(gitRepo, { recursive: true, force: true });
+    }
+  });
+
+  test('v0.15 Universal Pairing Link, Bounded MCP hard-block, Sentinel, Portable Templates, Group Router, Credential Broker & Bot Box', async () => {
+    const { handleBoundedMCPRequest } = await import('../src/mcp-server.ts');
+    const { PipiCredentialBrokerServer, buildScrubbedChildEnv } = await import('../src/credential-broker.ts');
+    const { createServer } = await import('node:http');
+
+    // 1. Universal pairing link -> redeem once -> revoke device
+    const startRes = await requestJson<{ code: string; universalLink: string; hostId: string }>(
+      baseUrl,
+      '/api/v1/auth/pair/start',
+      { method: 'POST', body: JSON.stringify({ scope: 'owner', relayOrigin: 'https://pipibot.jimizhou.com' }) },
+    );
+    assert.equal(startRes.status, 201);
+    assert.ok(startRes.data.universalLink.startsWith(`https://pipibot.jimizhou.com/c/${startRes.data.hostId}#t=`));
+
+    const pairRes = await requestJson<{ ok: boolean; token: string; deviceId: string }>(
+      baseUrl,
+      '/api/v1/auth/pair',
+      { method: 'POST', body: JSON.stringify({ code: startRes.data.code, label: 'iPhone 17 Safari' }) },
+    );
+    assert.equal(pairRes.status, 200);
+    assert.ok(pairRes.data.token.startsWith('pipi_dev_'));
+
+    // Reusing one-time pairing code fails with 401
+    const replayPair = await requestJson<{ error: string }>(baseUrl, '/api/v1/auth/pair', {
+      method: 'POST',
+      body: JSON.stringify({ code: startRes.data.code, label: 'Replay' }),
+    });
+    assert.equal(replayPair.status, 401);
+
+    const revokeRes = await requestJson<{ ok: boolean; revoked: boolean }>(
+      baseUrl,
+      `/api/v1/auth/devices/${pairRes.data.deviceId}`,
+      { method: 'DELETE' },
+    );
+    assert.equal(revokeRes.status, 200);
+    assert.equal(revokeRes.data.revoked, true);
+
+    // 2. Bounded stdio MCP server allows inspection, hard-blocks approvals/merge/delete/secrets
+    const mcpList = await handleBoundedMCPRequest({ id: 1, method: 'tools/call', params: { name: 'pipibot_list_nodes', arguments: {} } }, baseUrl);
+    assert.ok(!mcpList.error);
+    const mcpBlocked = await handleBoundedMCPRequest({ id: 2, method: 'tools/call', params: { name: 'pipibot_approve_decision', arguments: {} } }, baseUrl);
+    assert.equal(mcpBlocked.error?.code, -32003);
+    assert.ok(mcpBlocked.error?.message.includes('FORBIDDEN_BOUNDED_MCP'));
+
+    // HTTP scope guard also rejects mcp_bounded on privileged routes
+    const scopeGuardRes = await fetch(`${baseUrl}/api/v1/worktrees/wt_fake/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PiPiBot-Scope': 'mcp_bounded' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(scopeGuardRes.status, 403);
+
+    // 3. Sentinel zero-LLM clustering + recurrence >= 3 evolution proposal
+    const sentRes = await requestJson<{ issues: Array<{ count: number; normalizedTitle: string; evolutionProposal?: { id: string } }> }>(
+      baseUrl,
+      '/api/v1/sentinel/samples',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          samples: [
+            { id: 's1', kind: 'tool_error', toolName: 'read_file', rawMessage: 'ENOENT at /Users/jimizhou/a/f1.ts line 10' },
+            { id: 's2', kind: 'tool_error', toolName: 'read_file', rawMessage: 'ENOENT at /Users/bob/b/f2.ts line 42' },
+            { id: 's3', kind: 'tool_error', toolName: 'read_file', rawMessage: 'ENOENT at /Users/cat/c/f3.ts line 99' },
+          ],
+        }),
+      },
+    );
+    assert.equal(sentRes.status, 200);
+    assert.equal(sentRes.data.issues.length, 1);
+    assert.equal(sentRes.data.issues[0]!.count, 3);
+    assert.ok(sentRes.data.issues[0]!.evolutionProposal?.id);
+
+    // 4. Portable template preview & apply (redacts secrets + pauses routines)
+    const tplRes = await requestJson<{ applied: boolean; template: { redactedCount: number; bots: unknown[]; routines: Array<{ enabled: boolean }> } }>(
+      baseUrl,
+      '/api/v1/templates/apply',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          markdown: `---\nscope: team\nname: "Release Ops"\nbots:\n  - slug: ops\n    name: "Ops Bot"\n    role: "Use sk-1234567890abcdefghij at /Users/jimizhou/repo"\nroutines:\n  - title: "Nightly"\n    bot: ops\n    trigger: schedule\n    cron: "0 2 * * *"\n---\n## Bot: Ops Bot\nVerify before shipping.`,
+        }),
+      },
+    );
+    assert.equal(tplRes.status, 201);
+    assert.ok(tplRes.data.template.redactedCount >= 2);
+    assert.equal(tplRes.data.template.routines[0]!.enabled, false);
+
+    // 5. Three-tier fast group auto-router
+    const routeRes = await requestJson<{ decision: { tier: string; picks: Array<{ botId: string }> } }>(
+      baseUrl,
+      '/api/v1/groups/route',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          message: 'Please fix the swift build regression',
+          leadBotId: 'lead',
+          candidates: [
+            { id: 'lead', name: 'PiPi', role: 'Lead', keywords: ['plan'] },
+            { id: 'coder', name: 'Coder', role: 'Engineer', keywords: ['swift', 'build', 'regression'] },
+          ],
+        }),
+      },
+    );
+    assert.equal(routeRes.status, 200);
+    assert.equal(routeRes.data.decision.tier, 'deterministic_rule');
+    assert.equal(routeRes.data.decision.picks[0]!.botId, 'coder');
+
+    // 6. Live Credential Broker secret injection & revocation
+    let seenAuth = '';
+    const mockUpstream = createServer((req, res) => {
+      seenAuth = String(req.headers.authorization ?? '');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ upstreamOk: true }));
+    });
+    await new Promise<void>((resolve) => mockUpstream.listen(0, '127.0.0.1', () => resolve()));
+    const upPort = (mockUpstream.address() as { port: number }).port;
+    const broker = new PipiCredentialBrokerServer();
+    try {
+      const lease = await broker.issueLease({
+        provider: 'openai',
+        upstreamBaseUrl: `http://127.0.0.1:${upPort}`,
+        realSecret: 'sk-live-secret-hidden',
+      });
+      const childEnv = buildScrubbedChildEnv({ PATH: '/usr/bin', ANTHROPIC_API_KEY: 'sk-ant-leak', PIPIBOT_HUB_TOKEN: 'hub-secret' }, [lease]);
+      assert.equal(childEnv.OPENAI_API_KEY, lease.token);
+      assert.equal(childEnv.ANTHROPIC_API_KEY, undefined);
+      assert.equal(childEnv.PIPIBOT_HUB_TOKEN, undefined);
+
+      const proxyRes = await fetch(`${lease.proxyBaseUrl}/v1/models`, {
+        headers: { Authorization: `Bearer ${lease.token}` },
+      });
+      assert.equal(proxyRes.status, 200);
+      assert.equal(seenAuth, 'Bearer sk-live-secret-hidden');
+
+      broker.revokeLease(lease.token);
+      const afterRevoke = await fetch(`${lease.proxyBaseUrl}/v1/models`);
+      assert.equal(afterRevoke.status, 401);
+    } finally {
+      await broker.stop();
+      await new Promise<void>((resolve) => mockUpstream.close(() => resolve()));
+    }
+
+    // 7. Live Bot Box OS-level self-check probe
+    const boxRes = await requestJson<{ backend: string; allPassed: boolean; passedCount: number }>(
+      baseUrl,
+      '/api/v1/security/box-check',
+    );
+    assert.equal(boxRes.status, 200);
+    assert.equal(boxRes.data.allPassed, true);
+
+    // 8. Unified 5-Tab Mobile PWA served directly from Daemon Hub
+    const mobileRes = await fetch(`${baseUrl}/mobile`);
+    assert.equal(mobileRes.status, 200);
+    const mobileHtml = await mobileRes.text();
+    assert.ok(mobileHtml.includes('E2EERelayTransport') && mobileHtml.includes('PiPiBot'));
   });
 });

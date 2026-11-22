@@ -13,12 +13,17 @@
  * - `skills list|install`: Manage community SKILL.md & MCP packs
  */
 
+import { readFileSync } from 'node:fs';
 import { realpathSync } from 'node:fs';
 import { hostname as osHostname, platform as osPlatform } from 'node:os';
 import { pathToFileURL } from 'node:url';
 
+import { runBotBoxSelfCheck } from './bot-box.ts';
+import { runBoundedMCPStdioLoop } from './mcp-server.ts';
 import { buildLinuxSystemdService, type MeshNodeRecord, type MeshTaskRecord } from './mesh-hub.ts';
 import { PipiMeshNodeAgent } from './mesh-node.ts';
+import { parsePortableTemplate } from './portable-template.ts';
+import { scanSentinelSamples } from './sentinel.ts';
 import { DAEMON_VERSION, DEFAULT_DAEMON_PORT, PipiResidentServer } from './server.ts';
 
 export type DaemonCliMode =
@@ -28,7 +33,11 @@ export type DaemonCliMode =
   | 'nodes_list'
   | 'run_remote'
   | 'skills_list'
-  | 'skills_install';
+  | 'skills_install'
+  | 'mcp_stdio'
+  | 'team_apply'
+  | 'sentinel_scan'
+  | 'box_check';
 
 export interface ParsedCliArgs {
   mode: DaemonCliMode;
@@ -90,6 +99,18 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
   } else if (argv[0] === 'skills') {
     mode = 'skills_list';
     idx = argv[1] === 'list' ? 2 : 1;
+  } else if (argv[0] === 'mcp') {
+    mode = 'mcp_stdio';
+    idx = 1;
+  } else if (argv[0] === 'team' && argv[1] === 'apply') {
+    mode = 'team_apply';
+    idx = 2;
+  } else if (argv[0] === 'sentinel') {
+    mode = 'sentinel_scan';
+    idx = 1;
+  } else if (argv[0] === 'box-check') {
+    mode = 'box_check';
+    idx = 1;
   }
 
   for (let i = idx; i < argv.length; i += 1) {
@@ -333,6 +354,50 @@ export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> 
     }
     const json = (await resp.json()) as { skill?: { id: string; name: string } };
     console.log(`✅ Installed skill: ${json.skill?.name ?? opts.skillSource} (${json.skill?.id ?? ''})`);
+    return;
+  }
+
+  if (opts.mode === 'mcp_stdio') {
+    runBoundedMCPStdioLoop(opts.hubUrl, opts.token);
+    return;
+  }
+
+  if (opts.mode === 'box_check') {
+    const report = runBotBoxSelfCheck();
+    console.log(JSON.stringify(report, null, 2));
+    process.exitCode = report.allPassed ? 0 : 1;
+    return;
+  }
+
+  if (opts.mode === 'sentinel_scan') {
+    const issues = scanSentinelSamples([]);
+    console.log(JSON.stringify({ scannedAt: new Date().toISOString(), issueCount: issues.length, issues }, null, 2));
+    return;
+  }
+
+  if (opts.mode === 'team_apply') {
+    const targetFile = opts.skillSource ?? opts.promptText;
+    if (!targetFile) {
+      console.error('Usage: pipibot team apply <team.md|team.yaml>');
+      process.exitCode = 1;
+      return;
+    }
+    const raw = readFileSync(targetFile, 'utf8');
+    const parsed = parsePortableTemplate(raw);
+    try {
+      const resp = await fetch(`${opts.hubUrl}/api/v1/templates/apply`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markdown: raw }),
+      });
+      if (resp.ok) {
+        console.log(JSON.stringify(await resp.json(), null, 2));
+        return;
+      }
+    } catch {
+      // Offline preview output when Hub isn't running
+    }
+    console.log(JSON.stringify({ dryRun: true, template: parsed }, null, 2));
     return;
   }
 

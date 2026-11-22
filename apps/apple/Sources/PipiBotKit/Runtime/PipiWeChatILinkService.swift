@@ -190,6 +190,7 @@ public struct PipiWeChatSessionCredentials: Codable, Sendable, Equatable {
     public let baseURL: String
     public var lastFromUserId: String?
     public var lastContextToken: String?
+    public var syncCursor: String?
 
     public init(
         botToken: String,
@@ -197,7 +198,8 @@ public struct PipiWeChatSessionCredentials: Codable, Sendable, Equatable {
         userId: String,
         baseURL: String,
         lastFromUserId: String? = nil,
-        lastContextToken: String? = nil
+        lastContextToken: String? = nil,
+        syncCursor: String? = nil
     ) {
         self.botToken = botToken
         self.botId = botId
@@ -205,6 +207,7 @@ public struct PipiWeChatSessionCredentials: Codable, Sendable, Equatable {
         self.baseURL = baseURL
         self.lastFromUserId = lastFromUserId
         self.lastContextToken = lastContextToken
+        self.syncCursor = syncCursor
     }
 }
 
@@ -704,22 +707,37 @@ public final class PipiWeChatILinkManager {
     private var credentials: PipiWeChatSessionCredentials?
     private var qrPollTask: Task<Void, Never>?
     private var updatesLoopTask: Task<Void, Never>?
+    private var userMessageQueues: [String: Task<Void, Never>] = [:]
     private var syncCursor: String = ""
     private var seenMessageIds: Set<String> = []
     private let secretStore: any PipiSecretStore
-    private let session: URLSession
+    private let injectedSession: URLSession?
+    private var session: URLSession
     private let inboundDirectoryURL: URL
+    private var lastBridge: PipiWeChatMessageBridge?
+    public private(set) var consecutivePollFailures: Int = 0
+    public private(set) var lastSuccessfulPollAt: Date? = nil
 
     private static let keychainAccountKey = "wechat_ilink_bot_credentials_v1"
 
+    private static func makeFreshPollingSession() -> URLSession {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 45
+        cfg.timeoutIntervalForResource = 75
+        cfg.waitsForConnectivity = true
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: cfg)
+    }
+
     public init(
         secretStore: any PipiSecretStore = PipiLocalEncryptedSecretStore(),
-        session: URLSession = .shared,
+        session: URLSession? = nil,
         inboundDirectoryURL: URL? = nil,
         restoreCredentialsOnInit: Bool = true
     ) {
         self.secretStore = secretStore
-        self.session = session
+        self.injectedSession = session
+        self.session = session ?? Self.makeFreshPollingSession()
         self.inboundDirectoryURL = inboundDirectoryURL ?? PipiPersonalWikiStore.defaultStorageDirectory()
             .appendingPathComponent("wechat-inbound", isDirectory: true)
         if restoreCredentialsOnInit {
@@ -736,12 +754,20 @@ public final class PipiWeChatILinkManager {
             return
         }
         self.credentials = saved
+        if let cursor = saved.syncCursor, !cursor.isEmpty {
+            self.syncCursor = cursor
+        }
     }
 
     /// Loads saved iLink credentials off the main thread so startup never deadlocks on Keychain ACL prompts.
     @discardableResult
     public func restoreSavedCredentialsInBackground() async -> Bool {
-        if credentials != nil { return true }
+        if let existing = credentials {
+            if syncCursor.isEmpty, let cursor = existing.syncCursor, !cursor.isEmpty {
+                self.syncCursor = cursor
+            }
+            return true
+        }
         let store = self.secretStore
         let account = Self.keychainAccountKey
         let raw = await Task.detached(priority: .utility) {
@@ -754,6 +780,9 @@ public final class PipiWeChatILinkManager {
         }
         if self.credentials == nil {
             self.credentials = saved
+        }
+        if let cursor = saved.syncCursor, !cursor.isEmpty {
+            self.syncCursor = cursor
         }
         return true
     }
@@ -768,19 +797,49 @@ public final class PipiWeChatILinkManager {
 
     private func clearSavedCredentials() {
         self.credentials = nil
+        self.syncCursor = ""
         secretStore.deleteSecret(for: Self.keychainAccountKey)
     }
 
-    /// Reconnects using previously authorized iLink credentials stored in Keychain.
+    private func resetSessionForReconnect() {
+        guard injectedSession == nil else { return }
+        session.invalidateAndCancel()
+        session = Self.makeFreshPollingSession()
+    }
+
+    /// Reconnects using previously authorized iLink credentials stored in the local encrypted vault.
     public func reconnectSavedSession(bridge: PipiWeChatMessageBridge) {
+        self.lastBridge = bridge
+        if credentials == nil {
+            restoreSavedCredentialsIfAvailable()
+        }
         guard let creds = credentials else {
             state = .disconnected
+            lastActivityNote = "未检测到已保存的微信 iLink 凭据（如需继续使用请重新扫码绑定一次）"
             return
         }
         stopTasksOnly()
+        resetSessionForReconnect()
+        if syncCursor.isEmpty, let savedCursor = creds.syncCursor, !savedCursor.isEmpty {
+            self.syncCursor = savedCursor
+        }
+        consecutivePollFailures = 0
         state = .connected(botId: creds.botId, userId: creds.userId, connectedAt: Date())
         lastActivityNote = "已恢复微信 iLink 长轮询连接"
         startUpdatesLoop(creds: creds, bridge: bridge)
+    }
+
+    /// Re-establishes the long-poll cleanly after macOS wakes from sleep or network changes so sockets never stall.
+    public func handleSystemWake(bridge: PipiWeChatMessageBridge? = nil) {
+        guard credentials != nil else { return }
+        switch state {
+        case .connected, .error:
+            guard let effectiveBridge = bridge ?? lastBridge else { return }
+            reconnectSavedSession(bridge: effectiveBridge)
+            lastActivityNote = "检测到系统唤醒，已重建微信 iLink 长轮询连接"
+        case .disconnected, .requestingQR, .awaitingScan, .sessionExpired:
+            break
+        }
     }
 
     /// Sends a proactive text notification to the most recent bound WeChat user (if `context_token` was captured).
@@ -881,6 +940,10 @@ public final class PipiWeChatILinkManager {
         qrPollTask = nil
         updatesLoopTask?.cancel()
         updatesLoopTask = nil
+        for task in userMessageQueues.values {
+            task.cancel()
+        }
+        userMessageQueues.removeAll()
     }
 
     private func startQRStatusPolling(qrToken: String, qrContent: String, bridge: PipiWeChatMessageBridge) {
@@ -952,6 +1015,7 @@ public final class PipiWeChatILinkManager {
     }
 
     private func startUpdatesLoop(creds: PipiWeChatSessionCredentials, bridge: PipiWeChatMessageBridge) {
+        self.lastBridge = bridge
         updatesLoopTask?.cancel()
         updatesLoopTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -971,17 +1035,45 @@ public final class PipiWeChatILinkManager {
 
                 do {
                     let (data, response) = try await self.session.data(for: req)
-                    if let http = response as? HTTPURLResponse, http.statusCode == 401 {
-                        self.state = .sessionExpired("微信 iLink 会话已过期，请重新扫码绑定。")
-                        return
+                    if let http = response as? HTTPURLResponse {
+                        if http.statusCode == 401 || http.statusCode == 403 {
+                            self.state = .sessionExpired("微信 iLink 会话已过期（HTTP \(http.statusCode)），请重新扫码绑定。")
+                            self.lastActivityNote = "微信会话已失效，等待重新扫码"
+                            return
+                        }
+                        if http.statusCode >= 500 {
+                            throw URLError(.badServerResponse)
+                        }
                     }
                     let parsed = PipiWeChatILinkProtocol.parseGetUpdatesResponse(data)
                     if parsed.errCode == -14 {
                         self.state = .sessionExpired("微信 iLink 授权已失效（errcode -14），请重新扫码绑定。")
+                        self.lastActivityNote = "微信授权已失效（-14），等待重新扫码"
                         return
                     }
-                    if let cursor = parsed.nextCursor, !cursor.isEmpty {
+                    if parsed.errCode != 0 {
+                        self.consecutivePollFailures += 1
+                        self.lastActivityNote = "微信 iLink 轮询返回 errcode \(parsed.errCode)，自动重试中..."
+                        let delaySeconds = min(15, 1 << min(self.consecutivePollFailures, 4))
+                        try? await Task.sleep(for: .seconds(delaySeconds))
+                        continue
+                    }
+
+                    if self.consecutivePollFailures > 0 {
+                        self.consecutivePollFailures = 0
+                        self.lastActivityNote = "微信 iLink 长轮询已自动恢复"
+                    }
+                    self.lastSuccessfulPollAt = Date()
+                    if !self.state.isConnected {
+                        self.state = .connected(botId: creds.botId, userId: creds.userId, connectedAt: Date())
+                    }
+
+                    if let cursor = parsed.nextCursor, !cursor.isEmpty, cursor != self.syncCursor {
                         self.syncCursor = cursor
+                        if var latest = self.credentials, latest.syncCursor != cursor {
+                            latest.syncCursor = cursor
+                            self.persistCredentials(latest)
+                        }
                     }
                     for inbound in parsed.messages {
                         if self.seenMessageIds.contains(inbound.messageId) { continue }
@@ -989,14 +1081,44 @@ public final class PipiWeChatILinkManager {
                         if self.seenMessageIds.count > 400 {
                             self.seenMessageIds.removeAll(keepingCapacity: true)
                         }
-                        await self.handleInboundMessage(inbound, creds: creds, bridge: bridge)
+                        // Enqueue per-user asynchronously so long agent runs NEVER block the getupdates loop!
+                        self.enqueueInboundMessage(inbound, creds: creds, bridge: bridge)
                     }
                 } catch {
                     if Task.isCancelled { return }
-                    try? await Task.sleep(for: .seconds(3))
+                    self.consecutivePollFailures += 1
+                    let nsErr = error as NSError
+                    let isNormalLongPollTimeout = (nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorTimedOut)
+                    if isNormalLongPollTimeout {
+                        self.consecutivePollFailures = 0
+                        continue
+                    }
+                    self.lastActivityNote = "微信网络波动（\(error.localizedDescription)），正在自动重连..."
+                    if self.consecutivePollFailures >= 3 {
+                        self.resetSessionForReconnect()
+                    }
+                    let delaySeconds = min(15, 1 << min(self.consecutivePollFailures, 4))
+                    try? await Task.sleep(for: .seconds(delaySeconds))
                 }
             }
         }
+    }
+
+    private func enqueueInboundMessage(
+        _ inbound: PipiWeChatInboundMessage,
+        creds: PipiWeChatSessionCredentials,
+        bridge: PipiWeChatMessageBridge
+    ) {
+        let userId = inbound.fromUserId
+        let previous = userMessageQueues[userId]
+        let nextTask = Task { @MainActor [weak self] in
+            if let previous {
+                _ = await previous.value
+            }
+            guard let self else { return }
+            await self.handleInboundMessage(inbound, creds: creds, bridge: bridge)
+        }
+        userMessageQueues[userId] = nextTask
     }
 
     private func handleInboundMessage(

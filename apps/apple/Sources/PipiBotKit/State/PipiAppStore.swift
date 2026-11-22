@@ -406,6 +406,37 @@ public final class PipiAppStore {
     public var wechatAutoConnectEnabled: Bool = true
     public var availableModelsByProviderId: [String: [String]] = [:]
 
+    // v0.13.0 Automation Blueprint, Self-Evolution, Event Routines, Worktree Diff & Token Metering
+    public var worktreeSessions: [PipiWorktreeReviewSession] = []
+    public var blueprintEvolutionProposals: [PipiBlueprintEvolutionProposal] = []
+    public var entityLedgerEntries: [PipiEntityLedgerEntry] = []
+    public var runOutcomeRecords: [PipiRunOutcomeRecord] = []
+    public var routineRunLogs: [PipiRoutineRunLog] = []
+    public var usageRecords: [PipiUsageRecord] = []
+    public var usageAlertConfig: PipiUsageAlertConfig = .default
+    public var usageAlertNotices: [PipiUsageAlertNotice] = []
+    internal var watchFingerprintsByRoutineId: [String: String] = [:]
+
+    // v0.14.0 "Review Proof, Not Code" + Loop & Harness Engineering State
+    public var deterministicChecks: [PipiDeterministicCheckSpec] = PipiDeterministicCheckSpec.defaultChecks
+    public var proofBundlesByWorktreeId: [String: PipiVerificationProofBundle] = [:]
+    public var operationalLoops: [PipiOperationalLoop] = []
+    public var loopDrafts: [PipiLoopDraftItem] = []
+    public var approvedExamples: [PipiApprovedExample] = []
+    public var knowledgeGaps: [PipiKnowledgeGapItem] = []
+
+    // v0.15.0 OpenMausBot Parity + Self-Hosted Zero-Knowledge E2EE Relay State
+    public let e2eeRelayClient: PipiE2EERelayClient
+    public var lastUniversalPairingURL: String? = nil
+    public var decisionModelConfig: PipiDecisionModelConfig = PipiDecisionModelConfig()
+    public var lastGroupRouteDecision: PipiGroupRouteDecision? = nil
+    public var sentinelIssues: [PipiSentinelIssue] = []
+    public var lastSentinelReport: PipiSentinelReport? = nil
+    public var customACPEngines: [PipiCustomACPEngineConfig] = []
+    public var lastBoxSelfCheck: PipiBoxSelfCheckResult? = nil
+    public var pendingPortableTemplatePreview: PipiPortableTemplatePackage? = nil
+    internal var systemWakeObserver: NSObjectProtocol? = nil
+
     // Wave 2 (#01 Wiki, #02 Per-Bot Memory, #03 Proactive & Prepare) Observable State
     public var wikiPages: [PipiPersonalWikiPage] = []
     public var proactiveBriefings: [PipiPreparedBriefing] = []
@@ -754,6 +785,10 @@ public final class PipiAppStore {
             secretStore: resolvedSecretStore,
             restoreCredentialsOnInit: !defersKeychain
         )
+        self.e2eeRelayClient = PipiE2EERelayClient(
+            relayOrigin: PipiE2EERelayClient.defaultRelayOrigin,
+            secretStore: resolvedSecretStore
+        )
         self.enableNativeRuntime = enableNativeRuntime
         self.enableEmbeddedBridge = enableEmbeddedBridge
         self.persistenceUrl = stateFileUrl
@@ -876,10 +911,16 @@ public final class PipiAppStore {
             if self.hasCompletedOnboarding && !self.personas.contains(where: { $0.id == PipiBotPersona.securityAuditorId }) {
                 self.personas.append(PipiBotPersona.securityAuditorDefault)
             }
+            if self.hasCompletedOnboarding && !self.personas.contains(where: { $0.id == PipiBotPersona.botArchitectId }) {
+                self.personas.append(PipiBotPersona.botArchitectDefault)
+            }
+            self.usageRecords = PipiUsageMeteringEngine.loadLedger()
+            self.entityLedgerEntries = PipiEntityLedgerStore.load()
             if self.persistenceWarning == nil {
                 self.noticeBanner = strings.readyStatus
             }
             self.startRoutineScheduler()
+            self.installSystemWakeRecoveryObserver()
             if self.defersSystemKeychainReads {
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .milliseconds(250))
@@ -1769,7 +1810,14 @@ public final class PipiAppStore {
         let iso = ISO8601DateFormatter()
 
         let dueRoutines: [PipiBotRoutine] = routines.filter { routine in
-            guard routine.isEnabled && routine.schedule != .manual else { return false }
+            guard routine.isEnabled, routine.triggerKind == .schedule else { return false }
+            if let cron = routine.eventConfig.cronExpression, !cron.isEmpty {
+                if PipiEventTriggerEngine.isWithinCooldown(lastRunAt: routine.lastRunAt, cooldownSeconds: 55, now: now) {
+                    return false
+                }
+                return PipiEventTriggerEngine.matchesCron(cron, date: now, calendar: cal)
+            }
+            guard routine.schedule != .manual else { return false }
             if let lastStr = routine.lastRunAt, let lastDate = iso.date(from: lastStr) {
                 let elapsed = now.timeIntervalSince(lastDate)
                 if routine.schedule == .hourly && elapsed < 3500 { return false }
@@ -1789,6 +1837,9 @@ public final class PipiAppStore {
                     (comps.minute ?? -1) == routine.minute
             }
         }
+
+        // Sweep non-schedule event triggers (file/git watchers & host health thresholds)
+        await evaluateEventDrivenRoutines(now: now)
 
         guard !dueRoutines.isEmpty else { return }
         let nowIso = iso.string(from: now)
@@ -3991,6 +4042,14 @@ public final class PipiAppStore {
 
     private func buildSystemPrompt(for persona: PipiBotPersona, project: PipiProject? = nil) -> String {
         var sections = [persona.systemPrompt]
+        if let blueprintBlock = persona.automationBlueprint?.renderedPromptBlock(), !blueprintBlock.isEmpty {
+            sections.append(blueprintBlock)
+        }
+        let botApprovedExamples = approvedExamples.filter { $0.botId == persona.id }
+        let examplesBlock = PipiLoopHarnessEngine.renderApprovedExamplesBlock(examples: botApprovedExamples, limit: 4)
+        if !examplesBlock.isEmpty {
+            sections.append(examplesBlock)
+        }
         if let project {
             var projLines = ["[Active Project: \(project.name)]"]
             let projInstr = project.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4970,6 +5029,7 @@ public final class PipiAppStore {
 
     public func sendGroupMessage(_ rawText: String, toGroupId groupId: String, topicId: String? = nil) async {
         _ = await dispatchGroupMessage(rawText, toGroupId: groupId, topicId: topicId, forcedTargetPersonaIds: nil)
+        evaluateChannelMessageRoutines(channel: "group", text: rawText)
     }
 
     @discardableResult
@@ -8018,6 +8078,15 @@ public final class PipiAppStore {
                     return nil
                 }
                 return (data: data, mimeType: art.mimeType, fileName: art.fileName)
+            },
+            handleWebhook: { [weak self] routineId, authHeader, sigHeader, body in
+                guard let self else { return (503, "Host store unavailable") }
+                return await self.handleIncomingWebhook(
+                    routineId: routineId,
+                    authorizationHeader: authHeader,
+                    signatureHeader: sigHeader,
+                    body: body
+                )
             }
         )
     }
@@ -9238,6 +9307,17 @@ public final class PipiAppStore {
                 tools: combinedTools
             )
             finalLabel = stepResult.engineLabel
+            self.recordLLMUsage(
+                persona: persona,
+                conversationId: conversationId,
+                taskTitle: latestUserText.isEmpty ? persona.name(lang) : String(latestUserText.prefix(48)),
+                config: config,
+                promptTokens: stepResult.promptTokens,
+                completionTokens: stepResult.completionTokens,
+                cachedTokens: stepResult.cachedTokens ?? 0,
+                fallbackPromptText: latestUserText,
+                fallbackCompletionText: stepResult.text
+            )
 
             // No tool calls -> final answer ready!
             if stepResult.toolCalls.isEmpty {
@@ -9531,6 +9611,23 @@ public final class PipiAppStore {
                 }
                 let tier: PipiPermissionTier = (mode.lowercased() == "write") ? .autoEdit : .readOnly
                 let cliHist = [PipiChatMessage(role: .user, content: taskPrompt)]
+                // Smart Auto-Isolation: automatically spawn an isolated Git Worktree when in write mode and concurrency/project policy requires it
+                let isolatedSession: PipiWorktreeReviewSession? = await MainActor.run {
+                    guard tier != .readOnly,
+                          let persona = self.personas.first(where: { $0.id == personaId }) else { return nil }
+                    let conv = self.conversations.first(where: { $0.id == conversationId })
+                    let proj = conv?.projectId.flatMap { pid in self.projects.first(where: { $0.id == pid }) }
+                    let hasConcurrentGroupLanes = !self.activeGroupLanes.isEmpty
+                    return self.prepareWorktreeIfNeeded(
+                        repoPath: workingDir,
+                        taskTitle: String(taskPrompt.prefix(44)),
+                        persona: persona,
+                        conversationId: conversationId,
+                        isGroupParallel: hasConcurrentGroupLanes,
+                        projectAlwaysUseWorktree: proj?.alwaysUseWorktree ?? false
+                    )
+                }
+                let effectiveDir = isolatedSession?.worktreePath ?? workingDir
                 var lastErr = ""
                 for kind in candidates {
                     let env = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: conversationId)
@@ -9539,10 +9636,15 @@ public final class PipiAppStore {
                             kind: kind,
                             systemPrompt: "",
                             history: cliHist,
-                            workingDirectory: workingDir,
+                            workingDirectory: effectiveDir,
                             permissionTier: tier,
                             extraEnvironment: env
                         )
+                        if let wt = isolatedSession {
+                            let refreshed = await MainActor.run { self.refreshWorktreeDiff(sessionId: wt.id) }
+                            let diffNote = refreshed.map { "\n\n🌿 已在隔离分支 `\($0.branchName)` 完成改动：\($0.diffSummary)（可在「任务台 → 代码审查」一键打回或合并）" } ?? ""
+                            return (true, "[\(kind.displayName) 完成]\n\(res.text)\(diffNote)")
+                        }
                         return (true, "[\(kind.displayName) 完成]\n\(res.text)")
                     } catch {
                         lastErr = error.localizedDescription
@@ -9772,6 +9874,68 @@ public final class PipiAppStore {
                     return "检查更新时网络有点小波动：\(msg)"
                 default:
                     return "正在检查更新中..."
+                }
+            },
+            materializeBlueprintBot: { [weak self] args in
+                await MainActor.run {
+                    guard let self else { return "服务未就绪" }
+                    return self.materializeBlueprintBot(from: args).summary
+                }
+            },
+            recordEntityLedger: { [weak self] key, type, source, status, summary in
+                await MainActor.run {
+                    guard let self else { return "服务未就绪" }
+                    let saved = self.upsertEntityLedgerEntry(
+                        botId: personaId,
+                        entityKey: key,
+                        entityType: type,
+                        source: source,
+                        status: status,
+                        summary: summary
+                    )
+                    return "✅ 已写入实体台账 [\(saved.entityKey)]（状态：\(saved.status)，来源：\(saved.source)）"
+                }
+            },
+            queryEntityLedger: { [weak self] key, search in
+                await MainActor.run {
+                    guard let self else { return "服务未就绪" }
+                    let hits = self.queryEntityLedger(botId: personaId, entityKey: key, search: search)
+                    if hits.isEmpty { return "暂未找到匹配的跨源实体记录。" }
+                    return hits.map { "• [\($0.entityKey)] (\($0.entityType) / \($0.status) / \($0.source)): \($0.summary)" }.joined(separator: "\n")
+                }
+            },
+            proposeBlueprintEvolution: { [weak self] botQuery, rationale, newRule, newVerification, newStepsCSV in
+                await MainActor.run {
+                    guard let self else { return "服务未就绪" }
+                    let lang = self.resolvedLanguage
+                    let targetBot: PipiBotPersona? = {
+                        if let q = botQuery?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty {
+                            return self.personas.first(where: {
+                                $0.id == q || $0.name(lang).localizedCaseInsensitiveContains(q)
+                            })
+                        }
+                        return self.personas.first(where: { $0.id == personaId })
+                    }()
+                    guard let bot = targetBot else { return "未找到目标 Bot。" }
+                    let steps = newStepsCSV?.replacingOccurrences(of: "；", with: ";")
+                        .split(separator: ";")
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    let proposal = self.proposeBlueprintEvolution(
+                        botId: bot.id,
+                        rationale: rationale,
+                        proposedSteps: (steps?.isEmpty == false) ? steps : nil,
+                        addedRules: newRule.map { [$0] } ?? [],
+                        addedVerification: newVerification.map { [$0] } ?? []
+                    )
+                    guard let proposal else { return "生成蓝图进化提案失败。" }
+                    return "✨ 已为「\(bot.name(lang))」生成蓝图自进化 Diff 提案（\(proposal.diffs.count) 项变更，编号 `\(proposal.id)`），已推送至任务台等待主人审批生效。"
+                }
+            },
+            manageTriggers: { [weak self] action, args in
+                await MainActor.run {
+                    guard let self else { return "服务未就绪" }
+                    return self.handleBotTriggerTool(action: action, args: args, callerBotId: personaId)
                 }
             }
         )

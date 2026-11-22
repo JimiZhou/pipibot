@@ -480,6 +480,8 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
     public var enabledConnectors: [String]
     public var sharingPolicy: PipiBotSharingPolicy
     public var learnedUpgrades: [PipiBotPeerUpgradeRecord]
+    public var automationBlueprint: PipiBotAutomationBlueprint?
+    public var executionIsolation: PipiBotExecutionIsolationMode
 
     public init(
         id: String = "bot_\(UUID().uuidString.prefix(8).lowercased())",
@@ -506,7 +508,9 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         enabledTools: [String] = [PipiBotToolKind.personalWiki.rawValue, PipiBotToolKind.voiceCall.rawValue],
         enabledConnectors: [String] = [],
         sharingPolicy: PipiBotSharingPolicy = .default,
-        learnedUpgrades: [PipiBotPeerUpgradeRecord] = []
+        learnedUpgrades: [PipiBotPeerUpgradeRecord] = [],
+        automationBlueprint: PipiBotAutomationBlueprint? = nil,
+        executionIsolation: PipiBotExecutionIsolationMode = .hostDirect
     ) {
         self.id = id
         self.hostId = hostId
@@ -533,6 +537,8 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         self.enabledConnectors = enabledConnectors
         self.sharingPolicy = sharingPolicy
         self.learnedUpgrades = learnedUpgrades
+        self.automationBlueprint = automationBlueprint
+        self.executionIsolation = executionIsolation
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -540,7 +546,7 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         case accent, avatarShape, idleAvatarState, preferredTarget, preferredModelId, permissionTier
         case starterPromptsZh, starterPromptsEn, isBuiltIn
         case voiceProfileId, assignedSkillSlugs, enabledTools, enabledConnectors
-        case sharingPolicy, learnedUpgrades
+        case sharingPolicy, learnedUpgrades, automationBlueprint, executionIsolation
     }
 
     public init(from decoder: Decoder) throws {
@@ -570,6 +576,8 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         self.enabledConnectors = try c.decodeIfPresent([String].self, forKey: .enabledConnectors) ?? []
         self.sharingPolicy = try c.decodeIfPresent(PipiBotSharingPolicy.self, forKey: .sharingPolicy) ?? .default
         self.learnedUpgrades = try c.decodeIfPresent([PipiBotPeerUpgradeRecord].self, forKey: .learnedUpgrades) ?? []
+        self.automationBlueprint = try c.decodeIfPresent(PipiBotAutomationBlueprint.self, forKey: .automationBlueprint)
+        self.executionIsolation = try c.decodeIfPresent(PipiBotExecutionIsolationMode.self, forKey: .executionIsolation) ?? .hostDirect
     }
 
     public var isRemoteHost: Bool {
@@ -754,6 +762,69 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         assignedSkillSlugs: ["proactive-response"],
         enabledTools: [PipiBotToolKind.personalWiki.rawValue],
         enabledConnectors: []
+    )
+
+    public static let botArchitectId = "bot_pipi_architect"
+
+    public static let botArchitectDefault = PipiBotPersona(
+        id: botArchitectId,
+        nameZh: "蛋宝 · Bot 架构师",
+        nameEn: "Eggbot · Bot Architect",
+        roleZh: "语音脑暴与逐题访谈设计师：帮你把目标拆成高可用自动化 Bot、蓝图与事件 Routine",
+        roleEn: "Goal-first Bot Architect: interviews you step-by-step and builds self-improving automated Bots & Routines",
+        greetingZh: "嗨，我是蛋宝（Bot 架构师）！直接用文字或语音把你想自动化的目标倒给我，我先帮你理清「终极目标 vs 执行流程」，一次只问一个问题，演练完边界情况再一键帮你把新 Bot 装配上线。",
+        greetingEn: "Hi! I'm Eggbot, your Bot Architect. Brain-dump what you want automated (voice or text) — I'll separate the Goal from the Process, interview you one question at a time, dry-run edge cases, and assemble a production Bot + Routine for you.",
+        systemPrompt: """
+You are Eggbot (蛋宝), the built-in Bot Architect & Automation Designer inside PiPiBot (inspired by Goal-First automation methodology).
+Your mission is to help the user design, dry-run, materialize, and continuously improve high-reliability autonomous Bots — preferring cohesive Full-Stack Goal Workers + composable Skills over fragmented org-chart silos.
+
+Follow this exact 5-step interview discipline:
+1. **Start with the Goal**: Distinguish the real end Goal from today's manual Process. Never rush into executing or creating the Bot before confirming the Goal in plain language.
+2. **Capture the Process (Brain-Dump Friendly)**: Invite the user to voice-dictate or brain-dump how they currently do it, what tools/apps they touch, and where inputs & feedback come from. Restate Goal + Process clearly and ask for confirmation first.
+3. **Surface Tacit Decisions (One Question at a Time)**: Ask **only one sharp question per turn** to uncover hidden rules: source-of-truth when two systems conflict, concrete verification ("how do we know it's truly done?"), cross-source Entity IDs (e.g. order_id / email / PR#), and when to escalate to the owner.
+4. **Edge-Case Dry Run**: Walk through 2-3 realistic failure or conflict scenarios ("What if X disagrees with Y?") before going live.
+5. **Materialize & Automate**: Once the user confirms, call `materialize_blueprint_bot` to create or upgrade the Bot with its structured `automationBlueprint` (goal, processSteps, sourceOfTruthRules, verificationCriteria, escalationRules, feedbackSources, entityIdSchema, dryRunExamples) AND wire its event/schedule Routine (`schedule`, `webhook`, `file_or_git_watch`, `channel_message`, or `host_health`).
+
+Reply concisely and warmly in the user's language. Never ask more than one question in a single turn during the interview phase.
+""",
+        accent: .coral,
+        avatarShape: .spark,
+        idleAvatarState: .thinking,
+        preferredTarget: .auto,
+        preferredModelId: nil,
+        permissionTier: .autoEdit,
+        starterPromptsZh: [
+            "我想自动化一件每天重复做的事，你来一步步访谈帮我设计一个 Bot",
+            "帮我把当前项目的 Git 变更与测试巡检做成自动触发的工程助手",
+            "帮我检查现有 Bot 的蓝图，对照原始目标提出流程优化方案"
+        ],
+        starterPromptsEn: [
+            "Interview me one question at a time to design a new automation Bot",
+            "Design an event-driven coding Bot triggered by Git/Webhook changes",
+            "Review one of my existing Bots against its original Goal and propose improvements"
+        ],
+        isBuiltIn: true,
+        voiceProfileId: "timbre_lively_zh",
+        assignedSkillSlugs: ["proactive-response"],
+        enabledTools: [
+            PipiBotToolKind.personalWiki.rawValue,
+            PipiBotToolKind.voiceCall.rawValue,
+            PipiBotToolKind.fileWorkspace.rawValue
+        ],
+        enabledConnectors: [PipiBotConnectorKind.localGit.rawValue, PipiBotConnectorKind.localMcp.rawValue],
+        automationBlueprint: PipiBotAutomationBlueprint(
+            goal: "Help the owner turn messy recurring tasks into self-verifying, event-driven automated Bots.",
+            processSteps: [
+                "Clarify the true end Goal before talking about steps",
+                "Capture the owner's current workflow via text or voice brain-dump and restate for confirmation",
+                "Ask one tacit-knowledge question per turn (source-of-truth, verification, entity ID, escalation)",
+                "Dry-run 2-3 failure/conflict edge cases",
+                "Call materialize_blueprint_bot to deploy the Bot, Blueprint, and event-driven Routine"
+            ],
+            sourceOfTruthRules: ["Owner's explicit confirmation always overrides inferred defaults"],
+            verificationCriteria: ["Goal, verification criteria, and trigger mode are explicitly confirmed before materializing"],
+            escalationRules: ["Never fabricate credentials or external URLs; ask the owner when required"]
+        )
     )
 }
 
@@ -1287,11 +1358,12 @@ public struct PipiProject: Codable, Identifiable, Equatable, Sendable {
     public var workspacePath: String?
     public var instructions: String
     public var permissionTierOverride: PipiPermissionTier?
+    public var alwaysUseWorktree: Bool
     public var isCollapsed: Bool
     public let createdAt: String
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, accent, workspacePath, instructions, permissionTierOverride, isCollapsed, createdAt
+        case id, name, accent, workspacePath, instructions, permissionTierOverride, alwaysUseWorktree, isCollapsed, createdAt
     }
 
     public init(
@@ -1301,6 +1373,7 @@ public struct PipiProject: Codable, Identifiable, Equatable, Sendable {
         workspacePath: String? = nil,
         instructions: String = "",
         permissionTierOverride: PipiPermissionTier? = nil,
+        alwaysUseWorktree: Bool = false,
         isCollapsed: Bool = false,
         createdAt: String = ISO8601DateFormatter().string(from: Date())
     ) {
@@ -1310,6 +1383,7 @@ public struct PipiProject: Codable, Identifiable, Equatable, Sendable {
         self.workspacePath = workspacePath
         self.instructions = instructions
         self.permissionTierOverride = permissionTierOverride
+        self.alwaysUseWorktree = alwaysUseWorktree
         self.isCollapsed = isCollapsed
         self.createdAt = createdAt
     }
@@ -1322,6 +1396,7 @@ public struct PipiProject: Codable, Identifiable, Equatable, Sendable {
         self.workspacePath = try c.decodeIfPresent(String.self, forKey: .workspacePath)
         self.instructions = try c.decodeIfPresent(String.self, forKey: .instructions) ?? ""
         self.permissionTierOverride = try c.decodeIfPresent(PipiPermissionTier.self, forKey: .permissionTierOverride)
+        self.alwaysUseWorktree = try c.decodeIfPresent(Bool.self, forKey: .alwaysUseWorktree) ?? false
         self.isCollapsed = try c.decodeIfPresent(Bool.self, forKey: .isCollapsed) ?? false
         self.createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
     }
@@ -1446,11 +1521,13 @@ public struct PipiBotRoutine: Codable, Identifiable, Equatable, Sendable {
     public var minute: Int
     /// Calendar weekday (1 = Sunday, 2 = Monday, ..., 7 = Saturday).
     public var weekday: Int
+    public var triggerKind: PipiRoutineTriggerKind
+    public var eventConfig: PipiRoutineEventConfig
     public var isEnabled: Bool
     public var lastRunAt: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, personaId, title, prompt, schedule, hour, minute, weekday, isEnabled, lastRunAt
+        case id, personaId, title, prompt, schedule, hour, minute, weekday, triggerKind, eventConfig, isEnabled, lastRunAt
     }
 
     public init(
@@ -1462,6 +1539,8 @@ public struct PipiBotRoutine: Codable, Identifiable, Equatable, Sendable {
         hour: Int = 9,
         minute: Int = 0,
         weekday: Int = 2,
+        triggerKind: PipiRoutineTriggerKind = .schedule,
+        eventConfig: PipiRoutineEventConfig = PipiRoutineEventConfig(),
         isEnabled: Bool = true,
         lastRunAt: String? = nil
     ) {
@@ -1473,6 +1552,8 @@ public struct PipiBotRoutine: Codable, Identifiable, Equatable, Sendable {
         self.hour = min(23, max(0, hour))
         self.minute = min(59, max(0, minute))
         self.weekday = (1...7).contains(weekday) ? weekday : 2
+        self.triggerKind = triggerKind
+        self.eventConfig = eventConfig
         self.isEnabled = isEnabled
         self.lastRunAt = lastRunAt
     }
@@ -1490,6 +1571,8 @@ public struct PipiBotRoutine: Codable, Identifiable, Equatable, Sendable {
         self.hour = min(23, max(0, decodedHour))
         self.minute = min(59, max(0, decodedMinute))
         self.weekday = (1...7).contains(decodedWeekday) ? decodedWeekday : 2
+        self.triggerKind = try c.decodeIfPresent(PipiRoutineTriggerKind.self, forKey: .triggerKind) ?? .schedule
+        self.eventConfig = try c.decodeIfPresent(PipiRoutineEventConfig.self, forKey: .eventConfig) ?? PipiRoutineEventConfig()
         self.isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
         self.lastRunAt = try c.decodeIfPresent(String.self, forKey: .lastRunAt)
     }
@@ -1510,15 +1593,35 @@ public struct PipiBotRoutine: Codable, Identifiable, Equatable, Sendable {
     }
 
     public func scheduleBadge(_ lang: PipiResolvedLanguage) -> String {
-        switch schedule {
-        case .manual:
-            return schedule.label(lang)
-        case .hourly:
-            return "\(schedule.label(lang)) :\(String(format: "%02d", minute))"
-        case .daily:
-            return "\(schedule.label(lang)) \(String(format: "%02d:%02d", hour, minute))"
-        case .weekly:
-            return "\(schedule.label(lang)) \(Self.weekdayShortLabel(weekday, lang)) \(String(format: "%02d:%02d", hour, minute))"
+        switch triggerKind {
+        case .webhook:
+            return "Webhook /webhooks/\(id)"
+        case .fileOrGitWatch:
+            let target = (eventConfig.watchPath as NSString?)?.lastPathComponent ?? "workspace"
+            return lang == .zhHans ? "监听 \(target)" : "Watch \(target)"
+        case .channelMessage:
+            let kw = eventConfig.messageKeyword ?? "*"
+            return lang == .zhHans ? "消息含「\(kw)」" : "Msg \"\(kw)\""
+        case .hostHealth:
+            let metric = eventConfig.healthMetric?.label(lang) ?? (lang == .zhHans ? "健康告警" : "Health")
+            if let threshold = eventConfig.healthThreshold {
+                return "\(metric) \(Int(threshold))"
+            }
+            return metric
+        case .schedule:
+            if let cron = eventConfig.cronExpression, !cron.isEmpty {
+                return "Cron \(cron)"
+            }
+            switch schedule {
+            case .manual:
+                return schedule.label(lang)
+            case .hourly:
+                return "\(schedule.label(lang)) :\(String(format: "%02d", minute))"
+            case .daily:
+                return "\(schedule.label(lang)) \(String(format: "%02d:%02d", hour, minute))"
+            case .weekly:
+                return "\(schedule.label(lang)) \(Self.weekdayShortLabel(weekday, lang)) \(String(format: "%02d:%02d", hour, minute))"
+            }
         }
     }
 }
@@ -1669,7 +1772,7 @@ public enum PipiHomeRoomKind: String, CaseIterable, Identifiable, Codable, Senda
     }
 }
 
-private extension String {
+public extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
     }

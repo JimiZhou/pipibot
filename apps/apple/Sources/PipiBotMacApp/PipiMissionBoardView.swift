@@ -130,20 +130,7 @@ public struct PipiMissionBoardView: View {
     }
 
     private var topHeaderBar: some View {
-        HStack(spacing: PipiTokens.spacing16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(s.t("任务台", "Mission Board"))
-                    .font(PipiTokens.fontTitle)
-                    .tracking(PipiTokens.trackingTitle)
-                    .foregroundStyle(PipiTokens.textPrimary)
-
-                Text(headerSubtitle)
-                    .font(PipiTokens.fontCaption)
-                    .foregroundStyle(PipiTokens.textSecondary)
-            }
-
-            Spacer(minLength: PipiTokens.spacing12)
-
+        HStack(spacing: PipiTokens.spacing12) {
             PipiSegmentedControl(
                 options: MissionTab.allCases,
                 selection: $selectedTab
@@ -151,8 +138,24 @@ public struct PipiMissionBoardView: View {
                 tabLabelWithBadge(tab)
             }
 
+            Spacer(minLength: PipiTokens.spacing12)
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(activeTaskCount > 0 ? PipiTokens.soulPrimary : PipiTokens.stateSuccess)
+                    .frame(width: 6, height: 6)
+                Text(headerSubtitle)
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(PipiTokens.bgSurface, in: Capsule())
+            .overlay(Capsule().strokeBorder(PipiTokens.borderSubtle, lineWidth: 1))
+
             PipiActionButton(
-                s.t("设计新助手", "New Bot"),
+                s.t("设计新助手", "New Assistant"),
                 systemImage: "sparkles",
                 tone: .primary,
                 density: .desktopCompact
@@ -161,7 +164,7 @@ public struct PipiMissionBoardView: View {
             }
         }
         .padding(.horizontal, PipiTokens.spacing24)
-        .padding(.vertical, PipiTokens.spacing16)
+        .padding(.vertical, 12)
         .background(PipiTokens.bgCanvas)
     }
 
@@ -320,14 +323,13 @@ public struct PipiMissionBoardView: View {
                     }
                 }
 
-                // Clean Apple-Settings-style Utility Dock (Mobile Pairing + Security & Health)
-                HStack(alignment: .top, spacing: PipiTokens.spacing16) {
-                    universalRemotePairingCard
-                    sentinelAndSandboxCard
-                }
+                // Clean Apple-Settings-style Utility Dock (Security & Health; Mobile Pairing lives in Settings -> Remote Access)
+                sentinelAndSandboxCard
             }
+            .frame(maxWidth: 1080, alignment: .leading)
             .padding(.horizontal, PipiTokens.spacing24)
             .padding(.vertical, PipiTokens.spacing20)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(PipiTokens.bgCanvas)
     }
@@ -1125,162 +1127,263 @@ public struct PipiMissionBoardView: View {
         return Color.clear
     }
 
-    // MARK: - Tab 3: Event-Driven Triggers & Blueprint Self-Evolution
+    // MARK: - Tab 3: Automation & Assistant Improvements (Unified Tactile C-End Style)
 
     private var triggersAndEvolutionStage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
-                // Section 0: Day-Shift Operational Loops & Human Draft Gate (@N01ennn)
-                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                    HStack {
-                        Text(s.t("Day-Shift 运营环与人工闸门（Trigger → Context → Draft → Gate → Report）", "Day-Shift Loops & Human Draft Gates"))
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing24) {
+                // Section 1: Daily Automation Templates (2x2 Tactile Card Grid)
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.t("常用自动化模板", "Automation Templates"))
                             .font(PipiTokens.fontHeadline)
                             .foregroundStyle(PipiTokens.textPrimary)
-                        Spacer()
+                        Text(s.t("一键启用常见办公与日常流程，所有外发动作均会先由你确认。", "Enable everyday workflows with one click. External actions always wait for your approval."))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
                     }
-                    HStack(spacing: PipiTokens.spacing8) {
+
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: PipiTokens.spacing12), GridItem(.flexible(), spacing: PipiTokens.spacing12)], spacing: PipiTokens.spacing12) {
                         ForEach(PipiOperationalLoopPreset.allCases) { preset in
                             let installed = store.operationalLoops.contains(where: { $0.preset == preset })
-                            Button {
-                                _ = store.installDayShiftLoop(preset)
-                            } label: {
-                                Label(
-                                    installed ? "✓ \(preset.title(lang))" : "+ \(preset.title(lang))",
-                                    systemImage: preset.iconName
-                                )
-                                .font(PipiTokens.fontCaption.weight(.medium))
+                            HStack(spacing: PipiTokens.spacing12) {
+                                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                    .fill(PipiTokens.bgSurface)
+                                    .frame(width: 34, height: 34)
+                                    .overlay(
+                                        Image(systemName: preset.iconName)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundStyle(installed ? PipiTokens.stateSuccess : PipiTokens.textPrimary)
+                                    )
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(preset.title(lang))
+                                        .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                        .lineLimit(1)
+                                    Text(installed ? s.t("已启用 · 运行中", "Active") : s.t("一键启用自动流转", "One-click setup"))
+                                        .font(PipiTokens.fontCaption)
+                                        .foregroundStyle(installed ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                                }
+                                Spacer(minLength: 4)
+                                PipiActionButton(
+                                    installed ? s.t("已启用", "Active") : s.t("启用", "Enable"),
+                                    systemImage: installed ? "checkmark" : "plus",
+                                    tone: installed ? .ghost : .secondary,
+                                    density: .desktopCompact
+                                ) {
+                                    _ = store.installDayShiftLoop(preset)
+                                }
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            .padding(PipiTokens.spacing12)
+                            .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
                         }
                     }
 
                     if !store.loopDrafts.isEmpty {
-                        ForEach(store.loopDrafts.prefix(6)) { draft in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text("[\(draft.loopName)] \(draft.inputSummary)")
-                                        .font(PipiTokens.fontSubheadline.weight(.semibold))
-                                        .foregroundStyle(PipiTokens.textPrimary)
-                                    Spacer()
-                                    Text(draft.status.label(lang))
-                                        .font(PipiTokens.fontMicro.weight(.semibold))
-                                        .foregroundStyle(draft.status == .flaggedUndrafted ? PipiTokens.stateError : (draft.status == .pendingGate ? PipiTokens.stateWarning : PipiTokens.stateSuccess))
-                                }
-                                if let esc = draft.escalationReason {
-                                    Text(esc)
-                                        .font(PipiTokens.fontCaption)
-                                        .foregroundStyle(PipiTokens.stateError)
-                                } else {
-                                    Text(draft.draftContent)
-                                        .font(PipiTokens.fontCaption)
-                                        .foregroundStyle(PipiTokens.textSecondary)
-                                        .lineLimit(4)
-                                }
-                                if draft.status == .pendingGate {
-                                    HStack(spacing: 8) {
-                                        TextField(s.t("如草稿不够准，输入一条 Harness 新规则（改规则不改草稿）…", "Draft off? Add a Harness rule instead of one-off edits…"), text: $draftRuleNote)
-                                            .textFieldStyle(.roundedBorder)
-                                        Button(s.t("批准并沉淀语气范例", "Approve & Learn Tone")) {
-                                            store.approveLoopDraft(id: draft.id)
+                        VStack(spacing: PipiTokens.spacing8) {
+                            ForEach(store.loopDrafts.prefix(6)) { draft in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("\(draft.loopName) · \(draft.inputSummary)")
+                                            .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                        Spacer()
+                                        Text(draft.status.label(lang))
+                                            .font(PipiTokens.fontMicro.weight(.semibold))
+                                            .foregroundStyle(draft.status == .flaggedUndrafted ? PipiTokens.stateError : (draft.status == .pendingGate ? PipiTokens.stateWarning : PipiTokens.stateSuccess))
+                                    }
+                                    if let esc = draft.escalationReason {
+                                        Text(esc)
+                                            .font(PipiTokens.fontCaption)
+                                            .foregroundStyle(PipiTokens.stateError)
+                                    } else {
+                                        Text(draft.draftContent)
+                                            .font(PipiTokens.fontCaption)
+                                            .foregroundStyle(PipiTokens.textSecondary)
+                                            .lineLimit(4)
+                                    }
+                                    if draft.status == .pendingGate {
+                                        HStack(spacing: 8) {
+                                            TextField(s.t("如需调整风格，输入一条偏好说明…", "Add a preference note if needed…"), text: $draftRuleNote)
+                                                .textFieldStyle(.roundedBorder)
+                                            PipiActionButton(s.t("批准发送", "Approve"), tone: .primary, density: .desktopCompact) {
+                                                store.approveLoopDraft(id: draft.id)
+                                            }
+                                            PipiActionButton(s.t("记住偏好并发出", "Save Rule & Send"), tone: .secondary, density: .desktopCompact) {
+                                                let note = draftRuleNote
+                                                draftRuleNote = ""
+                                                store.editLoopDraftAndAddRule(id: draft.id, editedDraft: draft.draftContent, newRuleNote: note)
+                                            }
                                         }
-                                        .buttonStyle(.borderedProminent)
-                                        .controlSize(.small)
-                                        Button(s.t("加规则并发出", "Add Rule & Send")) {
-                                            let note = draftRuleNote
-                                            draftRuleNote = ""
-                                            store.editLoopDraftAndAddRule(id: draft.id, editedDraft: draft.draftContent, newRuleNote: note)
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
                                     }
                                 }
+                                .padding(PipiTokens.spacing16)
+                                .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
                             }
-                            .padding(PipiTokens.spacing12)
-                            .background(PipiTokens.bgSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
                         }
                     }
 
-                    // Knowledge Gaps Roadmap ("The report feeds the context")
                     let openGaps = store.knowledgeGaps.filter { $0.status == .open }
                     if !openGaps.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(s.t("知识缺口路线图（\(openGaps.count) 项未覆盖问题 → 反哺文档）", "Knowledge Gaps Roadmap (\(openGaps.count) open)"))
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(s.t("待补充的知识条目（\(openGaps.count)）", "Knowledge to Fill In (\(openGaps.count))"))
                                 .font(PipiTokens.fontSubheadline.weight(.semibold))
-                                .foregroundStyle(PipiTokens.stateWarning)
+                                .foregroundStyle(PipiTokens.textPrimary)
                             ForEach(openGaps.prefix(5)) { gap in
                                 HStack {
                                     Text("×\(gap.occurrenceCount) \(gap.question)")
                                         .font(PipiTokens.fontCaption)
                                         .foregroundStyle(PipiTokens.textPrimary)
                                     Spacer()
-                                    Button(s.t("已补齐文档", "Mark Documented")) {
+                                    PipiActionButton(s.t("标记已补齐", "Mark Done"), tone: .secondary, density: .desktopCompact) {
                                         store.resolveKnowledgeGap(id: gap.id, docPath: "docs/")
                                     }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.mini)
                                 }
                             }
                         }
-                        .padding(PipiTokens.spacing12)
-                        .background(PipiTokens.bgSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                        .padding(PipiTokens.spacing16)
+                        .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
                     }
+                }
 
-                    // Skill Pruning & Poteto Pyramid Rule Graduation Card
-                    let bloat = store.auditPromptBloat(for: store.activePersona)
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Image(systemName: "scissors")
-                                .foregroundStyle(PipiTokens.soulPrimary)
-                            Text(s.t("上下文瘦身与规则晋升（pstack / Poteto Pyramid）", "Skill Pruning & Deterministic Graduation"))
-                                .font(PipiTokens.fontSubheadline.weight(.semibold))
+                // Section 2: Scheduled & Event Rules
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.t("定时与触发规则", "Scheduled & Trigger Rules"))
+                                .font(PipiTokens.fontHeadline)
                                 .foregroundStyle(PipiTokens.textPrimary)
-                            Spacer()
-                            Text(lang == .zhHans ? bloat.summaryZh : bloat.summaryEn)
+                            Text(s.t("按时间、文件变动或消息关键词自动唤醒助手执行任务。", "Automatically wake an assistant on schedule, folder changes, or message rules."))
                                 .font(PipiTokens.fontCaption)
                                 .foregroundStyle(PipiTokens.textSecondary)
                         }
-                        if !bloat.graduationCandidates.isEmpty {
-                            ForEach(bloat.graduationCandidates.prefix(3), id: \.self) { rule in
-                                HStack {
-                                    Text(rule)
-                                        .font(PipiTokens.fontCaption)
-                                        .foregroundStyle(PipiTokens.textSecondary)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Button(s.t("晋升为确定性校验", "Graduate to Check")) {
-                                        _ = store.graduateRuleToDeterministicCheck(rule: rule, removeFromBotId: store.activePersona.id)
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.mini)
-                                }
-                            }
+                        Spacer()
+                        PipiActionButton(
+                            s.t("新建规则", "New Rule"),
+                            systemImage: "plus",
+                            tone: .primary,
+                            density: .desktopCompact
+                        ) {
+                            showNewTriggerSheet = true
                         }
                     }
-                    .padding(PipiTokens.spacing12)
-                    .background(PipiTokens.bgSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+
+                    if store.routines.isEmpty {
+                        HStack(spacing: PipiTokens.spacing12) {
+                            Image(systemName: "clock.badge.checkmark")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(PipiTokens.textMuted)
+                            Text(s.t("暂无定时或自动触发规则，点击右上角「新建规则」即可创建每日汇总、定时提醒等任务。", "No rules yet. Click New Rule to create daily briefs or scheduled checks."))
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                            Spacer()
+                        }
+                        .padding(PipiTokens.spacing16)
+                        .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(store.routines.enumerated()), id: \.element.id) { idx, rt in
+                                if idx > 0 {
+                                    Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                                }
+                                HStack(spacing: PipiTokens.spacing12) {
+                                    Image(systemName: rt.triggerKind.iconName)
+                                        .font(.system(size: 13.5, weight: .medium))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                        .frame(width: 22)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(rt.title.isEmpty ? rt.prompt : rt.title)
+                                            .font(PipiTokens.fontSubheadline.weight(.medium))
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                        Text("\(rt.triggerKind.label(lang)) · \(rt.scheduleBadge(lang))")
+                                            .font(PipiTokens.fontCaption)
+                                            .foregroundStyle(PipiTokens.textSecondary)
+                                    }
+                                    Spacer()
+                                    if rt.triggerKind == .webhook {
+                                        PipiActionButton(s.t("复制地址", "Copy URL"), tone: .ghost, density: .desktopCompact) {
+                                            #if os(macOS)
+                                            NSPasteboard.general.clearContents()
+                                            NSPasteboard.general.setString(store.webhookURLString(for: rt), forType: .string)
+                                            #endif
+                                            store.noticeBanner = s.t("已复制触发地址", "Copied trigger URL")
+                                        }
+                                    }
+                                    PipiActionButton(s.t("立即运行", "Run"), tone: .secondary, density: .desktopCompact) {
+                                        Task { await store.runRoutineNow(rt) }
+                                    }
+                                    Toggle("", isOn: Binding(
+                                        get: { rt.isEnabled },
+                                        set: { store.toggleRoutine(id: rt.id, enabled: $0) }
+                                    ))
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                            }
+                        }
+                        .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
+                    }
+
+                    if !store.routineRunLogs.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(s.t("最近运行记录", "Recent Runs"))
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textSecondary)
+                            VStack(spacing: 0) {
+                                ForEach(Array(store.routineRunLogs.prefix(8).enumerated()), id: \.element.id) { idx, log in
+                                    if idx > 0 {
+                                        Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                                    }
+                                    HStack {
+                                        Text(log.routineTitle)
+                                            .font(PipiTokens.fontCaption.weight(.medium))
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                        Text("· \(log.triggerSummary)")
+                                            .font(PipiTokens.fontCaption)
+                                            .foregroundStyle(PipiTokens.textSecondary)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text("\(log.durationMs)ms")
+                                            .font(PipiTokens.fontMonoSmall)
+                                            .foregroundStyle(PipiTokens.textMuted)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 9)
+                                }
+                            }
+                            .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
+                        }
+                    }
                 }
 
-                // Section A: Blueprint Self-Evolution Diff Proposals
-                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                    Text(s.t("蓝图自进化提案（EvolutionDiff 审批）", "Blueprint Self-Evolution Proposals"))
-                        .font(PipiTokens.fontHeadline)
-                        .foregroundStyle(PipiTokens.textPrimary)
+                // Section 3: Assistant Improvement Suggestions
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.t("助手优化建议", "Assistant Improvement Suggestions"))
+                            .font(PipiTokens.fontHeadline)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.t("当你多次纠正助手后，系统会整理改进建议推送到这里，经你确认后生效。", "When you correct an assistant, suggested workflow improvements appear here for your approval."))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                    }
 
                     if store.blueprintEvolutionProposals.isEmpty {
-                        Text(s.t("当 Bot 在运行中遇到纠偏/失败或触发周期复盘时，会自动对照原始 Goal 生成流程优化 Diff 推送到这里审批。", "When a Bot gathers feedback or corrections, proposed Blueprint EvolutionDiffs appear here for one-tap approval."))
-                            .font(PipiTokens.fontCaption)
-                            .foregroundStyle(PipiTokens.textMuted)
-                            .padding(PipiTokens.spacing12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(PipiTokens.bgSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                        HStack(spacing: PipiTokens.spacing12) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(PipiTokens.textMuted)
+                            Text(s.t("当前没有待确认的优化建议，助手运行状态良好。", "No pending suggestions right now."))
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                            Spacer()
+                        }
+                        .padding(PipiTokens.spacing16)
+                        .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
                     } else {
                         ForEach(store.blueprintEvolutionProposals) { prop in
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 10) {
                                 HStack {
                                     Text("\(prop.botName) · \(prop.goalSummary)")
                                         .font(PipiTokens.fontSubheadline.weight(.semibold))
@@ -1296,9 +1399,9 @@ public struct PipiMissionBoardView: View {
 
                                 ForEach(prop.diffs) { diff in
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("[\(diff.operation.rawValue)] \(diff.title)")
+                                        Text(diff.title)
                                             .font(PipiTokens.fontCaption.weight(.semibold))
-                                            .foregroundStyle(PipiTokens.soulPrimary)
+                                            .foregroundStyle(PipiTokens.textPrimary)
                                         if let before = diff.previousValue, !before.isEmpty {
                                             Text("- \(before)")
                                                 .font(PipiTokens.fontMonoSmall)
@@ -1308,132 +1411,39 @@ public struct PipiMissionBoardView: View {
                                             .font(PipiTokens.fontMonoSmall)
                                             .foregroundStyle(PipiTokens.stateSuccess)
                                     }
-                                    .padding(8)
+                                    .padding(10)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(PipiTokens.bgCanvas)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .background(PipiTokens.bgSurface)
+                                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
                                 }
 
                                 HStack(spacing: 8) {
                                     if prop.status == .pending {
-                                        Button(s.t("批准生效", "Approve")) {
+                                        PipiActionButton(s.t("批准生效", "Approve"), tone: .primary, density: .desktopCompact) {
                                             store.approveBlueprintEvolutionProposal(id: prop.id)
                                         }
-                                        .buttonStyle(.borderedProminent)
-                                        .controlSize(.small)
-
-                                        Button(s.t("拒绝", "Reject")) {
+                                        PipiActionButton(s.t("忽略", "Dismiss"), tone: .secondary, density: .desktopCompact) {
                                             store.rejectBlueprintEvolutionProposal(id: prop.id)
                                         }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
                                     } else if prop.status == .approved {
-                                        Button(s.t("回滚到上一版", "Rollback")) {
+                                        PipiActionButton(s.t("恢复上一版", "Rollback"), tone: .secondary, density: .desktopCompact) {
                                             store.rollbackBlueprintEvolutionProposal(id: prop.id)
                                         }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
                                     }
                                 }
                             }
-                            .padding(PipiTokens.spacing12)
-                            .background(PipiTokens.bgSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous)
-                                    .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                    }
-                }
-
-                // Section B: Event-Driven Routines
-                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                    HStack {
-                        Text(s.t("事件驱动 Routine（Webhook / 目录 Git / 微信规则 / 健康 / Cron）", "Event-Driven Routines"))
-                            .font(PipiTokens.fontHeadline)
-                            .foregroundStyle(PipiTokens.textPrimary)
-                        Spacer()
-                        Button {
-                            showNewTriggerSheet = true
-                        } label: {
-                            Label(s.t("新建事件触发器", "New Event Trigger"), systemImage: "plus")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
-
-                    ForEach(store.routines) { rt in
-                        HStack(spacing: PipiTokens.spacing12) {
-                            Image(systemName: rt.triggerKind.iconName)
-                                .foregroundStyle(PipiTokens.soulPrimary)
-                                .frame(width: 22)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(rt.title.isEmpty ? rt.prompt : rt.title)
-                                    .font(PipiTokens.fontSubheadline.weight(.medium))
-                                    .foregroundStyle(PipiTokens.textPrimary)
-                                Text("\(rt.triggerKind.label(lang)) · \(rt.scheduleBadge(lang))")
-                                    .font(PipiTokens.fontCaption)
-                                    .foregroundStyle(PipiTokens.textSecondary)
-                            }
-                            Spacer()
-                            if rt.triggerKind == .webhook {
-                                Button(s.t("复制 Webhook URL", "Copy URL")) {
-                                    #if os(macOS)
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(store.webhookURLString(for: rt), forType: .string)
-                                    #endif
-                                    store.noticeBanner = s.t("已复制 Webhook 地址", "Copied Webhook URL")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                            Button(s.t("立即运行", "Run Now")) {
-                                Task { await store.runRoutineNow(rt) }
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-
-                            Toggle("", isOn: Binding(
-                                get: { rt.isEnabled },
-                                set: { store.toggleRoutine(id: rt.id, enabled: $0) }
-                            ))
-                            .labelsHidden()
-                        }
-                        .padding(PipiTokens.spacing12)
-                        .background(PipiTokens.bgSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
-                    }
-
-                    if !store.routineRunLogs.isEmpty {
-                        Text(s.t("最近事件触发日志", "Recent Trigger Logs"))
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textSecondary)
-                            .padding(.top, 8)
-                        ForEach(store.routineRunLogs.prefix(10)) { log in
-                            HStack {
-                                Text(log.routineTitle)
-                                    .font(PipiTokens.fontCaption.weight(.medium))
-                                    .foregroundStyle(PipiTokens.textPrimary)
-                                Text("· \(log.triggerSummary)")
-                                    .font(PipiTokens.fontCaption)
-                                    .foregroundStyle(PipiTokens.textSecondary)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text("\(log.durationMs)ms")
-                                    .font(PipiTokens.fontMonoSmall)
-                                    .foregroundStyle(PipiTokens.textMuted)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(PipiTokens.bgSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .padding(PipiTokens.spacing16)
+                            .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
                         }
                     }
                 }
             }
-            .padding(PipiTokens.spacing16)
+            .frame(maxWidth: 960, alignment: .leading)
+            .padding(.horizontal, PipiTokens.spacing24)
+            .padding(.vertical, PipiTokens.spacing20)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
+        .background(PipiTokens.bgCanvas)
     }
 
     // MARK: - Tab 4: Clean-Room MIT Bot Persona & Lean Skill Marketplace
@@ -1445,186 +1455,123 @@ public struct PipiMissionBoardView: View {
         let skills = PipiBotMarketplaceCatalog.curatedSkills.filter {
             marketplaceFilter == nil || $0.category == marketplaceFilter
         }
-        return ScrollView {
-            VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
-                HStack(spacing: PipiTokens.spacing8) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .foregroundStyle(PipiTokens.stateSuccess)
-                    Text(s.t("100% 原创 MIT 开源人设与精炼技能市场（无任何专有提示词或商业许可隐患）：一键安装含 Goal 蓝图、Day-Shift 运营环与 <300 token 瘦身技能包。", "100% clean-room MIT Bot Personas & pruned (<300 tok) verification Skills — zero proprietary prompt or license risk."))
-                        .font(PipiTokens.fontCaption)
-                        .foregroundStyle(PipiTokens.textSecondary)
-                }
-                .padding(PipiTokens.spacing12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(PipiTokens.stateSuccess.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
-
-                // v0.15.0 Portable Redacted Team / Bot Template Export & Import (`bot.md` / `team.md`)
-                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                    HStack {
-                        Label(s.t("便携脱敏模板导入/导出（兼容 team.md / bot.md）", "Portable Redacted Templates (team.md / bot.md)"), systemImage: "square.and.arrow.up.on.square")
-                            .font(PipiTokens.fontSubheadline.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textPrimary)
-                        Spacer()
-                        Button(s.t("脱敏导出当前团队到剪贴板", "Export Redacted Team")) {
-                            let exported = store.exportTeamAsPortableMarkdown(personaIds: store.personas.prefix(6).map(\.id))
-                            lastExportRedactedCount = exported.package.redactedSecretsCount
-                            #if os(macOS)
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(exported.markdown, forType: .string)
-                            #endif
-                            store.noticeBanner = s.t("已脱敏导出 \(exported.package.bots.count) 个 Bot（自动清洗 \(exported.package.redactedSecretsCount) 处敏感项，Routine 默认暂停）", "Exported \(exported.package.bots.count) bots (\(exported.package.redactedSecretsCount) redactions)")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-
-                    HStack(spacing: 8) {
-                        TextField(
-                            s.t("粘贴 bot.md / team.md 内容进行脱敏预览与安全导入…", "Paste bot.md / team.md Markdown to preview & import safely…"),
-                            text: $portableImportMarkdown
-                        )
-                        .textFieldStyle(.roundedBorder)
-
-                        Button(s.t("预览模板", "Preview")) {
-                            guard !portableImportMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                            _ = store.previewPortableTemplate(markdown: portableImportMarkdown)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-
-                    if let preview = store.pendingPortableTemplatePreview {
-                        HStack {
-                            Text(s.t("待导入「\(preview.name)」：\(preview.bots.count) 个 Bot（默认 Bot Box 沙箱）、\(preview.routines.count) 条暂停 Routine、已清洗 \(preview.redactedSecretsCount) 处敏感信息", "Preview '\(preview.name)': \(preview.bots.count) sandboxed bots, \(preview.routines.count) paused routines, \(preview.redactedSecretsCount) redactions"))
-                                .font(PipiTokens.fontCaption)
-                                .foregroundStyle(PipiTokens.textSecondary)
-                            Spacer()
-                            Button(s.t("确认导入", "Confirm Import")) {
-                                let added = store.applyPortableTemplate(preview)
-                                portableImportMarkdown = ""
-                                store.noticeBanner = s.t("已安全导入 \(added.count) 个智能体（均已默认开启 Bot Box 隔离）", "Safely imported \(added.count) sandboxed bots")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                        }
-                    }
-                }
-                .padding(PipiTokens.spacing12)
-                .background(PipiTokens.bgSurface)
-                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous)
-                        .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-                )
-
-                // Category filter pills
+        return ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
+                // Category filter pills (consistent with Knowledge Hub monochrome capsule pills)
                 HStack(spacing: 8) {
-                    Button(s.t("全部", "All")) { marketplaceFilter = nil }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    ForEach(PipiMarketplaceCategory.allCases) { cat in
-                        Button(cat.label(lang)) { marketplaceFilter = cat }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                    let isAll = marketplaceFilter == nil
+                    Button {
+                        marketplaceFilter = nil
+                    } label: {
+                        Text(s.t("全部", "All"))
+                            .font(PipiTokens.fontCaption.weight(isAll ? .semibold : .medium))
+                            .foregroundStyle(isAll ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(isAll ? PipiTokens.bgElevated : PipiTokens.bgSurface, in: Capsule())
+                            .overlay(Capsule().strokeBorder(isAll ? PipiTokens.borderStrong : PipiTokens.borderSubtle, lineWidth: 1))
                     }
+                    .buttonStyle(.plain)
+
+                    ForEach(PipiMarketplaceCategory.allCases) { cat in
+                        let selected = marketplaceFilter == cat
+                        Button {
+                            marketplaceFilter = cat
+                        } label: {
+                            Text(cat.label(lang))
+                                .font(PipiTokens.fontCaption.weight(selected ? .semibold : .medium))
+                                .foregroundStyle(selected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(selected ? PipiTokens.bgElevated : PipiTokens.bgSurface, in: Capsule())
+                                .overlay(Capsule().strokeBorder(selected ? PipiTokens.borderStrong : PipiTokens.borderSubtle, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
                 }
 
-                Text(s.t("精选自动化 Bot 人设（含蓝图 + 默认运营环）", "Curated Automation Bot Personas (Blueprint + Loop)"))
+                Text(s.t("精选助手模板", "Featured Assistants"))
                     .font(PipiTokens.fontHeadline)
                     .foregroundStyle(PipiTokens.textPrimary)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 290), spacing: PipiTokens.spacing12)], spacing: PipiTokens.spacing12) {
                     ForEach(bots) { item in
                         let installed = store.personas.contains(where: { $0.id == item.id })
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Text(item.name(lang))
                                     .font(PipiTokens.fontSubheadline.weight(.semibold))
                                     .foregroundStyle(PipiTokens.textPrimary)
                                 Spacer()
-                                Text(item.license)
-                                    .font(PipiTokens.fontMicro.weight(.semibold))
-                                    .foregroundStyle(PipiTokens.stateSuccess)
-                                    .padding(.horizontal, 6)
+                                Text("\(item.recommendedSkills.count) \(s.t("项技能", "skills"))")
+                                    .font(PipiTokens.fontMicro.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                                    .padding(.horizontal, 7)
                                     .padding(.vertical, 2)
-                                    .background(PipiTokens.stateSuccess.opacity(0.12))
-                                    .clipShape(Capsule())
+                                    .background(PipiTokens.bgSurface, in: Capsule())
                             }
                             Text(item.tagline(lang))
                                 .font(PipiTokens.fontCaption)
                                 .foregroundStyle(PipiTokens.textSecondary)
                                 .lineLimit(2)
-                            Text("Goal: \(item.blueprint.goal)")
-                                .font(PipiTokens.fontMicro)
-                                .foregroundStyle(PipiTokens.textMuted)
-                                .lineLimit(2)
                             HStack {
-                                Text("\(item.recommendedSkills.count) \(s.t("项配套技能", "skills"))")
-                                    .font(PipiTokens.fontMicro)
-                                    .foregroundStyle(PipiTokens.soulPrimary)
                                 Spacer()
-                                Button(installed ? s.t("已安装", "Installed") : s.t("一键安装", "Install")) {
+                                PipiActionButton(
+                                    installed ? s.t("已安装", "Installed") : s.t("一键安装", "Install"),
+                                    systemImage: installed ? "checkmark" : "plus",
+                                    tone: installed ? .ghost : .primary,
+                                    density: .desktopCompact
+                                ) {
+                                    guard !installed else { return }
                                     _ = store.installMarketplaceBot(item)
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
-                                .disabled(installed)
                             }
                         }
-                        .padding(PipiTokens.spacing12)
-                        .background(PipiTokens.bgSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous)
-                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-                        )
+                        .padding(PipiTokens.spacing16)
+                        .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
                     }
                 }
 
-                Text(s.t("精炼 Skill 技能市场（pstack 瘦身标准 · MIT）", "Pruned Lean Skill Packs (pstack Style · MIT)"))
+                Text(s.t("精选实用技能", "Featured Skills"))
                     .font(PipiTokens.fontHeadline)
                     .foregroundStyle(PipiTokens.textPrimary)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: PipiTokens.spacing12)], spacing: PipiTokens.spacing12) {
                     ForEach(skills) { sk in
                         let installed = store.ecosystemManager.installedSkills.contains(where: { $0.id == sk.id })
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(sk.name(lang))
-                                    .font(PipiTokens.fontSubheadline.weight(.semibold))
-                                    .foregroundStyle(PipiTokens.textPrimary)
-                                Spacer()
-                                Text("~\(sk.estimatedTokens) tok · \(sk.license)")
-                                    .font(PipiTokens.fontMicro)
-                                    .foregroundStyle(PipiTokens.stateSuccess)
-                            }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(sk.name(lang))
+                                .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
                             Text(sk.summary(lang))
                                 .font(PipiTokens.fontCaption)
                                 .foregroundStyle(PipiTokens.textSecondary)
                                 .lineLimit(2)
                             HStack {
                                 Spacer()
-                                Button(installed ? s.t("已挂载", "Installed") : s.t("一键挂载", "Install Skill")) {
+                                PipiActionButton(
+                                    installed ? s.t("已安装", "Installed") : s.t("安装技能", "Install"),
+                                    systemImage: installed ? "checkmark" : "plus",
+                                    tone: installed ? .ghost : .secondary,
+                                    density: .desktopCompact
+                                ) {
+                                    guard !installed else { return }
                                     _ = store.installMarketplaceSkill(sk)
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(installed)
                             }
                         }
-                        .padding(PipiTokens.spacing12)
-                        .background(PipiTokens.bgSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
-                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-                        )
+                        .padding(PipiTokens.spacing16)
+                        .pipiTactileCard(cornerRadius: PipiTokens.radiusMD)
                     }
                 }
             }
-            .padding(PipiTokens.spacing16)
+            .frame(maxWidth: 1040, alignment: .leading)
+            .padding(.horizontal, PipiTokens.spacing24)
+            .padding(.vertical, PipiTokens.spacing20)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
+        .background(PipiTokens.bgCanvas)
     }
 
     // MARK: - Tab 5: Usage Metering (Alert-Only, Non-Blocking)

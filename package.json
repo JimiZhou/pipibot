@@ -1,6 +1,6 @@
 {
   "name": "pipibot",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Your private AI assistant team on macOS and Linux, connected seamlessly to your phone with end-to-end encryption.",
   "private": true,
   "type": "module",

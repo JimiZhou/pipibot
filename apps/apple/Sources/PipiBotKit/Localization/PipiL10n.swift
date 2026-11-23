@@ -227,7 +227,10 @@ public struct PipiStrings: Sendable {
     // MARK: Settings Sections
     public var settingsGeneral: String { t("通用", "General") }
     public var settingsAIEngine: String { t("模型与引擎", "Models & Engines") }
-    public var settingsRuntimeSync: String { t("运行与远程操控", "Runtime & Remote") }
+    public var settingsSkillsMCP: String { t("技能与 MCP", "Skills & MCP") }
+    public var settingsRemoteAccess: String { t("远程互联", "Remote Access") }
+    public var settingsPermissionsControl: String { t("权限与电脑操控", "Permissions & Control") }
+    public var settingsRuntimeSync: String { t("远程互联", "Remote Access") }
     public var settingsHelp: String { t("帮助说明", "Help") }
     public var aboutTitle: String { t("关于 PiPiBot", "About PiPiBot") }
     public var settingsModels: String { t("大模型配置", "LLM Models") }

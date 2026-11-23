@@ -1240,6 +1240,25 @@ public final class PipiAppStore {
         flush()
     }
 
+    /// Force-flushes the full in-memory snapshot synchronously to disk and creates a verified
+    /// `resident-state.pre-update.json` backup so app upgrades & relaunches never lose settings or chats.
+    public func prepareForAppUpgrade() {
+        saveDebounceTask?.cancel()
+        saveDebounceTask = nil
+        guard enableNativeRuntime || persistenceUrl != nil else { return }
+        if corruptStateDetected && isStateMeaningfullyEmpty {
+            hasPendingSave = false
+            return
+        }
+        hasPendingSave = false
+        let targetUrl = persistenceUrl ?? PipiNativeMacRuntime.stateFileUrl()
+        let snapshot = makePersistedSnapshot()
+        persistenceQueue.sync {
+            PipiNativeMacRuntime.saveResidentState(snapshot, to: targetUrl)
+            _ = PipiNativeMacRuntime.createPreUpdateBackup(from: targetUrl)
+        }
+    }
+
     public func dismissPersistenceWarning() {
         persistenceWarning = nil
         if noticeBanner?.contains("resident-state.corrupt") == true || noticeBanner?.contains("Corrupt state") == true {
@@ -2782,8 +2801,20 @@ public final class PipiAppStore {
                 guard msg.role == .user, let files = msg.attachments, !files.isEmpty else { return msg }
                 var expanded = msg.content
                 for file in files {
-                    if let body = file.textContent, !body.isEmpty {
-                        expanded += "\n\n[Attached file: \(file.name) (\(file.path))]\n```\n\(body)\n```"
+                    let extractedBody: String? = {
+                        if let body = file.textContent, !body.isEmpty {
+                            return body
+                        }
+                        guard !file.path.isEmpty else { return nil }
+                        let fileURL = URL(fileURLWithPath: file.path)
+                        if file.isImage {
+                            return PipiDocumentExtractor.extractTextFromImage(url: fileURL)
+                        }
+                        return PipiDocumentExtractor.extractText(from: fileURL)
+                    }()
+                    if let body = extractedBody, !body.isEmpty {
+                        let label = file.isImage ? "已识别图片中的文字" : "已提取附件正文"
+                        expanded += "\n\n[\(label)：\(file.name) (\(file.path))]\n```\n\(body)\n```"
                     } else if !file.isImage || isLocalAgentTarget {
                         expanded += "\n\n[Attached file: \(file.name) at \(file.path)]"
                     }
@@ -8111,7 +8142,7 @@ public final class PipiAppStore {
     }
 
     public func relaunchAppForPermissions() {
-        flush()
+        prepareForAppUpgrade()
         PipiMacOmnipotentEngine.relaunchCurrentApp()
     }
 
@@ -8551,33 +8582,38 @@ public final class PipiAppStore {
         var tempWavURL: URL? = nil
 
         #if os(macOS)
-        // Convert to WAV if non-native container and `ffmpeg` or `afconvert` is available
+        // Convert to WAV off the main thread with timeout so audio conversion never freezes UI
         if ext != "wav" && ext != "m4a" && ext != "mp3" && ext != "caf" {
             let candidateWav = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("pipi_wx_voice_\(UUID().uuidString.prefix(8)).wav")
-            if let ffmpegPath = PipiNativeMacRuntime.findExecutable("ffmpeg") {
+            let ffmpegPath = PipiNativeMacRuntime.findExecutable("ffmpeg")
+            let converted: Bool = await Task.detached(priority: .userInitiated) {
                 let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: ffmpegPath)
-                proc.arguments = ["-y", "-i", filePath, "-ar", "16000", "-ac", "1", candidateWav.path]
+                if let ffmpegPath {
+                    proc.executableURL = URL(fileURLWithPath: ffmpegPath)
+                    proc.arguments = ["-y", "-i", filePath, "-ar", "16000", "-ac", "1", candidateWav.path]
+                } else {
+                    proc.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+                    proc.arguments = ["-f", "WAVE", "-d", "LEI16@16000", filePath, candidateWav.path]
+                }
+                proc.standardInput = FileHandle.nullDevice
                 proc.standardOutput = FileHandle.nullDevice
                 proc.standardError = FileHandle.nullDevice
-                try? proc.run()
-                proc.waitUntilExit()
-                if proc.terminationStatus == 0, FileManager.default.fileExists(atPath: candidateWav.path) {
-                    playableURL = candidateWav
-                    tempWavURL = candidateWav
+                do {
+                    try proc.run()
+                    let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+                    timer.schedule(deadline: .now() + 15.0)
+                    timer.setEventHandler { if proc.isRunning { proc.terminate() } }
+                    timer.resume()
+                    proc.waitUntilExit()
+                    timer.cancel()
+                    return proc.terminationStatus == 0 && FileManager.default.fileExists(atPath: candidateWav.path)
+                } catch {
+                    return false
                 }
-            } else {
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
-                proc.arguments = ["-f", "WAVE", "-d", "LEI16@16000", filePath, candidateWav.path]
-                proc.standardOutput = FileHandle.nullDevice
-                proc.standardError = FileHandle.nullDevice
-                try? proc.run()
-                proc.waitUntilExit()
-                if proc.terminationStatus == 0, FileManager.default.fileExists(atPath: candidateWav.path) {
-                    playableURL = candidateWav
-                    tempWavURL = candidateWav
-                }
+            }.value
+            if converted {
+                playableURL = candidateWav
+                tempWavURL = candidateWav
             }
         }
         #endif
@@ -8944,7 +8980,7 @@ public final class PipiAppStore {
                 guard let self else { return "服务未就绪" }
                 await MainActor.run {
                     self.updateManager.downloadAndInstallUpdate(release) {
-                        self.flush()
+                        self.prepareForAppUpgrade()
                     }
                 }
                 return "⬇️ 已开始在 Mac 端下载并校验 v\(release.version)，安装完成后 PiPiBot 将自动重启。"

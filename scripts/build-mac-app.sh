@@ -5,7 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APPLE_DIR="$REPO_ROOT/apps/apple"
 DIST_DIR="$REPO_ROOT/dist"
-APP_BUNDLE="$DIST_DIR/PipiBot.app"
+APP_BUNDLE="$DIST_DIR/PiPiBot.app"
+# Remove legacy lowercase bundle if present to prevent duplicate app bundles
+rm -rf "$DIST_DIR/PipiBot.app"
 BUILD_CONFIG="${PIPIBOT_BUILD_CONFIG:-release}"
 
 echo "==> Building PipiBotMacApp ($BUILD_CONFIG)..."
@@ -63,9 +65,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.13.0</string>
+  <string>0.13.1</string>
   <key>CFBundleVersion</key>
-  <string>13</string>
+  <string>14</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

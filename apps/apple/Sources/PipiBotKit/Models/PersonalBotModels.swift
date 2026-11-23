@@ -1242,8 +1242,11 @@ public struct PipiChatAttachment: Codable, Identifiable, Equatable, Sendable {
     public var iconName: String {
         if isImage { return "photo" }
         let ext = (name as NSString).pathExtension.lowercased()
-        if ["swift", "ts", "tsx", "js", "jsx", "py", "rs", "go", "json", "yaml", "yml", "sh", "md"].contains(ext) {
+        if ["swift", "ts", "tsx", "js", "jsx", "py", "rs", "go", "json", "yaml", "yml", "sh", "md", "txt", "csv"].contains(ext) {
             return "doc.text"
+        }
+        if ["wps", "wpt", "et", "ett", "dps", "dpt", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf", "rtf", "rtfd", "odt", "ods", "odp", "pages", "numbers", "key", "eml"].contains(ext) {
+            return "doc.richtext"
         }
         return "paperclip"
     }
@@ -1260,14 +1263,7 @@ public struct PipiChatAttachment: Codable, Identifiable, Equatable, Sendable {
         let fm = FileManager.default
         let attrs = try? fm.attributesOfItem(atPath: url.path)
         let size = (attrs?[.size] as? NSNumber)?.intValue ?? 0
-        var snippet: String? = nil
-        let ext = url.pathExtension.lowercased()
-        let binaryExts: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "pdf", "zip", "dmg", "app", "mp4", "mov"]
-        if !binaryExts.contains(ext), size <= 256_000, let data = fm.contents(atPath: url.path),
-           let rawText = String(data: data, encoding: .utf8) {
-            let maxChars = 8000
-            snippet = rawText.count > maxChars ? String(rawText.prefix(maxChars)) + "\n…(truncated)" : rawText
-        }
+        let snippet = PipiDocumentExtractor.extractText(from: url)
         return PipiChatAttachment(
             name: url.lastPathComponent,
             path: url.path,

@@ -8,6 +8,27 @@ import Darwin
 
 // MARK: - Resident Persisted State (~/Library/Application Support/PipiBot/resident-state.json)
 
+private struct PipiLossyDecodablePlaceholder: Decodable {}
+
+/// Decodes a JSON array element-by-element so a single schema-drifted item across app upgrades
+/// never wipes out the rest of the user's conversations, providers, or settings.
+private struct PipiLossyArray<Element: Decodable>: Decodable {
+    let elements: [Element]
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var decoded: [Element] = []
+        while !container.isAtEnd {
+            if let value = try? container.decode(Element.self) {
+                decoded.append(value)
+            } else {
+                _ = try? container.decode(PipiLossyDecodablePlaceholder.self)
+            }
+        }
+        self.elements = decoded
+    }
+}
+
 public enum PipiStateLoadResult: Sendable {
     case notFound
     case loaded(PipiResidentPersistedState)
@@ -193,54 +214,56 @@ public struct PipiResidentPersistedState: Codable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.outcomes = try c.decodeIfPresent([OutcomeResponsibility].self, forKey: .outcomes) ?? []
-        self.decisions = try c.decodeIfPresent([NeedsYouDecision].self, forKey: .decisions) ?? []
-        self.museCards = try c.decodeIfPresent([MuseCardItem].self, forKey: .museCards) ?? []
-        self.activeHarness = try c.decodeIfPresent(HarnessProvider.self, forKey: .activeHarness) ?? .pi
-        self.themeModeRaw = try c.decodeIfPresent(String.self, forKey: .themeModeRaw) ?? "system"
-        self.keepAwakeEnabled = try c.decodeIfPresent(Bool.self, forKey: .keepAwakeEnabled) ?? false
-        self.updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+        // Fault-isolated per-field & per-element decoding guarantees cross-version upgrades
+        // never drop user conversations, providers, or settings due to a single changed field.
+        self.outcomes = (try? c.decodeIfPresent(PipiLossyArray<OutcomeResponsibility>.self, forKey: .outcomes)?.elements) ?? []
+        self.decisions = (try? c.decodeIfPresent(PipiLossyArray<NeedsYouDecision>.self, forKey: .decisions)?.elements) ?? []
+        self.museCards = (try? c.decodeIfPresent(PipiLossyArray<MuseCardItem>.self, forKey: .museCards)?.elements) ?? []
+        self.activeHarness = (try? c.decodeIfPresent(HarnessProvider.self, forKey: .activeHarness)) ?? .pi
+        self.themeModeRaw = (try? c.decodeIfPresent(String.self, forKey: .themeModeRaw)) ?? "system"
+        self.keepAwakeEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .keepAwakeEnabled)) ?? false
+        self.updatedAt = (try? c.decodeIfPresent(String.self, forKey: .updatedAt)) ?? ""
 
-        self.hasCompletedOnboarding = try c.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding)
-        self.languageRaw = try c.decodeIfPresent(String.self, forKey: .languageRaw)
-        self.llmProviders = try c.decodeIfPresent([PipiLLMProviderConfig].self, forKey: .llmProviders)
-        self.defaultLLMProviderId = try c.decodeIfPresent(String.self, forKey: .defaultLLMProviderId)
-        self.enabledLocalAgents = try c.decodeIfPresent([PipiLocalAgentKind].self, forKey: .enabledLocalAgents)
-        self.defaultExecutionTarget = try c.decodeIfPresent(PipiExecutionTarget.self, forKey: .defaultExecutionTarget)
-        self.workspaceDirectory = try c.decodeIfPresent(String.self, forKey: .workspaceDirectory)
-        self.personas = try c.decodeIfPresent([PipiBotPersona].self, forKey: .personas)
-        self.activePersonaId = try c.decodeIfPresent(String.self, forKey: .activePersonaId)
-        self.conversations = try c.decodeIfPresent([PipiConversation].self, forKey: .conversations)
-        self.activeConversationId = try c.decodeIfPresent(String.self, forKey: .activeConversationId)
-        self.memoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .memoryEnabled)
-        self.personalProfileNote = try c.decodeIfPresent(String.self, forKey: .personalProfileNote)
-        self.routines = try c.decodeIfPresent([PipiBotRoutine].self, forKey: .routines)
-        self.runRecords = try c.decodeIfPresent([PipiRunRecord].self, forKey: .runRecords)
-        self.companionSyncEnabled = try c.decodeIfPresent(Bool.self, forKey: .companionSyncEnabled)
-        self.schemaMigrationVersion = try c.decodeIfPresent(Int.self, forKey: .schemaMigrationVersion)
-        self.uiZoomScale = try c.decodeIfPresent(Double.self, forKey: .uiZoomScale)
-        self.projects = try c.decodeIfPresent([PipiProject].self, forKey: .projects)
-        self.groupChats = try c.decodeIfPresent([PipiGroupChat].self, forKey: .groupChats)
-        self.activeGroupChatId = try c.decodeIfPresent(String.self, forKey: .activeGroupChatId)
-        self.approvalWhitelistRules = try c.decodeIfPresent([PipiApprovalWhitelistRule].self, forKey: .approvalWhitelistRules)
-        self.llmGuardrailJudgeEnabled = try c.decodeIfPresent(Bool.self, forKey: .llmGuardrailJudgeEnabled)
-        self.proactiveState = try c.decodeIfPresent(PipiProactivePersistedState.self, forKey: .proactiveState)
-        self.alterEgoTasks = try c.decodeIfPresent([PipiAlterEgoTask].self, forKey: .alterEgoTasks)
-        self.pocketNotesState = try c.decodeIfPresent(PipiPocketNotesPersistedState.self, forKey: .pocketNotesState)
-        self.localGatewayConfig = try c.decodeIfPresent(PipiLocalGatewayConfig.self, forKey: .localGatewayConfig)
-        self.voiceConfig = try c.decodeIfPresent(PipiVoiceConfig.self, forKey: .voiceConfig)
-        self.computerUseConfig = try c.decodeIfPresent(PipiComputerUseConfig.self, forKey: .computerUseConfig)
-        self.globalCapabilityPool = try c.decodeIfPresent(PipiGlobalCapabilityPool.self, forKey: .globalCapabilityPool)
-        self.homeScenePresetRaw = try c.decodeIfPresent(String.self, forKey: .homeScenePresetRaw)
-        self.botRoomAssignments = try c.decodeIfPresent([String: String].self, forKey: .botRoomAssignments)
-        self.autoCheckUpdatesEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoCheckUpdatesEnabled)
-        self.proactiveCLIDelegationEnabled = try c.decodeIfPresent(Bool.self, forKey: .proactiveCLIDelegationEnabled)
-        self.securityAuditorBotId = try c.decodeIfPresent(String.self, forKey: .securityAuditorBotId)
-        self.wechatAutoConnectEnabled = try c.decodeIfPresent(Bool.self, forKey: .wechatAutoConnectEnabled)
-        self.wechatTypingIndicatorEnabled = try c.decodeIfPresent(Bool.self, forKey: .wechatTypingIndicatorEnabled)
-        self.wechatPrimaryBotId = try c.decodeIfPresent(String.self, forKey: .wechatPrimaryBotId)
-        self.wechatRoutingModeRaw = try c.decodeIfPresent(String.self, forKey: .wechatRoutingModeRaw)
-        self.wechatGroupMemberBotIds = try c.decodeIfPresent([String].self, forKey: .wechatGroupMemberBotIds)
+        self.hasCompletedOnboarding = try? c.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding)
+        self.languageRaw = try? c.decodeIfPresent(String.self, forKey: .languageRaw)
+        self.llmProviders = (try? c.decodeIfPresent(PipiLossyArray<PipiLLMProviderConfig>.self, forKey: .llmProviders))?.elements
+        self.defaultLLMProviderId = try? c.decodeIfPresent(String.self, forKey: .defaultLLMProviderId)
+        self.enabledLocalAgents = (try? c.decodeIfPresent(PipiLossyArray<PipiLocalAgentKind>.self, forKey: .enabledLocalAgents))?.elements
+        self.defaultExecutionTarget = try? c.decodeIfPresent(PipiExecutionTarget.self, forKey: .defaultExecutionTarget)
+        self.workspaceDirectory = try? c.decodeIfPresent(String.self, forKey: .workspaceDirectory)
+        self.personas = (try? c.decodeIfPresent(PipiLossyArray<PipiBotPersona>.self, forKey: .personas))?.elements
+        self.activePersonaId = try? c.decodeIfPresent(String.self, forKey: .activePersonaId)
+        self.conversations = (try? c.decodeIfPresent(PipiLossyArray<PipiConversation>.self, forKey: .conversations))?.elements
+        self.activeConversationId = try? c.decodeIfPresent(String.self, forKey: .activeConversationId)
+        self.memoryEnabled = try? c.decodeIfPresent(Bool.self, forKey: .memoryEnabled)
+        self.personalProfileNote = try? c.decodeIfPresent(String.self, forKey: .personalProfileNote)
+        self.routines = (try? c.decodeIfPresent(PipiLossyArray<PipiBotRoutine>.self, forKey: .routines))?.elements
+        self.runRecords = (try? c.decodeIfPresent(PipiLossyArray<PipiRunRecord>.self, forKey: .runRecords))?.elements
+        self.companionSyncEnabled = try? c.decodeIfPresent(Bool.self, forKey: .companionSyncEnabled)
+        self.schemaMigrationVersion = try? c.decodeIfPresent(Int.self, forKey: .schemaMigrationVersion)
+        self.uiZoomScale = try? c.decodeIfPresent(Double.self, forKey: .uiZoomScale)
+        self.projects = (try? c.decodeIfPresent(PipiLossyArray<PipiProject>.self, forKey: .projects))?.elements
+        self.groupChats = (try? c.decodeIfPresent(PipiLossyArray<PipiGroupChat>.self, forKey: .groupChats))?.elements
+        self.activeGroupChatId = try? c.decodeIfPresent(String.self, forKey: .activeGroupChatId)
+        self.approvalWhitelistRules = (try? c.decodeIfPresent(PipiLossyArray<PipiApprovalWhitelistRule>.self, forKey: .approvalWhitelistRules))?.elements
+        self.llmGuardrailJudgeEnabled = try? c.decodeIfPresent(Bool.self, forKey: .llmGuardrailJudgeEnabled)
+        self.proactiveState = try? c.decodeIfPresent(PipiProactivePersistedState.self, forKey: .proactiveState)
+        self.alterEgoTasks = (try? c.decodeIfPresent(PipiLossyArray<PipiAlterEgoTask>.self, forKey: .alterEgoTasks))?.elements
+        self.pocketNotesState = try? c.decodeIfPresent(PipiPocketNotesPersistedState.self, forKey: .pocketNotesState)
+        self.localGatewayConfig = try? c.decodeIfPresent(PipiLocalGatewayConfig.self, forKey: .localGatewayConfig)
+        self.voiceConfig = try? c.decodeIfPresent(PipiVoiceConfig.self, forKey: .voiceConfig)
+        self.computerUseConfig = try? c.decodeIfPresent(PipiComputerUseConfig.self, forKey: .computerUseConfig)
+        self.globalCapabilityPool = try? c.decodeIfPresent(PipiGlobalCapabilityPool.self, forKey: .globalCapabilityPool)
+        self.homeScenePresetRaw = try? c.decodeIfPresent(String.self, forKey: .homeScenePresetRaw)
+        self.botRoomAssignments = try? c.decodeIfPresent([String: String].self, forKey: .botRoomAssignments)
+        self.autoCheckUpdatesEnabled = try? c.decodeIfPresent(Bool.self, forKey: .autoCheckUpdatesEnabled)
+        self.proactiveCLIDelegationEnabled = try? c.decodeIfPresent(Bool.self, forKey: .proactiveCLIDelegationEnabled)
+        self.securityAuditorBotId = try? c.decodeIfPresent(String.self, forKey: .securityAuditorBotId)
+        self.wechatAutoConnectEnabled = try? c.decodeIfPresent(Bool.self, forKey: .wechatAutoConnectEnabled)
+        self.wechatTypingIndicatorEnabled = try? c.decodeIfPresent(Bool.self, forKey: .wechatTypingIndicatorEnabled)
+        self.wechatPrimaryBotId = try? c.decodeIfPresent(String.self, forKey: .wechatPrimaryBotId)
+        self.wechatRoutingModeRaw = try? c.decodeIfPresent(String.self, forKey: .wechatRoutingModeRaw)
+        self.wechatGroupMemberBotIds = try? c.decodeIfPresent([String].self, forKey: .wechatGroupMemberBotIds)
     }
 }
 
@@ -630,19 +653,70 @@ public struct PipiNativeMacRuntime: Sendable {
             .appendingPathComponent("resident-state.json", isDirectory: false)
     }
 
+    public static func lastGoodBackupUrl(for url: URL = stateFileUrl()) -> URL {
+        let stem = url.deletingPathExtension().lastPathComponent
+        return url.deletingLastPathComponent().appendingPathComponent("\(stem).last-good.json", isDirectory: false)
+    }
+
+    public static func preUpdateBackupUrl(for url: URL = stateFileUrl()) -> URL {
+        let stem = url.deletingPathExtension().lastPathComponent
+        return url.deletingLastPathComponent().appendingPathComponent("\(stem).pre-update.json", isDirectory: false)
+    }
+
+    /// Creates an explicit verified snapshot before an app update or relaunch.
+    @discardableResult
+    public static func createPreUpdateBackup(from url: URL = stateFileUrl()) -> URL? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              (try? JSONDecoder().decode(PipiResidentPersistedState.self, from: data)) != nil else {
+            return nil
+        }
+        let backupURL = preUpdateBackupUrl(for: url)
+        do {
+            try data.write(to: backupURL, options: .atomic)
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
+            return backupURL
+        } catch {
+            return nil
+        }
+    }
+
     public static func loadResidentStateDetailed(from url: URL = stateFileUrl()) -> PipiStateLoadResult {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: url.path) else {
-            return .notFound
+        if fm.fileExists(atPath: url.path) {
+            do {
+                let data = try Data(contentsOf: url)
+                let decoded = try JSONDecoder().decode(PipiResidentPersistedState.self, from: data)
+                return .loaded(decoded)
+            } catch {
+                // Before giving up as corrupt, try recovering from rolling last-good or pre-update backups
+                if let recovered = tryRecoverFromBackups(for: url) {
+                    return .loaded(recovered)
+                }
+                let backupURL = backupCorruptStateFile(at: url)
+                return .corrupt(backupURL: backupURL, errorDescription: error.localizedDescription)
+            }
         }
-        do {
-            let data = try Data(contentsOf: url)
-            let decoded = try JSONDecoder().decode(PipiResidentPersistedState.self, from: data)
-            return .loaded(decoded)
-        } catch {
-            let backupURL = backupCorruptStateFile(at: url)
-            return .corrupt(backupURL: backupURL, errorDescription: error.localizedDescription)
+        // Primary state file missing — attempt automatic recovery from pre-update or last-good backup
+        if let recovered = tryRecoverFromBackups(for: url) {
+            return .loaded(recovered)
         }
+        return .notFound
+    }
+
+    private static func tryRecoverFromBackups(for primaryURL: URL) -> PipiResidentPersistedState? {
+        let fm = FileManager.default
+        let candidates = [lastGoodBackupUrl(for: primaryURL), preUpdateBackupUrl(for: primaryURL)]
+        for candidate in candidates where fm.fileExists(atPath: candidate.path) {
+            if let data = try? Data(contentsOf: candidate),
+               let decoded = try? JSONDecoder().decode(PipiResidentPersistedState.self, from: data) {
+                try? data.write(to: primaryURL, options: .atomic)
+                try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: primaryURL.path)
+                return decoded
+            }
+        }
+        return nil
     }
 
     public static func loadResidentState(from url: URL = stateFileUrl()) -> PipiResidentPersistedState? {
@@ -683,8 +757,16 @@ public struct PipiNativeMacRuntime: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(state) else { return }
-        try? data.write(to: url, options: .atomic)
-        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        do {
+            try data.write(to: url, options: .atomic)
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            // Maintain rolling last-good backup so interrupted upgrades/crashes never lose history
+            let lastGood = lastGoodBackupUrl(for: url)
+            try? data.write(to: lastGood, options: .atomic)
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: lastGood.path)
+        } catch {
+            // Preserve previous file untouched on write failure
+        }
     }
 }
 

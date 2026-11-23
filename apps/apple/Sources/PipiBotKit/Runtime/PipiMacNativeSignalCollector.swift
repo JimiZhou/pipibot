@@ -274,14 +274,23 @@ public struct PipiMacNativeSignalCollector: PipiNativeSignalProvider {
         proc.executableURL = URL(fileURLWithPath: gitBin)
         proc.arguments = args
         proc.currentDirectoryURL = URL(fileURLWithPath: directory)
+        proc.standardInput = FileHandle.nullDevice
         let pipe = Pipe()
         proc.standardOutput = pipe
-        proc.standardError = Pipe()
+        proc.standardError = FileHandle.nullDevice
         do {
             try proc.run()
-            proc.waitUntilExit()
-            guard proc.terminationStatus == 0 else { return nil }
+            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+            timer.schedule(deadline: .now() + 4.0)
+            timer.setEventHandler {
+                if proc.isRunning { proc.terminate() }
+            }
+            timer.resume()
+            // Drain stdout BEFORE waitUntilExit to prevent 64KB Unix pipe deadlock
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            proc.waitUntilExit()
+            timer.cancel()
+            guard proc.terminationStatus == 0 else { return nil }
             return String(data: data, encoding: .utf8)
         } catch {
             return nil

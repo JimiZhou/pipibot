@@ -145,18 +145,35 @@ public enum PipiProactiveButler {
             return ""
         }
         return await Task.detached(priority: .utility) {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            proc.arguments = ["-lc", "branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' '); last=$(git log -1 --pretty='%h %s (%cr)' 2>/dev/null); echo \"分支：$branch · 未提交改动：$dirty 项\\n最近提交：$last\""]
-            proc.currentDirectoryURL = URL(fileURLWithPath: expanded)
-            proc.standardInput = FileHandle.nullDevice
-            let out = Pipe()
-            proc.standardOutput = out
-            proc.standardError = FileHandle.nullDevice
-            try? proc.run()
-            proc.waitUntilExit()
-            let data = out.fileHandleForReading.readDataToEndOfFile()
-            return (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            func runGit(_ args: [String]) -> String {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+                proc.arguments = args
+                proc.currentDirectoryURL = URL(fileURLWithPath: expanded)
+                proc.standardInput = FileHandle.nullDevice
+                let out = Pipe()
+                proc.standardOutput = out
+                proc.standardError = FileHandle.nullDevice
+                do {
+                    try proc.run()
+                    let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+                    timer.schedule(deadline: .now() + 4.0)
+                    timer.setEventHandler { if proc.isRunning { proc.terminate() } }
+                    timer.resume()
+                    let data = out.fileHandleForReading.readDataToEndOfFile()
+                    proc.waitUntilExit()
+                    timer.cancel()
+                    return (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                } catch {
+                    return ""
+                }
+            }
+            let branch = runGit(["rev-parse", "--abbrev-ref", "HEAD"])
+            let statusOut = runGit(["status", "--porcelain"])
+            let dirty = statusOut.isEmpty ? 0 : statusOut.components(separatedBy: .newlines).filter { !$0.isEmpty }.count
+            let last = runGit(["log", "-1", "--pretty=%h %s (%cr)"])
+            guard !branch.isEmpty || !last.isEmpty else { return "" }
+            return "分支：\(branch) · 未提交改动：\(dirty) 项\n最近提交：\(last)"
         }.value
         #else
         return ""
@@ -173,9 +190,19 @@ public enum PipiProactiveButler {
             let out = Pipe()
             proc.standardOutput = out
             proc.standardError = FileHandle.nullDevice
-            try? proc.run()
-            proc.waitUntilExit()
+            do {
+                try proc.run()
+            } catch {
+                return nil
+            }
+            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+            timer.schedule(deadline: .now() + 4.0)
+            timer.setEventHandler { if proc.isRunning { proc.terminate() } }
+            timer.resume()
+            // Drain stdout BEFORE waitUntilExit to prevent 64KB pipe deadlock
             let data = out.fileHandleForReading.readDataToEndOfFile()
+            proc.waitUntilExit()
+            timer.cancel()
             let text = String(data: data, encoding: .utf8) ?? ""
             for line in text.components(separatedBy: .newlines).dropFirst().prefix(5) {
                 let parts = line.split(whereSeparator: \.isWhitespace)

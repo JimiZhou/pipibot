@@ -219,8 +219,13 @@ public enum PipiBotBoxSandbox {
         proc.standardError = pipe
         do {
             try proc.run()
-            proc.waitUntilExit()
+            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+            timer.schedule(deadline: .now() + 5.0)
+            timer.setEventHandler { if proc.isRunning { proc.terminate() } }
+            timer.resume()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            proc.waitUntilExit()
+            timer.cancel()
             return (proc.terminationStatus, String(data: data, encoding: .utf8) ?? "")
         } catch {
             return (-1, error.localizedDescription)

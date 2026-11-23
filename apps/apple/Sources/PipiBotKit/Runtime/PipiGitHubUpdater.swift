@@ -248,16 +248,23 @@ public enum PipiGitHubUpdaterLogic {
         #endif
     }
 
-    /// Resolves the target `.app` bundle path to replace during an auto-update.
+    /// Resolves the canonical `.app` bundle path to replace during an auto-update.
+    /// Always prefers `/Applications/PiPiBot.app` (when writable) so updating never leaves
+    /// two coexisting versions (e.g. `PipiBot.app` vs `PiPiBot.app`, or Downloads vs Applications).
     public static func resolveInstallTargetAppPath(currentBundlePath: String = Bundle.main.bundlePath) -> String {
         let fm = FileManager.default
+        let canonicalSystemApp = "/Applications/PiPiBot.app"
+        if fm.isWritableFile(atPath: "/Applications") || fm.isWritableFile(atPath: canonicalSystemApp) {
+            return canonicalSystemApp
+        }
         if currentBundlePath.hasSuffix(".app") {
             let parentDir = (currentBundlePath as NSString).deletingLastPathComponent
             if fm.isWritableFile(atPath: currentBundlePath) || fm.isWritableFile(atPath: parentDir) {
-                return currentBundlePath
+                return (parentDir as NSString).appendingPathComponent("PiPiBot.app")
             }
         }
-        return "/Applications/PipiBot.app"
+        let userApps = (NSHomeDirectory() as NSString).appendingPathComponent("Applications")
+        return (userApps as NSString).appendingPathComponent("PiPiBot.app")
     }
 }
 
@@ -513,21 +520,38 @@ public final class PipiGitHubUpdateManager {
         #!/usr/bin/env bash
         set -euo pipefail
         PID=\(currentPID)
+        # Wait for the triggering process and any other running PiPiBot instances to exit cleanly
         for _ in $(seq 1 120); do
           if ! kill -0 "$PID" 2>/dev/null; then
             break
           fi
           sleep 0.25
         done
+        pkill -x PipiBotMacApp 2>/dev/null || true
+        sleep 0.3
+
         DST=\(escapedDstApp)
         SRC=\(escapedSrcApp)
         MNT=\(escapedMount)
+        DST_DIR="$(dirname "$DST")"
         BACKUP="${DST}.backup.$$"
+
+        mkdir -p "$DST_DIR"
         if [[ -d "$DST" ]]; then
           mv "$DST" "$BACKUP" || true
         fi
+        # Clean up legacy lowercase casing duplicate in the same Applications folder (e.g. PipiBot.app vs PiPiBot.app)
+        if [[ "$DST" == "/Applications/PiPiBot.app" && -d "/Applications/PipiBot.app" && "/Applications/PipiBot.app" != "$DST" ]]; then
+          rm -rf "/Applications/PipiBot.app" || true
+        fi
+
         if ditto "$SRC" "$DST"; then
           rm -rf "$BACKUP" || true
+          # If installing into /Applications, also clean stale copies in ~/Applications so two versions never coexist
+          if [[ "$DST" == "/Applications/PiPiBot.app" ]]; then
+            rm -rf "$HOME/Applications/PiPiBot.app" "$HOME/Applications/PipiBot.app" 2>/dev/null || true
+          fi
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DST" >/dev/null 2>&1 || true
         else
           if [[ -d "$BACKUP" ]]; then
             mv "$BACKUP" "$DST" || true
@@ -536,7 +560,7 @@ public final class PipiGitHubUpdateManager {
           exit 1
         fi
         hdiutil detach "$MNT" -force >/dev/null 2>&1 || true
-        open -n "$DST"
+        open "$DST"
         rm -rf \(escapedStage) || true
         """
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)

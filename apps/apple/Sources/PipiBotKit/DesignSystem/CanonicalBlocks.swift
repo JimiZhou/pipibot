@@ -61,13 +61,14 @@ public struct PipiLiquidGlassModifier: ViewModifier {
     public var shadowY: CGFloat
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
 
     public init(
         cornerRadius: CGFloat = PipiTokens.radiusLG,
         borderColor: Color? = nil,
         borderWidth: CGFloat = 1,
-        shadowRadius: CGFloat = 16,
-        shadowY: CGFloat = 6
+        shadowRadius: CGFloat = 18,
+        shadowY: CGFloat = 7
     ) {
         self.cornerRadius = cornerRadius
         self.borderColor = borderColor
@@ -79,6 +80,7 @@ public struct PipiLiquidGlassModifier: ViewModifier {
     public func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let resolvedBorder = borderColor ?? (reduceTransparency ? PipiTokens.borderStrong : PipiTokens.borderSubtle)
+        let topSpecular = Color.white.opacity(colorScheme == .dark ? 0.14 : 0.80)
         Group {
             if reduceTransparency {
                 content
@@ -90,21 +92,115 @@ public struct PipiLiquidGlassModifier: ViewModifier {
             }
         }
         .overlay(
+            shape.strokeBorder(
+                LinearGradient(
+                    colors: [topSpecular, Color.clear],
+                    startPoint: .top,
+                    endPoint: UnitPoint(x: 0.5, y: 0.45)
+                ),
+                lineWidth: 0.9
+            )
+        )
+        .overlay(
             shape.stroke(resolvedBorder, lineWidth: borderWidth)
         )
         .clipShape(shape)
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.36 : 0.06), radius: 2, y: 1)
         .shadow(color: PipiTokens.elevatedShadow, radius: shadowRadius, y: shadowY)
     }
 }
 
 public struct PipiStructuralMaterialModifier: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
 
     public init() {}
 
     public func body(content: Content) -> some View {
-        let _ = reduceTransparency
-        content.background(PipiTokens.bgSidebar)
+        if reduceTransparency {
+            content.background {
+                PipiTokens.bgSidebar
+                    .ignoresSafeArea()
+            }
+        } else {
+            content
+                .background {
+                    ZStack {
+                        Rectangle().fill(.regularMaterial)
+                        PipiTokens.bgSidebar.opacity(colorScheme == .dark ? 0.78 : 0.86)
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(colorScheme == .dark ? 0.035 : 0.45),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: UnitPoint(x: 0.5, y: 0.35)
+                        )
+                    }
+                    .ignoresSafeArea()
+                }
+        }
+    }
+}
+
+/// Sculpted tactile card surface with subtle top specular hairline and dual-layer contact + ambient shadow.
+public struct PipiTactileCardModifier: ViewModifier {
+    public var cornerRadius: CGFloat
+    public var elevated: Bool
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    public init(cornerRadius: CGFloat = PipiTokens.radiusMD, elevated: Bool = false) {
+        self.cornerRadius = cornerRadius
+        self.elevated = elevated
+    }
+
+    public func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let isDark = (colorScheme == .dark)
+        content
+            .background(
+                ZStack {
+                    shape.fill(PipiTokens.bgElevated)
+                    shape.fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isDark ? 0.032 : 0.65),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: UnitPoint(x: 0.5, y: 0.42)
+                        )
+                    )
+                }
+            )
+            .overlay(
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(isDark ? 0.11 : 0.85),
+                            Color.clear
+                        ],
+                        startPoint: .top,
+                        endPoint: UnitPoint(x: 0.5, y: 0.5)
+                    ),
+                    lineWidth: 0.75
+                )
+            )
+            .overlay(
+                shape.strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+            )
+            .clipShape(shape)
+            .shadow(
+                color: Color.black.opacity(isDark ? (elevated ? 0.38 : 0.24) : (elevated ? 0.07 : 0.04)),
+                radius: elevated ? 3 : 1.5,
+                y: 1
+            )
+            .shadow(
+                color: Color.black.opacity(isDark ? (elevated ? 0.30 : 0.16) : (elevated ? 0.08 : 0.045)),
+                radius: elevated ? 16 : 8,
+                y: elevated ? 6 : 3
+            )
     }
 }
 
@@ -113,8 +209,8 @@ public extension View {
         cornerRadius: CGFloat = PipiTokens.radiusLG,
         borderColor: Color? = nil,
         borderWidth: CGFloat = 1,
-        shadowRadius: CGFloat = 16,
-        shadowY: CGFloat = 6
+        shadowRadius: CGFloat = 18,
+        shadowY: CGFloat = 7
     ) -> some View {
         modifier(
             PipiLiquidGlassModifier(
@@ -127,9 +223,17 @@ public extension View {
         )
     }
 
-    /// Structural sidebar/navigation background: heavier than floating glass panels, single layer, solid fallback when Reduce Transparency is enabled.
+    /// Structural sidebar/navigation background: translucent material + tinted surface + subtle top sheen.
     func pipiStructuralMaterial() -> some View {
         modifier(PipiStructuralMaterialModifier())
+    }
+
+    /// Tactile sculpted card with top specular hairline and dual-layer contact + ambient shadow.
+    func pipiTactileCard(
+        cornerRadius: CGFloat = PipiTokens.radiusMD,
+        elevated: Bool = false
+    ) -> some View {
+        modifier(PipiTactileCardModifier(cornerRadius: cornerRadius, elevated: elevated))
     }
 }
 

@@ -30,6 +30,16 @@ final class PipiMacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single-instance guard: prevent two PiPiBot copies from coexisting simultaneously
+        if let bundleId = Bundle.main.bundleIdentifier {
+            let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+                .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+            if let existing = others.first {
+                existing.activate(options: [.activateAllWindows])
+                NSApp.terminate(nil)
+                return
+            }
+        }
         NSApp.setActivationPolicy(.regular)
         if let iconUrl = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let iconImage = NSImage(contentsOf: iconUrl) {

@@ -310,7 +310,7 @@ public struct PipiAboutSheetView: View {
                     density: .desktopCompact
                 ) {
                     store.updateManager.downloadAndInstallUpdate(rel) {
-                        store.flush()
+                        store.prepareForAppUpgrade()
                     }
                 }
             }

@@ -1251,13 +1251,24 @@ public enum PipiAgentToolbox {
         guard fm.fileExists(atPath: path) else {
             return PipiAgentToolExecutionResult(output: "文件不存在：\(path)", isError: true)
         }
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
-            return PipiAgentToolExecutionResult(output: "无法读取文件（可能无权限或被占用）：\(path)", isError: true)
-        }
-        let maxRaw = 512 * 1024
-        let slice = data.count > maxRaw ? data.prefix(maxRaw) : data
-        guard let text = String(data: slice, encoding: .utf8) ?? String(data: slice, encoding: .isoLatin1) else {
-            return PipiAgentToolExecutionResult(output: "该文件为二进制文件（\(formatBytes(data.count))），无法按纯文本读取。", isError: true)
+        let fileURL = URL(fileURLWithPath: path)
+        let ext = fileURL.pathExtension.lowercased()
+        let text: String
+        if PipiDocumentExtractor.officeAndRichDocExtensions.contains(ext) {
+            guard let extracted = PipiDocumentExtractor.extractText(from: fileURL, maxChars: 60_000), !extracted.isEmpty else {
+                return PipiAgentToolExecutionResult(output: "未能从该文档提取出有效文本内容：\(path)", isError: true)
+            }
+            text = extracted
+        } else {
+            guard let data = try? Data(contentsOf: fileURL) else {
+                return PipiAgentToolExecutionResult(output: "无法读取文件（可能无权限或被占用）：\(path)", isError: true)
+            }
+            let maxRaw = 512 * 1024
+            let slice = data.count > maxRaw ? data.prefix(maxRaw) : data
+            guard let decoded = String(data: slice, encoding: .utf8) ?? PipiDocumentExtractor.extractText(from: fileURL, maxChars: 60_000) else {
+                return PipiAgentToolExecutionResult(output: "该文件为二进制文件（\(formatBytes(data.count))），无法按纯文本读取。", isError: true)
+            }
+            text = decoded
         }
 
         let allLines = text.components(separatedBy: .newlines)

@@ -354,11 +354,11 @@ public final class PipiLocalModelPlatformManager {
         if kind == .ollama {
             if !current.availableModels.contains(where: { $0.lowercased() == chosenModel.lowercased() }),
                let bin = current.binaryPath {
-                _ = runQuickProcess(executable: bin, arguments: ["pull", chosenModel])
+                _ = await runQuickProcess(executable: bin, arguments: ["pull", chosenModel], timeoutSeconds: 1800)
             }
             await warmupOllamaModel(chosenModel, port: kind.defaultPort)
         } else if kind == .lmStudio, let lmsPath = current.binaryPath {
-            _ = runQuickProcess(executable: lmsPath, arguments: ["load", chosenModel])
+            _ = await runQuickProcess(executable: lmsPath, arguments: ["load", chosenModel], timeoutSeconds: 120)
         }
 
         _ = await scanInstalledPlatforms()
@@ -495,16 +495,16 @@ public final class PipiLocalModelPlatformManager {
             if let bin = status.binaryPath {
                 spawnManaged(kind: kind, executable: bin, arguments: ["serve"])
             } else if let appPath = status.appBundlePath {
-                _ = runQuickProcess(executable: "/usr/bin/open", arguments: ["-g", appPath])
+                _ = await runQuickProcess(executable: "/usr/bin/open", arguments: ["-g", appPath], timeoutSeconds: 10)
             } else {
                 return (false, "未检测到 Ollama 可执行程序。")
             }
 
         case .lmStudio:
             if let lms = status.binaryPath {
-                _ = runQuickProcess(executable: lms, arguments: ["server", "start", "--port", String(kind.defaultPort)])
+                _ = await runQuickProcess(executable: lms, arguments: ["server", "start", "--port", String(kind.defaultPort)], timeoutSeconds: 20)
             } else if let appPath = status.appBundlePath {
-                _ = runQuickProcess(executable: "/usr/bin/open", arguments: ["-g", appPath])
+                _ = await runQuickProcess(executable: "/usr/bin/open", arguments: ["-g", appPath], timeoutSeconds: 10)
             } else {
                 return (false, "未检测到 LM Studio。")
             }
@@ -584,19 +584,29 @@ public final class PipiLocalModelPlatformManager {
         }
     }
 
-    private func runQuickProcess(executable: String, arguments: [String]) -> Int32 {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: executable)
-        proc.arguments = arguments
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            return proc.terminationStatus
-        } catch {
-            return -1
-        }
+    private func runQuickProcess(executable: String, arguments: [String], timeoutSeconds: Double = 30) async -> Int32 {
+        await Task.detached(priority: .utility) {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: executable)
+            proc.arguments = arguments
+            proc.standardInput = FileHandle.nullDevice
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            do {
+                try proc.run()
+                let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+                timer.schedule(deadline: .now() + timeoutSeconds)
+                timer.setEventHandler {
+                    if proc.isRunning { proc.terminate() }
+                }
+                timer.resume()
+                proc.waitUntilExit()
+                timer.cancel()
+                return proc.terminationStatus
+            } catch {
+                return -1
+            }
+        }.value
     }
 
     private func warmupOllamaModel(_ modelId: String, port: Int) async {

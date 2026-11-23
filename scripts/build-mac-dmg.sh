@@ -4,10 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$REPO_ROOT/dist"
-APP_BUNDLE="$DIST_DIR/PipiBot.app"
+APP_BUNDLE="$DIST_DIR/PiPiBot.app"
 
 if [[ "${PIPIBOT_SKIP_APP_BUILD:-0}" != "1" ]]; then
-  echo "==> Building signed PipiBot.app first..."
+  echo "==> Building signed PiPiBot.app first..."
   bash "$SCRIPT_DIR/build-mac-app.sh"
 fi
 
@@ -16,7 +16,7 @@ if [[ ! -d "$APP_BUNDLE" ]]; then
   exit 1
 fi
 
-VERSION="${PIPIBOT_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || echo "0.13.0")}"
+VERSION="${PIPIBOT_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || echo "0.13.1")}"
 ARCH="${PIPIBOT_ARCH:-$(uname -m)}"
 DMG_NAME="PiPiBot-${VERSION}-${ARCH}.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
@@ -56,7 +56,7 @@ PiPiBot macOS 安装与系统权限说明
    - 第 3 步：按需逐步授予系统权限（每项均标明用途，可随时跳过）
    - 第 4 步：选择默认助手开始对话
 
-   若初次跳过配置，可随时点击主界面左下角「引导式配置」或「设置 → 通用」重新进入。
+   若初次跳过配置，可随时在「设置 → 通用 → 引导式配置」中重新进入。
 
 3. 关于 macOS「完全磁盘访问」权限（用于读取本机短信摘要）
    macOS 系统安全策略禁止任何应用自动弹出完全磁盘访问授权框：

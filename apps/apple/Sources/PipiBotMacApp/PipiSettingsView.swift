@@ -97,6 +97,11 @@ public struct PipiSettingsView: View {
     @State private var showAdvancedMultiMachineMesh: Bool = false
     @State private var showCustomSkillImport: Bool = false
     @State private var showPermissionDiagnostics: Bool = false
+    @State private var accountEmailDraft: String = ""
+    @State private var accountOtpDraft: String = ""
+    @State private var accountOtpSent: Bool = false
+    @State private var accountFeedback: String? = nil
+    @State private var showAccountQuickQR: Bool = false
     @State private var selectedPlatformModels: [PipiLocalModelPlatformKind: String] = [:]
     @State private var localPlatformFeedback: String? = nil
     @State private var showAddLocalModelSheet: Bool = false
@@ -2175,12 +2180,12 @@ public struct PipiSettingsView: View {
         }
     }
 
-    // MARK: - 3. Remote Access Tab (PiPiBot Encrypted Relay + WeChat iLink + Advanced Mesh)
+    // MARK: - 3. Remote Access Tab (Unified Account Auto-Relay + WeChat iLink + Advanced)
 
     private var remoteAccessTab: some View {
         VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
-            // Section 1: PiPiBot Public Free Encrypted Relay Service (pipibot.jimizhou.com)
-            pipibotEncryptedRelaySection
+            // Section 1: Unified Account & My Devices (Auto-Connects Free E2EE Relay seamlessly)
+            unifiedAccountSection
 
             // Section 2: WeChat iLink Remote Assistant
             wechatILinkRemoteSection
@@ -2321,6 +2326,163 @@ public struct PipiSettingsView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
+        }
+    }
+
+    // MARK: - Remote Section 0: Unified Account & My Devices
+
+    private var unifiedAccountSection: some View {
+        let acct = store.accountClient
+        return settingsGroup(
+            title: s.t("PiPiBot 统一账号与我的设备", "PiPiBot Account & My Devices"),
+            trailing: {
+                if acct.isSignedIn {
+                    HStack(spacing: 6) {
+                        #if os(macOS)
+                        PipiActionButton(s.t("打开网页端", "Open Web"), systemImage: "safari", tone: .primary, density: .desktopCompact) {
+                            if let url = URL(string: "\(acct.relayOrigin)/login") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        #endif
+                        PipiActionButton(s.t("退出", "Sign Out"), tone: .ghost, density: .desktopCompact) {
+                            Task {
+                                await acct.logout()
+                                store.e2eeRelayClient.accountAccessToken = nil
+                                accountOtpSent = false
+                                accountOtpDraft = ""
+                            }
+                        }
+                    }
+                }
+            }
+        ) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                if let user = acct.currentUser {
+                    HStack(spacing: PipiTokens.spacing12) {
+                        Circle()
+                            .fill(PipiTokens.stateSuccess)
+                            .frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(user.email ?? user.displayName)
+                                .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(s.t("已自动接入 pipibot.jimizhou.com 免费加密中转 · 手机/网页端登录即可秒连", "Auto-connected to pipibot.jimizhou.com free E2EE relay"))
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                        }
+                        Spacer()
+                    }
+
+                    if !acct.devices.isEmpty {
+                        settingsRowDivider
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(s.t("账号下的设备（\(acct.devices.count) 台）", "Devices on Your Account (\(acct.devices.count))"))
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textSecondary)
+
+                            ForEach(acct.devices) { dev in
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(dev.isOnline ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                                        .frame(width: 7, height: 7)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text("\(dev.name) · \(dev.platform)")
+                                            .font(PipiTokens.fontCaption.weight(.semibold))
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                        if !dev.capabilities.isEmpty {
+                                            Text(dev.capabilities.joined(separator: " · "))
+                                                .font(PipiTokens.fontMicro)
+                                                .foregroundStyle(PipiTokens.textMuted)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    Text(dev.isOnline ? s.t("在线", "Online") : s.t("离线", "Offline"))
+                                        .font(PipiTokens.fontMicro.weight(.medium))
+                                        .foregroundStyle(dev.isOnline ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                                    PipiActionButton(s.t("移除", "Remove"), tone: .ghost, density: .desktopCompact) {
+                                        Task { await acct.removeDevice(id: dev.id) }
+                                    }
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(PipiTokens.bgSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            }
+                        }
+                    }
+                } else {
+                    Text(s.t("登录一次即可让 Mac 自动常驻免费加密中转，手机 iOS、网页端与 Linux/PC CLI 共用同一套账号与设备列表（聊天与文件绝不上传明文）。", "Sign in once so this Mac auto-connects to the free E2EE relay across Mac, iOS, Web, and CLI (zero plaintext stored on relay)."))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+
+                    HStack(spacing: PipiTokens.spacing8) {
+                        TextField(s.t("输入邮箱（QQ / 163 / 企业邮箱 / Gmail）", "Enter email address"), text: $accountEmailDraft)
+                            .textFieldStyle(.roundedBorder)
+                        PipiActionButton(
+                            accountOtpSent ? s.t("重新发送", "Resend") : s.t("获取验证码", "Send Code"),
+                            tone: .secondary,
+                            density: .desktopCompact
+                        ) {
+                            Task {
+                                let res = await acct.sendEmailOtp(email: accountEmailDraft)
+                                accountFeedback = res.message
+                                if res.ok { accountOtpSent = true }
+                            }
+                        }
+                    }
+
+                    if accountOtpSent {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            TextField(s.t("输入 6 位邮箱验证码", "6-digit code"), text: $accountOtpDraft)
+                                .textFieldStyle(.roundedBorder)
+                            PipiActionButton(s.t("验证并登录", "Sign In"), tone: .primary, density: .desktopCompact) {
+                                Task {
+                                    let res = await acct.verifyEmailOtp(email: accountEmailDraft, code: accountOtpDraft)
+                                    accountFeedback = res.message
+                                    if res.ok {
+                                        accountOtpSent = false
+                                        accountOtpDraft = ""
+                                        await store.syncAccountAndAutoConnectRelay()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HStack(spacing: PipiTokens.spacing8) {
+                        PipiActionButton(
+                            s.t("使用 Apple / GitHub / Google 登录", "Sign in with Apple / GitHub / Google"),
+                            systemImage: "person.badge.key",
+                            tone: .primary,
+                            density: .desktopCompact
+                        ) {
+                            Task {
+                                await acct.startBrowserOAuthLogin {
+                                    Task { await store.syncAccountAndAutoConnectRelay() }
+                                }
+                            }
+                        }
+                        if let code = acct.pendingBrowserUserCode {
+                            Text(s.t("授权码：\(code)", "Code: \(code)"))
+                                .font(PipiTokens.fontMonoSmall.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                        }
+                    }
+
+                    if let fb = accountFeedback ?? acct.statusMessage {
+                        Text(fb)
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .task {
+            await store.syncAccountAndAutoConnectRelay()
         }
     }
 

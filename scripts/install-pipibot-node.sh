@@ -54,12 +54,32 @@ if [[ "$ROLE" == "hub" ]]; then
   ARGS=(hub start --host 0.0.0.0 --port "$PORT" --workspace "$WORKSPACE")
   [[ -n "$TOKEN" ]] && ARGS+=(--token "$TOKEN")
   exec node --experimental-strip-types "$CLI_PATH" "${ARGS[@]}"
-else
-  if [[ -z "$HUB_URL" ]]; then
-    echo "Error: --hub <url> is required when running in node mode." >&2
-    exit 1
-  fi
+elif [[ -n "$HUB_URL" ]]; then
   ARGS=(node join --hub "$HUB_URL" --name "$NODE_NAME" --workspace "$WORKSPACE")
   [[ -n "$TOKEN" ]] && ARGS+=(--token "$TOKEN")
   exec node --experimental-strip-types "$CLI_PATH" "${ARGS[@]}"
+else
+  # Default Unified Account CLI installer (no --hub required)
+  ORIGIN="${PIPIBOT_RELAY_ORIGIN:-https://pipibot.jimizhou.com}"
+  INSTALL_DIR="${HOME}/.pipibot/bin"
+  TARGET_TS="${INSTALL_DIR}/pipibot.ts"
+  mkdir -p "${INSTALL_DIR}"
+  if [[ -f "$REPO_ROOT/packages/daemon/src/relay-agent-host.ts" ]]; then
+    cp "$REPO_ROOT/packages/daemon/src/relay-agent-host.ts" "${TARGET_TS}"
+  else
+    curl -fsSL "${ORIGIN}/cli/pipibot.ts" -o "${TARGET_TS}"
+  fi
+  if [[ -w "/usr/local/bin" ]]; then
+    BIN_PATH="/usr/local/bin/pipibot"
+  else
+    mkdir -p "${HOME}/.local/bin"
+    BIN_PATH="${HOME}/.local/bin/pipibot"
+  fi
+  cat > "${BIN_PATH}" <<EOF
+#!/usr/bin/env bash
+exec node --experimental-strip-types --no-warnings "${TARGET_TS}" "\$@"
+EOF
+  chmod +x "${BIN_PATH}"
+  echo "✅ PiPiBot CLI 已安装到 ${BIN_PATH}"
+  echo "下一步：运行 pipibot login && pipibot up"
 fi

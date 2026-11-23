@@ -14,6 +14,8 @@ Environment=PIPIBOT_RELAY_HOST=127.0.0.1
 Environment=PIPIBOT_RELAY_PORT=9191
 Environment=PIPIBOT_RELAY_MAX_CONN_PER_IP=24
 Environment=PIPIBOT_RELAY_MAX_CLIENTS_HOST=12
+EnvironmentFile=-/etc/pipibot-relay.env
+ReadWritePaths=/var/lib/pipibot-relay
 NoNewPrivileges=true
 ProtectSystem=strict
 PrivateTmp=true

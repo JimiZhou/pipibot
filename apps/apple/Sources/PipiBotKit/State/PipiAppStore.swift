@@ -427,6 +427,7 @@ public final class PipiAppStore {
 
     // v0.15.0 OpenMausBot Parity + Self-Hosted Zero-Knowledge E2EE Relay State
     public let e2eeRelayClient: PipiE2EERelayClient
+    public let accountClient: PipiAccountClient
     public var lastUniversalPairingURL: String? = nil
     public var decisionModelConfig: PipiDecisionModelConfig = PipiDecisionModelConfig()
     public var lastGroupRouteDecision: PipiGroupRouteDecision? = nil
@@ -786,6 +787,10 @@ public final class PipiAppStore {
             restoreCredentialsOnInit: !defersKeychain
         )
         self.e2eeRelayClient = PipiE2EERelayClient(
+            relayOrigin: PipiE2EERelayClient.defaultRelayOrigin,
+            secretStore: resolvedSecretStore
+        )
+        self.accountClient = PipiAccountClient(
             relayOrigin: PipiE2EERelayClient.defaultRelayOrigin,
             secretStore: resolvedSecretStore
         )
@@ -9973,6 +9978,10 @@ public final class PipiAppStore {
                     guard let self else { return "服务未就绪" }
                     return self.handleBotTriggerTool(action: action, args: args, callerBotId: personaId)
                 }
+            },
+            remoteNodeAction: { [weak self] action, args in
+                guard let self else { return "服务未就绪" }
+                return await self.handleRemoteNodeTool(action: action, args: args)
             }
         )
     }

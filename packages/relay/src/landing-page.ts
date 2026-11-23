@@ -662,7 +662,7 @@ function renderBrandLayout(page: BrandPageId, title: string, description: string
       </nav>
       <div class="topbar-actions">
         <a class="nav-ghost" href="${GITHUB_REPO_URL}" target="_blank" rel="noopener">GitHub</a>
-        <a class="nav-pill" href="/pair">手机端</a>
+        <a class="nav-pill" href="/login">登录</a>
       </div>
     </div>
   </header>
@@ -678,7 +678,7 @@ function renderBrandLayout(page: BrandPageId, title: string, description: string
         <a href="/">概览</a>
         <a href="/features">功能</a>
         <a href="/download">下载</a>
-        <a href="/pair">手机端</a>
+        <a href="/login">登录</a>
         <a href="${GITHUB_REPO_URL}" target="_blank" rel="noopener">GitHub</a>
       </div>
     </div>

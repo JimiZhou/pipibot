@@ -295,6 +295,12 @@ public final class PipiE2EERelayClient {
     public private(set) var connectedClientCount: Int = 0
     public private(set) var lastStatusMessage: String?
 
+    /// Optional unified-account metadata sent during `host_register` so this Mac appears in the user's Device Registry.
+    public var accountAccessToken: String? = nil
+    public var accountDeviceName: String? = nil
+    public var accountCapabilities: [String] = []
+    public var accountWorkspacePath: String? = nil
+
     public let pairingRegistry = PipiDevicePairingRegistry()
 
     private var privateKeyRaw: Data = Data()
@@ -410,9 +416,35 @@ public final class PipiE2EERelayClient {
                 if let inviteKey, !inviteKey.isEmpty {
                     regObj["inviteKey"] = inviteKey
                 }
+                if let token = self.accountAccessToken, !token.isEmpty {
+                    regObj["accessToken"] = token
+                    regObj["hostPubKey"] = self.hostPublicKeyB64Url
+                    regObj["platform"] = "macos"
+                    if let devName = self.accountDeviceName, !devName.isEmpty {
+                        regObj["deviceName"] = devName
+                    }
+                    if !self.accountCapabilities.isEmpty {
+                        regObj["capabilities"] = self.accountCapabilities
+                    }
+                    if let wsPath = self.accountWorkspacePath, !wsPath.isEmpty {
+                        regObj["workspacePath"] = wsPath
+                    }
+                }
                 if let regData = try? JSONSerialization.data(withJSONObject: regObj),
                    let regStr = String(data: regData, encoding: .utf8) {
                     try? await task.send(.string(regStr))
+                }
+
+                let pingTask = Task {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(25))
+                        guard !Task.isCancelled else { return }
+                        task.sendPing { error in
+                            if error != nil {
+                                task.cancel(with: .goingAway, reason: nil)
+                            }
+                        }
+                    }
                 }
 
                 do {
@@ -423,7 +455,9 @@ public final class PipiE2EERelayClient {
                             await self.handleRelayFrame(text, wsTask: task)
                         }
                     }
+                    pingTask.cancel()
                 } catch {
+                    pingTask.cancel()
                     if Task.isCancelled { return }
                     self.state = .reconnecting
                     self.lastStatusMessage = "中继连接波动，\(backoffSeconds)s 后自动重连…"

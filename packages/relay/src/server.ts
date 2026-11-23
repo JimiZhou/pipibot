@@ -20,7 +20,9 @@ import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { PipiAuthService, type AuthServiceOptions, type DevicePlatformKind, type OAuthProviderKind } from './auth.ts';
 import { renderBrandDownloadHTML, renderBrandFeaturesHTML, renderBrandLandingHTML } from './landing-page.ts';
+import { renderLoginAndDevicesHTML } from './login-page.ts';
 import { renderUniversalIconSVG, renderUniversalManifest, renderUniversalPWAHTML } from './pwa-bundle.ts';
 import { acceptWebSocketUpgrade, extractClientIp, type MinimalWebSocket } from './ws-minimal.ts';
 
@@ -42,6 +44,7 @@ export interface RelayServerOptions {
   maxFrameBytes?: number;
   inviteKeys?: string[];
   idleTimeoutMs?: number;
+  auth?: AuthServiceOptions;
 }
 
 interface HostRoom {
@@ -63,7 +66,8 @@ interface ConnMeta {
 }
 
 export class PipiE2EERelayServer {
-  private readonly options: Required<RelayServerOptions>;
+  private readonly options: Required<Omit<RelayServerOptions, 'auth'>>;
+  private readonly auth: PipiAuthService;
   private readonly rooms = new Map<string, HostRoom>();
   private readonly conns = new Map<string, ConnMeta>();
   private readonly ipConnCount = new Map<string, number>();
@@ -86,7 +90,22 @@ export class PipiE2EERelayServer {
       inviteKeys: options?.inviteKeys ?? [],
       idleTimeoutMs: options?.idleTimeoutMs ?? 120_000,
     };
+    this.auth = new PipiAuthService(options?.auth);
     this.inviteKeySet = new Set(this.options.inviteKeys.map((k) => k.trim()).filter(Boolean));
+  }
+
+  getAuthService(): PipiAuthService {
+    return this.auth;
+  }
+
+  private getOnlineHostIds(): Set<string> {
+    const online = new Set<string>();
+    for (const room of this.rooms.values()) {
+      if (room.hostSocket && room.hostSocket.readyState === 'open') {
+        online.add(room.hostId);
+      }
+    }
+    return online;
   }
 
   getStats(): {
@@ -115,7 +134,7 @@ export class PipiE2EERelayServer {
 
   async start(): Promise<{ host: string; port: number; stunPort: number }> {
     const server = createServer((req, res) => {
-      this.handleHttp(req, res);
+      void this.handleHttp(req, res);
     });
 
     server.on('upgrade', (req, socket, head) => {
@@ -198,22 +217,347 @@ export class PipiE2EERelayServer {
     }
   }
 
-  private handleHttp(req: IncomingMessage, res: ServerResponse): void {
+  private extractSessionToken(req: IncomingMessage): string | null {
+    const authHeader = String(req.headers.authorization ?? '').trim();
+    if (authHeader.toLowerCase().startsWith('bearer ')) {
+      return authHeader.slice(7).trim() || null;
+    }
+    const cookieHeader = String(req.headers.cookie ?? '');
+    for (const part of cookieHeader.split(';')) {
+      const [k, ...rest] = part.trim().split('=');
+      if (k === 'pipibot_session') {
+        return decodeURIComponent(rest.join('='));
+      }
+    }
+    return null;
+  }
+
+  private async readBodyText(req: IncomingMessage, maxBytes = 64 * 1024): Promise<string> {
+    return await new Promise((resolve, reject) => {
+      let total = 0;
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => {
+        total += chunk.length;
+        if (total > maxBytes) {
+          reject(new Error('body_too_large'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.on('error', reject);
+    });
+  }
+
+  private async readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+    try {
+      const text = await this.readBodyText(req);
+      if (!text.trim()) return {};
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+
+  private sendJson(res: ServerResponse, status: number, body: unknown, extraHeaders?: Record<string, string>): void {
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...(extraHeaders ?? {}) });
+    res.end(JSON.stringify(body));
+  }
+
+  private resolveRequestOrigin(req: IncomingMessage): string {
+    const proto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0]?.trim() || 'http';
+    const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '127.0.0.1').split(',')[0]?.trim();
+    return `${proto}://${host}`;
+  }
+
+  private async handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname;
+    const method = (req.method ?? 'GET').toUpperCase();
 
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
 
     if (path === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ ok: true, service: 'pipibot-relay', zeroKnowledgeE2EE: true, ...this.getStats() }));
+      this.sendJson(res, 200, { ok: true, service: 'pipibot-relay', zeroKnowledgeE2EE: true, ...this.getStats() });
       return;
     }
 
     if (path === '/api/relay/stats') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(this.getStats()));
+      this.sendJson(res, 200, this.getStats());
+      return;
+    }
+
+    // --- Unified Account & Device Registry API ---
+    if (path === '/api/auth/providers' && method === 'GET') {
+      this.sendJson(res, 200, this.auth.getEnabledProviders());
+      return;
+    }
+
+    if (path === '/api/auth/email/send' && method === 'POST') {
+      const body = await this.readJsonBody(req);
+      const result = await this.auth.sendEmailOtp(String(body.email ?? ''));
+      this.sendJson(res, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    if (path === '/api/auth/email/verify' && method === 'POST') {
+      const body = await this.readJsonBody(req);
+      const result = this.auth.verifyEmailOtp(
+        String(body.email ?? ''),
+        String(body.code ?? ''),
+        String(body.clientLabel ?? 'Web'),
+      );
+      if (result.ok && result.accessToken) {
+        const cookie = `pipibot_session=${encodeURIComponent(result.accessToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`;
+        this.sendJson(res, 200, result, { 'Set-Cookie': cookie });
+      } else {
+        this.sendJson(res, 400, result);
+      }
+      return;
+    }
+
+    const oauthStartMatch = /^\/api\/auth\/oauth\/(apple|github|google)\/start$/.exec(path);
+    if (oauthStartMatch && method === 'GET') {
+      const provider = oauthStartMatch[1] as OAuthProviderKind;
+      const result = this.auth.buildOAuthStartUrl(provider, {
+        userCode: url.searchParams.get('code') ?? undefined,
+        redirectTo: url.searchParams.get('redirect') ?? '/login',
+        originOverride: this.resolveRequestOrigin(req),
+      });
+      if (result.ok && result.url) {
+        res.writeHead(302, { Location: result.url });
+        res.end();
+      } else {
+        this.sendJson(res, 400, result);
+      }
+      return;
+    }
+
+    const oauthCbMatch = /^\/api\/auth\/oauth\/(apple|github|google)\/callback$/.exec(path);
+    if (oauthCbMatch && (method === 'GET' || method === 'POST')) {
+      const provider = oauthCbMatch[1] as OAuthProviderKind;
+      let code = url.searchParams.get('code') ?? undefined;
+      let state = url.searchParams.get('state') ?? undefined;
+      if (method === 'POST') {
+        const raw = await this.readBodyText(req);
+        const form = new URLSearchParams(raw);
+        code = code ?? form.get('code') ?? undefined;
+        state = state ?? form.get('state') ?? undefined;
+      }
+      const result = await this.auth.handleOAuthCallback(provider, {
+        code,
+        state,
+        originOverride: this.resolveRequestOrigin(req),
+      });
+      if (result.ok && result.accessToken) {
+        const cookie = `pipibot_session=${encodeURIComponent(result.accessToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`;
+        res.writeHead(302, { Location: result.redirectTo || '/login', 'Set-Cookie': cookie });
+        res.end();
+      } else {
+        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(result.error || 'OAuth callback failed');
+      }
+      return;
+    }
+
+    if (path === '/api/auth/device/start' && method === 'POST') {
+      const body = await this.readJsonBody(req);
+      const flow = this.auth.startDeviceFlow(
+        String(body.clientLabel ?? 'PiPiBot CLI'),
+        this.resolveRequestOrigin(req),
+      );
+      this.sendJson(res, 200, flow);
+      return;
+    }
+
+    if (path === '/api/auth/device/approve' && method === 'POST') {
+      const user = this.auth.authenticateToken(this.extractSessionToken(req));
+      if (!user) {
+        this.sendJson(res, 401, { ok: false, error: '请先登录账号' });
+        return;
+      }
+      const body = await this.readJsonBody(req);
+      const result = this.auth.approveDeviceFlow(String(body.userCode ?? ''), user.id);
+      this.sendJson(res, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    if (path === '/api/auth/device/poll' && method === 'POST') {
+      const body = await this.readJsonBody(req);
+      const result = this.auth.pollDeviceFlow(String(body.deviceCode ?? ''));
+      this.sendJson(res, 200, result);
+      return;
+    }
+
+    if (path === '/api/auth/me' && method === 'GET') {
+      const token = this.extractSessionToken(req);
+      const user = this.auth.authenticateToken(token);
+      if (!user) {
+        this.sendJson(res, 401, { ok: false, error: 'unauthenticated' });
+        return;
+      }
+      const devices = this.auth.listDevices(user.id, this.getOnlineHostIds());
+      this.sendJson(res, 200, { ok: true, user, devices, accessToken: token });
+      return;
+    }
+
+    if (path === '/api/auth/logout' && method === 'POST') {
+      this.auth.revokeToken(this.extractSessionToken(req));
+      this.sendJson(res, 200, { ok: true }, { 'Set-Cookie': 'pipibot_session=; Path=/; HttpOnly; Max-Age=0' });
+      return;
+    }
+
+    if (path === '/api/devices/register' && method === 'POST') {
+      const user = this.auth.authenticateToken(this.extractSessionToken(req));
+      if (!user) {
+        this.sendJson(res, 401, { ok: false, error: 'unauthenticated' });
+        return;
+      }
+      const body = await this.readJsonBody(req);
+      const hostId = String(body.hostId ?? '').trim();
+      if (!hostId) {
+        this.sendJson(res, 400, { ok: false, error: 'missing_host_id' });
+        return;
+      }
+      const rawPlatform = String(body.platform ?? 'macos').toLowerCase();
+      const platform: DevicePlatformKind =
+        rawPlatform === 'linux' || rawPlatform === 'windows' || rawPlatform === 'ios' || rawPlatform === 'web'
+          ? rawPlatform
+          : 'macos';
+      const device = this.auth.registerDevice(user.id, {
+        name: String(body.name ?? 'My Machine'),
+        platform,
+        hostId,
+        hostPubKey: String(body.hostPubKey ?? ''),
+        capabilities: Array.isArray(body.capabilities) ? body.capabilities.map(String) : [],
+        workspacePath: typeof body.workspacePath === 'string' ? body.workspacePath : undefined,
+      });
+      this.sendJson(res, 200, { ok: true, device });
+      return;
+    }
+
+    if (path === '/api/devices' && method === 'GET') {
+      const user = this.auth.authenticateToken(this.extractSessionToken(req));
+      if (!user) {
+        this.sendJson(res, 401, { ok: false, error: 'unauthenticated' });
+        return;
+      }
+      this.sendJson(res, 200, { ok: true, devices: this.auth.listDevices(user.id, this.getOnlineHostIds()) });
+      return;
+    }
+
+    const delDevMatch = /^\/api\/devices\/([a-zA-Z0-9_-]+)$/.exec(path);
+    if (delDevMatch && method === 'DELETE') {
+      const user = this.auth.authenticateToken(this.extractSessionToken(req));
+      if (!user) {
+        this.sendJson(res, 401, { ok: false, error: 'unauthenticated' });
+        return;
+      }
+      const removed = this.auth.removeDevice(user.id, delDevMatch[1]!);
+      this.sendJson(res, removed ? 200 : 404, { ok: removed });
+      return;
+    }
+
+    if (path === '/install.sh') {
+      const origin = this.publicOrigin || 'https://pipibot.jimizhou.com';
+      const script = `#!/usr/bin/env bash
+set -euo pipefail
+
+ORIGIN="\${PIPIBOT_RELAY_ORIGIN:-${origin}}"
+INSTALL_DIR="\${HOME}/.pipibot/bin"
+TARGET_TS="\${INSTALL_DIR}/pipibot.ts"
+
+echo "==> 正在安装 PiPiBot CLI（零依赖独立版）..."
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "❌ 未检测到 Node.js。请先安装 Node.js >= 22.6：" >&2
+  echo "   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs" >&2
+  exit 1
+fi
+
+NODE_MAJOR="\$(node -p 'process.versions.node.split(".")[0]')"
+if [ "\${NODE_MAJOR}" -lt 22 ]; then
+  echo "❌ 当前 Node.js 版本过低 (\$(node -v))，需要 >= 22.6。" >&2
+  exit 1
+fi
+
+mkdir -p "\${INSTALL_DIR}"
+curl -fsSL "\${ORIGIN}/cli/pipibot.ts" -o "\${TARGET_TS}"
+
+if [ -w "/usr/local/bin" ]; then
+  BIN_PATH="/usr/local/bin/pipibot"
+  cat > "\${BIN_PATH}" <<EOF
+#!/usr/bin/env bash
+export NODE_USE_ENV_PROXY=1
+exec node --dns-result-order=ipv4first --experimental-strip-types --no-warnings "\${TARGET_TS}" "\\\$@"
+EOF
+  chmod +x "\${BIN_PATH}"
+elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+  BIN_PATH="/usr/local/bin/pipibot"
+  sudo tee "\${BIN_PATH}" >/dev/null <<EOF
+#!/usr/bin/env bash
+export NODE_USE_ENV_PROXY=1
+exec node --dns-result-order=ipv4first --experimental-strip-types --no-warnings "\${TARGET_TS}" "\\\$@"
+EOF
+  sudo chmod +x "\${BIN_PATH}"
+else
+  mkdir -p "\${HOME}/.local/bin"
+  BIN_PATH="\${HOME}/.local/bin/pipibot"
+  cat > "\${BIN_PATH}" <<EOF
+#!/usr/bin/env bash
+export NODE_USE_ENV_PROXY=1
+exec node --dns-result-order=ipv4first --experimental-strip-types --no-warnings "\${TARGET_TS}" "\\\$@"
+EOF
+  chmod +x "\${BIN_PATH}"
+  for rc in "\${HOME}/.bashrc" "\${HOME}/.zshrc"; do
+    if [ -f "\$rc" ] && ! grep -q '\.local/bin' "\$rc" 2>/dev/null; then
+      echo 'export PATH="\$HOME/.local/bin:\$PATH"' >> "\$rc"
+    fi
+  done
+fi
+
+echo "✅ PiPiBot CLI 已安装到 \${BIN_PATH}"
+if ! command -v pipibot >/dev/null 2>&1; then
+  echo "💡 请先执行：export PATH=\\"\${HOME}/.local/bin:\\\$PATH\\""
+fi
+echo ""
+echo "下一步：运行以下命令完成登录并以后台 systemd 常驻接入（自动上报本机 Agent Harness）："
+echo "  pipibot login && pipibot up -d"
+echo ""
+`;
+      res.writeHead(200, {
+        'Content-Type': 'text/x-shellscript; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      res.end(script);
+      return;
+    }
+
+    if (path === '/cli/pipibot.ts') {
+      const candidates = [
+        join(dirname(fileURLToPath(import.meta.url)), '../cli/pipibot.ts'),
+        join(dirname(fileURLToPath(import.meta.url)), '../../daemon/src/relay-agent-host.ts'),
+      ];
+      const found = candidates.find((p) => existsSync(p));
+      if (!found) {
+        this.sendJson(res, 404, { error: 'cli_bundle_not_found' });
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      res.end(readFileSync(found, 'utf8'));
+      return;
+    }
+
+    if (path === '/login' || path === '/devices') {
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      res.end(renderLoginAndDevicesHTML());
       return;
     }
 
@@ -351,6 +695,30 @@ export class PipiE2EERelayServer {
       room.lastActiveAt = now;
       meta.role = 'host';
       meta.hostId = hostId;
+
+      // Optional unified-account auto-registration when host supplies an accessToken
+      const accessToken = typeof msg.accessToken === 'string' ? msg.accessToken : undefined;
+      if (accessToken) {
+        const user = this.auth.authenticateToken(accessToken);
+        if (user) {
+          if (typeof msg.hostPubKey === 'string' && msg.hostPubKey.trim()) {
+            const rawPlat = String(msg.platform ?? 'macos').toLowerCase();
+            const platform: DevicePlatformKind =
+              rawPlat === 'linux' || rawPlat === 'windows' || rawPlat === 'ios' || rawPlat === 'web' ? rawPlat : 'macos';
+            this.auth.registerDevice(user.id, {
+              name: String(msg.deviceName ?? hostId),
+              platform,
+              hostId,
+              hostPubKey: msg.hostPubKey,
+              capabilities: Array.isArray(msg.capabilities) ? msg.capabilities.map(String) : [],
+              workspacePath: typeof msg.workspacePath === 'string' ? msg.workspacePath : undefined,
+            });
+          } else {
+            this.auth.touchDeviceByHostId(user.id, hostId);
+          }
+        }
+      }
+
       meta.ws.sendText(JSON.stringify({ type: 'registered', hostId, clientsOnline: room.clients.size }));
       for (const clientWs of room.clients.values()) {
         clientWs.sendText(JSON.stringify({ type: 'host_status', hostId, online: true }));

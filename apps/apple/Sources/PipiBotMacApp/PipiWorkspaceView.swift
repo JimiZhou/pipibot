@@ -17,6 +17,7 @@ public struct PipiWorkspaceView: View {
 
     private enum WorkspaceDestination: Equatable {
         case home
+        case deviceNodes
         case missionBoard
         case needsYou
         case knowledge
@@ -41,6 +42,13 @@ public struct PipiWorkspaceView: View {
 
     @State private var draftMessage: String = ""
     @State private var draftAttachments: [PipiChatAttachment] = []
+    @State private var selectedExecutionNodeHostId: String? = nil
+    @State private var selectedExecutionNodeHarness: String? = nil
+    @State private var selectedExecutionNodeModel: String = ""
+    @State private var selectedExecutionNodeMode: String = "acp"
+    @State private var showRemoteNodePickerPopover: Bool = false
+    @State private var remoteNodeHarnessesCache: [String: [PipiAppStore.PipiRemoteHarnessDescriptor]] = [:]
+    @State private var isLoadingRemoteHarnesses: Bool = false
     @State private var isDropTargeted: Bool = false
     @State private var showSlashPalette: Bool = false
     @State private var showArchived: Bool = false
@@ -219,7 +227,7 @@ public struct PipiWorkspaceView: View {
                     .inspector(isPresented: $store.isInspectorPresented) {
                         Group {
                             switch destination {
-                            case .home:
+                            case .home, .deviceNodes:
                                 PipiHomeInspectorView(
                                     store: store,
                                     onSelectBotChat: { persona in
@@ -592,6 +600,16 @@ public struct PipiWorkspaceView: View {
                             .foregroundStyle(PipiTokens.textPrimary)
                     }
 
+                case .deviceNodes:
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.t("我的设备节点", "My Device Nodes"))
+                            .font(PipiTokens.fontHeadline)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                    }
+
                 case .missionBoard:
                     HStack(spacing: PipiTokens.spacing8) {
                         Image(systemName: "rectangle.3.group")
@@ -797,7 +815,7 @@ public struct PipiWorkspaceView: View {
                 case .home: helpTopic = .gettingStarted
                 case .session, .group: helpTopic = .shortcuts
                 case .knowledge: helpTopic = .knowledgeMemory
-                case .needsYou, .missionBoard: helpTopic = .desktopSafety
+                case .needsYou, .missionBoard, .deviceNodes: helpTopic = .desktopSafety
                 }
                 showHelpSheet = true
             } label: {
@@ -813,7 +831,7 @@ public struct PipiWorkspaceView: View {
                 case .session: return s.t("显示或隐藏会话详情", "Toggle Session Details")
                 case .group: return s.t("显示或隐藏协作群详情", "Toggle Group Inspector")
                 case .knowledge: return s.t("显示或隐藏知识库概览", "Toggle Knowledge Overview")
-                case .needsYou, .missionBoard: return s.t("显示或隐藏安全策略栏", "Toggle Policy Sidebar")
+                case .needsYou, .missionBoard, .deviceNodes: return s.t("显示或隐藏安全策略栏", "Toggle Policy Sidebar")
                 }
             }()
             Button {
@@ -1116,6 +1134,16 @@ public struct PipiWorkspaceView: View {
                     groupCreatorPreselectedBotIds = []
                     editingGroupChat = nil
                     showGroupCreatorSheet = true
+                }
+
+                // 2.5 我的设备节点（主控 + 所有纳管节点硬件状态与 Harness 看板）
+                sidebarNavRow(
+                    icon: "server.rack",
+                    title: s.t("我的设备节点", "My Device Nodes"),
+                    isSelected: destination == .deviceNodes,
+                    showPulseDot: false
+                ) {
+                    destination = .deviceNodes
                 }
 
                 // 3. 任务台 (Mission Board — 看板 / Worktree Diff / 事件与进化 / 用量)
@@ -1445,6 +1473,30 @@ public struct PipiWorkspaceView: View {
 
                     Spacer(minLength: 4)
 
+                    if !store.accountClient.isSignedIn {
+                        Button {
+                            Task {
+                                await store.accountClient.startBrowserOAuthLogin {
+                                    Task { await store.syncAccountAndAutoConnectRelay() }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "person.crop.circle")
+                                    .font(.system(size: 11.5, weight: .medium))
+                                Text(s.t("登录", "Sign In"))
+                                    .font(.system(size: 11.5, weight: .medium))
+                            }
+                            .foregroundStyle(PipiTokens.textPrimary)
+                            .padding(.horizontal, 8)
+                            .frame(height: 26)
+                            .background(PipiTokens.bgSurfaceHover)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.96))
+                        .help(s.t("登录 PiPiBot 统一账号，同步所有设备与远程节点", "Sign in to sync all enrolled devices & nodes"))
+                    }
+
                     PipiGhostIconButton(
                         systemImage: "gearshape",
                         size: 32,
@@ -1586,6 +1638,73 @@ public struct PipiWorkspaceView: View {
                 Spacer(minLength: 0)
             }
 
+            // Unified Account Card (Bottom-Left Login / Signed-In Identity)
+            VStack(alignment: .leading, spacing: 8) {
+                if let user = store.accountClient.currentUser {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(PipiTokens.stateSuccess)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(user.displayName)
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                                .lineLimit(1)
+                            Text(user.email ?? s.t("已登录统一账号", "Signed in"))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button(s.t("设备看板", "Nodes")) {
+                            showHostPopover = false
+                            destination = .deviceNodes
+                        }
+                        .font(.system(size: 10.5, weight: .medium))
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(s.t("未登录 PiPiBot 账号", "Not signed in"))
+                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .foregroundStyle(PipiTokens.textPrimary)
+                            Text(s.t("登录后打通网页端与多机节点", "Sync WebUI & remote nodes"))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                        Spacer()
+                        Button(s.t("登录", "Sign In")) {
+                            Task {
+                                await store.accountClient.startBrowserOAuthLogin {
+                                    Task { await store.syncAccountAndAutoConnectRelay() }
+                                }
+                            }
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.mini)
+                    }
+                    if let code = store.accountClient.pendingBrowserUserCode {
+                        Text(s.t("浏览器授权码：\(code)", "Browser code: \(code)"))
+                            .font(PipiTokens.fontMonoSmall)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                    }
+                }
+            }
+            .padding(.horizontal, PipiTokens.spacing12)
+            .padding(.vertical, 10)
+            .background(PipiTokens.bgSurface)
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                    .stroke(PipiTokens.borderSubtle, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+
             // Grouped Rounded Card: Keep Mac Awake + Local Engines
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
@@ -1635,6 +1754,97 @@ public struct PipiWorkspaceView: View {
                     }
                     .padding(.horizontal, PipiTokens.spacing12)
                     .padding(.vertical, 10)
+                }
+
+                // Enrolled Remote Nodes under the same Unified Account
+                if store.accountClient.isSignedIn {
+                    Rectangle()
+                        .fill(PipiTokens.borderSubtle)
+                        .frame(height: 1)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Text(s.t("已纳管远程节点", "Enrolled Remote Nodes"))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                            Spacer()
+                            Button {
+                                Task { await store.accountClient.refreshProfile() }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .foregroundStyle(PipiTokens.textMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .help(s.t("刷新已纳管设备列表", "Refresh enrolled devices"))
+                        }
+
+                        let remoteNodes = store.enrolledRemoteDevices
+                        if remoteNodes.isEmpty {
+                            Text(s.t("在其他机器运行 pipibot login && pipibot up 即可接入并上报 Harness", "Run pipibot login && pipibot up on any machine to enroll"))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            ForEach(remoteNodes.prefix(5)) { dev in
+                                VStack(alignment: .leading, spacing: 5) {
+                                    HStack(spacing: 6) {
+                                        Circle()
+                                            .fill(dev.isOnline ? PipiTokens.stateSuccess : PipiTokens.textMuted.opacity(0.45))
+                                            .frame(width: 6, height: 6)
+                                        Text(dev.name)
+                                            .font(PipiTokens.fontCaption.weight(.medium))
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                            .lineLimit(1)
+                                        Spacer(minLength: 4)
+                                        if dev.isOnline {
+                                            Button(s.t("排查", "Inspect")) {
+                                                showHostPopover = false
+                                                let prompt = s.t(
+                                                    "请通过远程守护进程检查节点「\(dev.name)」的系统状态、Git 分支和已安装的 Agent Harness",
+                                                    "Inspect remote node '\(dev.name)' system status, git branch, and installed agent harnesses via its daemon."
+                                                )
+                                                Task { await store.sendPersonalMessage(prompt) }
+                                            }
+                                            .font(.system(size: 10.5, weight: .medium))
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.mini)
+
+                                            Button(s.t("调用", "Run")) {
+                                                showHostPopover = false
+                                                let defaultHarness = dev.capabilities.first ?? "Claude Code"
+                                                draftMessage = s.t(
+                                                    "请在远程节点「\(dev.name)」上调用 \(defaultHarness) 执行：",
+                                                    "Run \(defaultHarness) on remote node '\(dev.name)' to: "
+                                                )
+                                            }
+                                            .font(.system(size: 10.5, weight: .medium))
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.mini)
+                                        } else {
+                                            Text(s.t("离线", "Offline"))
+                                                .font(PipiTokens.fontMicro)
+                                                .foregroundStyle(PipiTokens.textMuted)
+                                        }
+                                    }
+                                    if !dev.capabilities.isEmpty {
+                                        Text(dev.capabilities.prefix(4).joined(separator: " · "))
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(PipiTokens.textMuted)
+                                            .lineLimit(1)
+                                            .padding(.leading, 12)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, PipiTokens.spacing12)
+                    .padding(.vertical, 10)
+                }
+            }
+            .onAppear {
+                if store.accountClient.isSignedIn {
+                    Task { await store.accountClient.refreshProfile() }
                 }
             }
             .background(PipiTokens.bgSurface)
@@ -2225,6 +2435,31 @@ public struct PipiWorkspaceView: View {
                 onOpenSession: { convId in
                     store.selectConversation(convId)
                     destination = .session(convId)
+                }
+            )
+        case .deviceNodes:
+            PipiDeviceNodesDashboardView(
+                store: store,
+                onSelectNodeForChat: { hostId, harness in
+                    selectedExecutionNodeHostId = hostId
+                    selectedExecutionNodeHarness = harness
+                    let targetConvId = store.activeConversationId ?? store.createConversation(projectId: store.activeConversation?.projectId).id
+                    store.selectConversation(targetConvId)
+                    destination = .session(targetConvId)
+                    isComposerFocused = true
+                },
+                onInspectRemoteNode: { dev in
+                    let targetConvId = store.activeConversationId ?? store.createConversation(projectId: store.activeConversation?.projectId).id
+                    store.selectConversation(targetConvId)
+                    destination = .session(targetConvId)
+                    let prompt = s.t(
+                        "请通过远程守护进程检查节点「\(dev.name)」的系统状态、硬件资源、Git 分支和已安装的 Agent Harness",
+                        "Inspect remote node '\(dev.name)' system status, hardware resources, git branch, and installed agent harnesses via its daemon."
+                    )
+                    Task { await store.sendPersonalMessage(prompt) }
+                },
+                onOpenRemoteSettings: {
+                    onOpenSettings(.remoteAccess)
                 }
             )
         case .missionBoard:
@@ -2964,6 +3199,8 @@ public struct PipiWorkspaceView: View {
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
 
+            composerExecutionNodeStrip
+
             composerDock
         }
         .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: shouldShowSlashMenu)
@@ -3109,13 +3346,11 @@ public struct PipiWorkspaceView: View {
                 }
             }
 
-            // Tier 1 Bottom Row: strictly 4 controls (+ Menu, Permission Picker, Engine Picker, Send/Stop)
+            // Clean Minimal Bottom Row: + Menu (includes Engine/Model), Permission Picker, Voice, Send/Stop
             HStack(spacing: 6) {
                 composerPlusMenu
 
                 permissionTierPicker
-
-                composerEnginePicker
 
                 Spacer(minLength: 6)
 
@@ -3264,6 +3499,69 @@ public struct PipiWorkspaceView: View {
                 } label: {
                     Label("\(item.command) · \(item.title)", systemImage: item.icon)
                 }
+            }
+
+            Divider()
+
+            Menu {
+                Button {
+                    store.overrideExecutionTarget = nil
+                } label: {
+                    HStack {
+                        Text(s.t("默认 PiPi（自动路由）", "Default PiPi (Auto)"))
+                        if store.overrideExecutionTarget == nil {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+
+                if !store.readyLLMProviders.isEmpty {
+                    Section(s.cloudAndLocalLLMs) {
+                        ForEach(store.readyLLMProviders) { cfg in
+                            Button {
+                                store.overrideExecutionTarget = .llm(providerId: cfg.id)
+                            } label: {
+                                HStack {
+                                    Text("\(cfg.name) · \(cfg.modelId)")
+                                    if store.overrideExecutionTarget == .llm(providerId: cfg.id) {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !store.usableLocalAgents.isEmpty {
+                    Section(s.t("本机外接 Agent", "Local External Agents")) {
+                        ForEach(store.usableLocalAgents) { ag in
+                            Button {
+                                let cmdPrefix: String
+                                switch ag.kind {
+                                case .claudeCode: cmdPrefix = "/claude "
+                                case .codex: cmdPrefix = "/codex "
+                                case .opencode: cmdPrefix = "/opencode "
+                                }
+                                if !draftMessage.hasPrefix(cmdPrefix) {
+                                    draftMessage = cmdPrefix + draftMessage
+                                }
+                                isComposerFocused = true
+                            } label: {
+                                Label(ag.kind.displayName, systemImage: "terminal")
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+                Button(s.engineSettingsShort) {
+                    onOpenSettings(.aiEngine)
+                }
+            } label: {
+                Label(
+                    s.t("执行引擎与模型：\(store.overrideExecutionTarget == nil ? "PiPi" : store.activeEngineDisplayLabel())", "Engine: \(store.overrideExecutionTarget == nil ? "PiPi" : store.activeEngineDisplayLabel())"),
+                    systemImage: "cpu"
+                )
             }
         } label: {
             Image(systemName: "plus")
@@ -3526,7 +3824,273 @@ public struct PipiWorkspaceView: View {
         draftMessage = ""
         draftAttachments = []
         showSlashPalette = false
-        Task { await store.sendPersonalMessage(text, attachments: filesToSend) }
+        if let targetHostId = selectedExecutionNodeHostId,
+           let targetDev = store.enrolledRemoteDevices.first(where: { $0.hostId == targetHostId && $0.isOnline }) {
+            let targetHarness = selectedExecutionNodeHarness
+            let targetModel = selectedExecutionNodeModel
+            let targetMode = selectedExecutionNodeMode
+            Task {
+                await store.sendDirectToRemoteNode(
+                    device: targetDev,
+                    harness: targetHarness,
+                    model: targetModel.isEmpty ? nil : targetModel,
+                    mode: targetMode,
+                    prompt: text
+                )
+            }
+        } else {
+            Task { await store.sendPersonalMessage(text, attachments: filesToSend) }
+        }
+    }
+
+    private var composerExecutionNodeStrip: some View {
+        let remotes = store.enrolledRemoteDevices
+        let activeRemote = remotes.first(where: { $0.hostId == selectedExecutionNodeHostId })
+        let isRemoteSelected = activeRemote != nil
+
+        return HStack(spacing: 8) {
+            HStack(spacing: 2) {
+                // Local Primary Pill
+                Button {
+                    selectedExecutionNodeHostId = nil
+                    selectedExecutionNodeHarness = nil
+                    selectedExecutionNodeModel = ""
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "desktopcomputer")
+                            .font(.system(size: 10.5, weight: .semibold))
+                        Text(s.t("本地", "Local"))
+                            .font(.system(size: 11.5, weight: .semibold))
+                    }
+                    .foregroundStyle(!isRemoteSelected ? PipiTokens.textInverse : PipiTokens.textSecondary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(!isRemoteSelected ? PipiTokens.textPrimary : Color.clear)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                // Remote Node Pill + Popover for Node / Harness / Model selection
+                Button {
+                    if !isRemoteSelected, let firstOnline = remotes.first(where: \.isOnline) {
+                        selectedExecutionNodeHostId = firstOnline.hostId
+                        selectedExecutionNodeHarness = firstOnline.capabilities.first
+                        selectedExecutionNodeModel = ""
+                        Task { await loadRemoteHarnesses(for: firstOnline) }
+                    } else if let cur = activeRemote {
+                        Task { await loadRemoteHarnesses(for: cur) }
+                    }
+                    showRemoteNodePickerPopover.toggle()
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(isRemoteSelected ? PipiTokens.stateSuccess : (remotes.contains(where: \.isOnline) ? PipiTokens.stateSuccess.opacity(0.75) : PipiTokens.textMuted.opacity(0.45)))
+                            .frame(width: 6, height: 6)
+                        Text(activeRemote.map { dev in
+                            let h = selectedExecutionNodeHarness ?? dev.capabilities.first
+                            return h != nil ? "\(dev.name) · \(h!)" : dev.name
+                        } ?? s.t("远程节点", "Remote Node"))
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .opacity(0.7)
+                    }
+                    .foregroundStyle(isRemoteSelected ? PipiTokens.textInverse : PipiTokens.textSecondary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(isRemoteSelected ? PipiTokens.textPrimary : Color.clear)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showRemoteNodePickerPopover, arrowEdge: .top) {
+                    remoteNodeSelectionPopover
+                }
+            }
+            .padding(2)
+            .background(PipiTokens.bgSurface)
+            .overlay(Capsule().stroke(PipiTokens.borderSubtle, lineWidth: 1))
+            .clipShape(Capsule())
+
+            if isRemoteSelected, !selectedExecutionNodeModel.isEmpty, !selectedExecutionNodeModel.hasPrefix("(") {
+                Text(selectedExecutionNodeModel)
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(PipiTokens.textMuted)
+                    .padding(.horizontal, 8)
+                    .frame(height: 22)
+                    .background(PipiTokens.bgSurface)
+                    .overlay(Capsule().stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                    .clipShape(Capsule())
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var remoteNodeSelectionPopover: some View {
+        let remotes = store.enrolledRemoteDevices
+        let activeRemote = remotes.first(where: { $0.hostId == selectedExecutionNodeHostId })
+        let harnesses = activeRemote.flatMap { remoteNodeHarnessesCache[$0.hostId] } ?? []
+        let activeHarness = harnesses.first(where: { $0.id == selectedExecutionNodeHarness || $0.name == selectedExecutionNodeHarness }) ?? harnesses.first
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(s.t("选择远程节点与 Agent Harness", "Remote Node & Harness"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PipiTokens.textPrimary)
+                Spacer()
+                Button(s.t("设备看板", "Nodes")) {
+                    showRemoteNodePickerPopover = false
+                    destination = .deviceNodes
+                }
+                .font(.system(size: 11, weight: .medium))
+                .buttonStyle(.plain)
+                .foregroundStyle(PipiTokens.textSecondary)
+            }
+
+            if remotes.isEmpty {
+                Text(s.t("当前账号下暂无远程节点。可在「我的设备节点」复制接入命令纳管 Linux / 远程开发机。", "No remote nodes enrolled yet. Copy the install command in Device Nodes."))
+                    .font(PipiTokens.fontMicro)
+                    .foregroundStyle(PipiTokens.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                // 1. Node List
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(s.t("目标节点", "Target Node"))
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(PipiTokens.textMuted)
+                    ForEach(remotes) { dev in
+                        let isSelected = dev.hostId == selectedExecutionNodeHostId
+                        Button {
+                            selectedExecutionNodeHostId = dev.hostId
+                            selectedExecutionNodeHarness = dev.capabilities.first
+                            selectedExecutionNodeModel = ""
+                            Task { await loadRemoteHarnesses(for: dev) }
+                        } label: {
+                            HStack(spacing: 7) {
+                                Circle()
+                                    .fill(dev.isOnline ? PipiTokens.stateSuccess : PipiTokens.textMuted.opacity(0.4))
+                                    .frame(width: 6, height: 6)
+                                Text(dev.name)
+                                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                    .lineLimit(1)
+                                Spacer()
+                                if isSelected {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(height: 28)
+                            .background(isSelected ? PipiTokens.bgSurfaceHover : Color.clear)
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!dev.isOnline)
+                        .opacity(dev.isOnline ? 1.0 : 0.45)
+                    }
+                }
+
+                // 2. Harness Picker
+                if let dev = activeRemote {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(s.t("Agent Harness", "Agent Harness"))
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(PipiTokens.textMuted)
+                            Spacer()
+                            if isLoadingRemoteHarnesses {
+                                ProgressView().controlSize(.mini)
+                            }
+                        }
+
+                        if harnesses.isEmpty && dev.capabilities.isEmpty {
+                            Text(s.t("该节点未检测到外接 Harness", "No CLI harness detected on this node"))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                        } else {
+                            let displayList: [(id: String, name: String)] = harnesses.isEmpty
+                                ? dev.capabilities.map { ($0, $0) }
+                                : harnesses.map { ($0.id, $0.name) }
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)], spacing: 6) {
+                                ForEach(displayList, id: \.id) { item in
+                                    let isAct = selectedExecutionNodeHarness == item.id || selectedExecutionNodeHarness == item.name
+                                    Button {
+                                        selectedExecutionNodeHarness = item.id
+                                        if let match = harnesses.first(where: { $0.id == item.id }) {
+                                            selectedExecutionNodeModel = match.defaultModel
+                                        }
+                                    } label: {
+                                        Text(item.name)
+                                            .font(.system(size: 11.5, weight: .medium))
+                                            .foregroundStyle(isAct ? PipiTokens.textInverse : PipiTokens.textPrimary)
+                                            .lineLimit(1)
+                                            .frame(maxWidth: .infinity)
+                                            .frame(height: 26)
+                                            .background(isAct ? PipiTokens.textPrimary : PipiTokens.bgCanvas)
+                                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(isAct ? Color.clear : PipiTokens.borderSubtle, lineWidth: 1))
+                                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Model (from Remote Harness Config) & Mode Picker
+                    if let ah = activeHarness, !ah.models.isEmpty {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(s.t("模型（读取自远端配置）", "Model (from Remote Config)"))
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(PipiTokens.textMuted)
+                            Picker("", selection: $selectedExecutionNodeModel) {
+                                ForEach(ah.models, id: \.self) { m in
+                                    Text(m).tag(m)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(s.t("执行模式", "Execution Mode"))
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textMuted)
+                        Picker("", selection: $selectedExecutionNodeMode) {
+                            Text(s.t("ACP 协议（推荐）", "ACP (Recommended)")).tag("acp")
+                            Text(s.t("TUI 终端 PTY", "TUI PTY")).tag("tui")
+                            Text(s.t("CLI 无头", "CLI Headless")).tag("cli")
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 310)
+    }
+
+    private func loadRemoteHarnesses(for device: PipiAccountDevice) async {
+        isLoadingRemoteHarnesses = true
+        defer { isLoadingRemoteHarnesses = false }
+        let fetched = await store.fetchRemoteNodeHarnesses(device: device)
+        remoteNodeHarnessesCache[device.hostId] = fetched
+        if let first = fetched.first {
+            if selectedExecutionNodeHarness == nil || !fetched.contains(where: { $0.id == selectedExecutionNodeHarness || $0.name == selectedExecutionNodeHarness }) {
+                selectedExecutionNodeHarness = first.id
+            }
+            if let current = fetched.first(where: { $0.id == selectedExecutionNodeHarness || $0.name == selectedExecutionNodeHarness }) {
+                selectedExecutionNodeModel = current.defaultModel.isEmpty ? (current.models.first ?? "") : current.defaultModel
+            }
+        }
     }
 
     private func pickAttachmentFiles() {

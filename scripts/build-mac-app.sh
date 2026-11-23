@@ -65,9 +65,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.13.1</string>
+  <string>0.13.2</string>
   <key>CFBundleVersion</key>
-  <string>14</string>
+  <string>15</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

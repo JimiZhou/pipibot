@@ -143,6 +143,16 @@ struct PipiBotMacApp: App {
                     for window in NSApp.windows where window.canBecomeMain {
                         PipiMacAppDelegate.configureNativeWindowChrome(window)
                     }
+                    // Auto-restore unified account session & connect E2EE relay on launch
+                    Task {
+                        await store.syncAccountAndAutoConnectRelay()
+                    }
+                }
+                .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+                    store.e2eeRelayClient.handleSystemWake()
+                    Task {
+                        await store.syncAccountAndAutoConnectRelay()
+                    }
                 }
                 .onOpenURL { url in
                     handleIncomingURL(url)
@@ -249,11 +259,15 @@ struct PipiBotMacApp: App {
                     appDelegate.onGlobalQuickBarHotkey = {
                         toggleQuickBar()
                     }
+                    if store.accountClient.isSignedIn {
+                        Task { await store.accountClient.refreshProfile() }
+                    }
                 }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                Text(store.totalNeedsYouCount == 0 ? "PiPiBot" : "PiPiBot (\(store.totalNeedsYouCount))")
+            if let icon = Self.menuBarAppIconImage {
+                Image(nsImage: icon)
+            } else {
+                Image(systemName: "circle.hexagongrid.fill")
             }
         }
         .menuBarExtraStyle(.window)
@@ -321,92 +335,182 @@ struct PipiBotMacApp: App {
         }
     }
 
+    private static let menuBarAppIconImage: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+              let raw = NSImage(contentsOf: url) else {
+            return nil
+        }
+        let targetSize = NSSize(width: 18, height: 18)
+        let resized = NSImage(size: targetSize)
+        resized.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        raw.draw(in: NSRect(origin: .zero, size: targetSize), from: .zero, operation: .sourceOver, fraction: 1.0)
+        resized.unlockFocus()
+        resized.isTemplate = false
+        return resized
+    }()
+
     private var menuBarPopover: some View {
         let _ = store.uiZoomScale
-        return VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
-            HStack(spacing: PipiTokens.spacing12) {
-                PipiBotPersonaGlyph(persona: store.activePersona, size: 36, isSelected: true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(store.activePersona.name(lang))
-                        .font(PipiTokens.fontHeadline)
-                        .tracking(PipiTokens.trackingHeadline)
-                        .foregroundStyle(PipiTokens.textPrimary)
-                    Text(store.activeEngineDisplayLabel())
-                        .font(PipiTokens.fontCaption)
-                        .foregroundStyle(store.hasConfiguredEngine ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Button {
-                    bringMainWindowFront()
-                    settingsInitialTab = .general
-                    showSettingsSheet = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
+        let snap = store.telemetryMonitor.snapshot
+        let onlineNodes = 1 + store.enrolledRemoteDevices.filter(\.isOnline).count
+        return VStack(alignment: .leading, spacing: 10) {
+            // 1. Compact Status Header
+            HStack(spacing: 10) {
+                if let icon = Self.menuBarAppIconImage {
+                    Image(nsImage: icon)
+                        .resizable()
                         .frame(width: 28, height: 28)
-                        .background(PipiTokens.bgSurface)
-                        .overlay(Circle().stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                        .clipShape(Circle())
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                } else {
+                    PipiBotPersonaGlyph(persona: store.activePersona, size: 28, isSelected: true)
                 }
-                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.94))
-                .help(s.settings)
-                .accessibilityLabel(s.settings)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: PipiTokens.spacing8) {
-                    TextField(s.chatPlaceholderCompact, text: $menuBarDraft)
-                        .textFieldStyle(.plain)
-                        .font(PipiTokens.fontBody)
-                        .padding(.horizontal, PipiTokens.spacing12)
-                        .frame(height: 34)
-                        .background(PipiTokens.bgSurface)
-                        .overlay(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous).stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-                        .onSubmit {
-                            submitMenuBarPrompt()
-                        }
-
-                    PipiActionButton(s.send, systemImage: "arrow.up", tone: .primary, density: .desktopCompact) {
-                        submitMenuBarPrompt()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.localHost.displayName(lang))
+                        .font(PipiTokens.fontBody.weight(.semibold))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(PipiTokens.stateSuccess)
+                            .frame(width: 6, height: 6)
+                        Text(store.accountClient.isSignedIn
+                             ? s.t("在线 · \(onlineNodes) 台节点就绪", "Online · \(onlineNodes) nodes ready")
+                             : s.t("本机运行中", "Running locally"))
+                            .font(PipiTokens.fontMicro)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .lineLimit(1)
                     }
-                    .disabled(menuBarDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-
-                Text(s.menuBarNewSessionHint)
-                    .font(PipiTokens.fontMicro)
-                    .foregroundStyle(PipiTokens.textMuted)
-            }
-
-            if let topDecision = store.pendingDecisions.first {
-                PipiListCard(
-                    title: topDecision.title,
-                    subtitle: topDecision.summary,
-                    badgeText: s.approvalsTitle,
-                    badgeColor: PipiTokens.stateWarning,
-                    footer: {
-                        if let rec = topDecision.options.first(where: { $0.id == topDecision.recommendedOptionId }) {
-                            PipiActionButton(rec.label, systemImage: "checkmark", tone: .primary, density: .desktopCompact, fullWidth: true) {
-                                Task { await store.resolveDecision(topDecision.id, optionId: rec.id) }
+                Spacer(minLength: 4)
+                if !store.accountClient.isSignedIn {
+                    Button(s.t("登录", "Sign In")) {
+                        Task {
+                            await store.accountClient.startBrowserOAuthLogin {
+                                Task { await store.syncAccountAndAutoConnectRelay() }
                             }
                         }
                     }
-                )
+                    .font(.system(size: 11, weight: .semibold))
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.mini)
+                }
             }
 
-            HStack(spacing: PipiTokens.spacing8) {
-                PipiActionButton(s.quickBarShortcut, systemImage: "command", tone: .secondary, density: .desktopCompact, fullWidth: true) {
+            // 2. Compact Telemetry & Enrolled Nodes Card
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    Text(String(format: "CPU %.0f%%", snap.cpuUsagePercent))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Text("·")
+                        .foregroundStyle(PipiTokens.textMuted)
+                    Text(String(format: s.t("内存 %.1f/%.0f GB", "RAM %.1f/%.0f GB"), snap.memoryUsedGB, snap.memoryTotalGB))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Spacer()
+                    if let email = store.accountClient.currentUser?.email {
+                        Text(email)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(PipiTokens.textMuted)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+
+                if !store.enrolledRemoteDevices.isEmpty {
+                    Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(store.enrolledRemoteDevices.prefix(4)) { dev in
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(dev.isOnline ? PipiTokens.stateSuccess : PipiTokens.textMuted.opacity(0.45))
+                                    .frame(width: 6, height: 6)
+                                Text(dev.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(dev.capabilities.isEmpty ? dev.platform : "\(dev.capabilities.count) Harness")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(PipiTokens.textMuted)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                }
+
+                Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                HStack {
+                    Text(s.keepAwakeTitle)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.bridgeSupervisor.keepAwakeEnabled },
+                        set: { store.setKeepAwake($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+            }
+            .background(PipiTokens.bgSurface)
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(PipiTokens.borderSubtle, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            if store.totalNeedsYouCount > 0 {
+                Button {
+                    bringMainWindowFront()
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle().fill(PipiTokens.stateWarning).frame(width: 6, height: 6)
+                        Text(s.t("有 \(store.totalNeedsYouCount) 项待确认审批", "\(store.totalNeedsYouCount) pending approvals"))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(PipiTokens.stateWarning.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            // 3. Clean Quick Actions
+            VStack(alignment: .leading, spacing: 2) {
+                menuBarRowButton(icon: "macwindow", title: s.openPipiBot) {
+                    bringMainWindowFront()
+                }
+                menuBarRowButton(icon: "globe", title: s.t("打开云端工作台", "Open Cloud WebUI")) {
+                    if let url = URL(string: "\(store.accountClient.relayOrigin)/app") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                menuBarRowButton(icon: "command", title: s.quickBarShortcut) {
                     toggleQuickBar()
                 }
-                PipiActionButton(s.openPipiBot, systemImage: "macwindow", tone: .primary, density: .desktopCompact, fullWidth: true) {
+                menuBarRowButton(icon: "gearshape", title: s.settings) {
                     bringMainWindowFront()
+                    settingsInitialTab = .general
+                    showSettingsSheet = true
+                }
+                Divider().padding(.vertical, 3)
+                menuBarRowButton(icon: "power", title: s.t("退出 PiPiBot", "Quit PiPiBot"), isDestructive: true) {
+                    NSApp.terminate(nil)
                 }
             }
         }
-        .padding(PipiTokens.spacing16)
-        .frame(width: 372)
+        .padding(12)
+        .frame(width: 288)
         .background {
             if reduceTransparency {
                 PipiTokens.bgElevated
@@ -415,6 +519,25 @@ struct PipiBotMacApp: App {
             }
         }
         .preferredColorScheme(store.themeMode.colorSchemeOverride)
+    }
+
+    private func menuBarRowButton(icon: String, title: String, isDestructive: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isDestructive ? Color.red : PipiTokens.textSecondary)
+                    .frame(width: 16)
+                Text(title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(isDestructive ? Color.red : PipiTokens.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func handleIncomingURL(_ url: URL) {

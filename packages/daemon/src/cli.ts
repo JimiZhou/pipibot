@@ -23,10 +23,24 @@ import { runBoundedMCPStdioLoop } from './mcp-server.ts';
 import { buildLinuxSystemdService, type MeshNodeRecord, type MeshTaskRecord } from './mesh-hub.ts';
 import { PipiMeshNodeAgent } from './mesh-node.ts';
 import { parsePortableTemplate } from './portable-template.ts';
+import {
+  clearCliAuth,
+  DEFAULT_RELAY_ORIGIN,
+  detectLocalCliAgents,
+  listAccountDevices,
+  loadCliAuth,
+  PipiCliAgentRelayHost,
+  runCliDeviceLogin,
+} from './relay-agent-host.ts';
 import { scanSentinelSamples } from './sentinel.ts';
 import { DAEMON_VERSION, DEFAULT_DAEMON_PORT, PipiResidentServer } from './server.ts';
 
 export type DaemonCliMode =
+  | 'auth_login'
+  | 'auth_logout'
+  | 'relay_up'
+  | 'account_devices'
+  | 'local_agents'
   | 'hub_start'
   | 'node_join'
   | 'daemon_install'
@@ -44,6 +58,7 @@ export interface ParsedCliArgs {
   port: number;
   host: string;
   hubUrl: string;
+  relayUrl: string;
   token?: string;
   nodeName: string;
   targetNode?: string;
@@ -62,6 +77,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
   let port = Number(process.env.PIPIBOT_PORT ?? DEFAULT_DAEMON_PORT);
   let host = process.env.PIPIBOT_HOST ?? '127.0.0.1';
   let hubUrl = process.env.PIPIBOT_HUB_URL ?? `http://127.0.0.1:${DEFAULT_DAEMON_PORT}`;
+  let relayUrl = process.env.PIPIBOT_RELAY_URL ?? DEFAULT_RELAY_ORIGIN;
   let token = process.env.PIPIBOT_HUB_TOKEN;
   let nodeName = osHostname();
   let targetNode: string | undefined;
@@ -77,7 +93,22 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
   const positional: string[] = [];
   let idx = 0;
 
-  if (argv[0] === 'hub' && argv[1] === 'start') {
+  if (argv[0] === 'login') {
+    mode = 'auth_login';
+    idx = 1;
+  } else if (argv[0] === 'logout') {
+    mode = 'auth_logout';
+    idx = 1;
+  } else if (argv[0] === 'up') {
+    mode = 'relay_up';
+    idx = 1;
+  } else if (argv[0] === 'devices') {
+    mode = 'account_devices';
+    idx = 1;
+  } else if (argv[0] === 'agents') {
+    mode = 'local_agents';
+    idx = 1;
+  } else if (argv[0] === 'hub' && argv[1] === 'start') {
     mode = 'hub_start';
     idx = 2;
   } else if (argv[0] === 'node' && argv[1] === 'join') {
@@ -144,6 +175,12 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
         hubUrl = next.replace(/\/+$/, '');
         i += 1;
       }
+    } else if (arg === '--relay') {
+      const next = argv[i + 1];
+      if (next) {
+        relayUrl = next.replace(/\/+$/, '');
+        i += 1;
+      }
     } else if (arg === '--token') {
       const next = argv[i + 1];
       if (next) {
@@ -191,6 +228,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
     port,
     host,
     hubUrl,
+    relayUrl,
     token,
     nodeName,
     targetNode,
@@ -211,9 +249,16 @@ export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> 
   if (opts.help) {
     console.log(
       [
-        `pipibot v${DAEMON_VERSION} — Free Open-Source Multi-Machine Agent Hub & Linux/macOS Node Daemon`,
+        `pipibot v${DAEMON_VERSION} — Unified Account E2EE Remote Agent Host (Herdr-style) & Multi-Machine CLI`,
         '',
-        'Commands:',
+        'Quick Start (Unified Account + Free E2EE Relay):',
+        '  login [--relay https://pipibot.jimizhou.com]               Sign in (Email OTP / Apple / GitHub / Google)',
+        '  up [--name <machine>] [--workspace <dir>]                  Take over local agents & connect to free relay',
+        '  devices [--relay <url>]                                    List all online Mac/PC/Linux devices in your account',
+        '  agents                                                     Detect local CLI agents (Claude Code / Codex / OpenCode)',
+        '  logout                                                     Clear local CLI session',
+        '',
+        'Advanced / Self-Hosted Mesh Commands:',
         '  hub start [--host 0.0.0.0 --port 4242 --token <tok>]       Start self-hosted Mesh Hub',
         '  node join --hub <url> --name <host> [--token <tok>]        Join this Linux/Mac machine to Hub',
         '  daemon install [--role hub|node] [--systemd|--launchd]     Print systemd/launchd service unit',
@@ -221,15 +266,71 @@ export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> 
         '  run --node <host> "<task>" [--hub <url>]                   Dispatch a live task to a remote host',
         '  skills list | skills install <github-url|path|id>          Manage SKILL.md & MCP packs',
         '',
-        'Legacy Options (default: hub start):',
+        'Options:',
         `  -p, --port <port>       Listen port (default: ${DEFAULT_DAEMON_PORT})`,
         '      --host <host>       Bind host (default: 127.0.0.1)',
+        '      --relay <url>       Relay origin (default: https://pipibot.jimizhou.com)',
         '      --workspace <dir>   Workspace root',
-        '      --clean             Start without demo seed data',
-        '      --print-plist       Print macOS launchd plist XML and exit',
         '  -h, --help              Show help',
       ].join('\n'),
     );
+    return;
+  }
+
+  if (opts.mode === 'auth_login') {
+    await runCliDeviceLogin(opts.relayUrl);
+    return;
+  }
+
+  if (opts.mode === 'auth_logout') {
+    const auth = loadCliAuth();
+    if (auth?.accessToken) {
+      await fetch(`${auth.relayOrigin}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${auth.accessToken}` },
+      }).catch(() => {});
+    }
+    clearCliAuth();
+    console.log('✅ 已退出当前 CLI 登录态。');
+    return;
+  }
+
+  if (opts.mode === 'account_devices') {
+    await listAccountDevices(opts.relayUrl);
+    return;
+  }
+
+  if (opts.mode === 'local_agents') {
+    const found = detectLocalCliAgents();
+    if (!found.length) {
+      console.log('未检测到本机 CLI Agent（可安装 Claude Code / Codex / OpenCode / Ollama）。');
+      return;
+    }
+    console.log('\n🤖 本机可接管的 AI Agent：');
+    for (const a of found) {
+      console.log(`  • ${a.name} (${a.id}) — ${a.binary}`);
+    }
+    console.log('');
+    return;
+  }
+
+  if (opts.mode === 'relay_up') {
+    let auth = loadCliAuth();
+    if (!auth?.accessToken) {
+      console.log('尚未登录 PiPiBot 账号，正在启动一键登录...');
+      auth = await runCliDeviceLogin(opts.relayUrl);
+    }
+    const relayHost = new PipiCliAgentRelayHost(auth, {
+      deviceName: opts.nodeName,
+      workspacePath: opts.workspacePath,
+    });
+    await relayHost.start();
+    const shutdown = () => {
+      relayHost.stop();
+      process.exit(0);
+    };
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
     return;
   }
 

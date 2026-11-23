@@ -216,7 +216,7 @@ export function renderUniversalPWAHTML(options?: {
       -webkit-font-smoothing: antialiased;
     }
     .app {
-      position: relative; display: flex; flex-direction: column; height: 100dvh; max-width: 760px; margin: 0 auto;
+      position: relative; display: flex; flex-direction: column; height: 100dvh; max-width: 920px; margin: 0 auto;
     }
 
     /* Frosted Top Navigation */
@@ -375,25 +375,59 @@ export function renderUniversalPWAHTML(options?: {
     }
     input.field:focus { border-color: var(--soul); box-shadow: 0 0 0 3px var(--soul-soft); }
 
-    /* Composer */
+    /* Cloud Codex Composer */
     .composer-wrap {
-      padding: 8px 14px 8px; background: var(--glass);
+      padding: 10px 16px 12px; background: var(--glass);
       backdrop-filter: saturate(180%) blur(22px); -webkit-backdrop-filter: saturate(180%) blur(22px);
       border-top: 1px solid var(--border);
     }
     .composer-box {
-      display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 12px;
-      background: var(--surface); border: 1px solid var(--border-strong); border-radius: 22px;
-      box-shadow: var(--shadow-sm);
+      display: flex; flex-direction: column; gap: 8px; padding: 11px 12px 9px 14px;
+      background: var(--surface); border: 1px solid var(--border-strong); border-radius: 18px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+    .composer-box:focus-within {
+      border-color: var(--ink);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
     }
     .composer-box textarea {
-      flex: 1; resize: none; min-height: 28px; max-height: 150px; overflow-y: auto; border: 0;
-      padding: 6px 0; font-size: 14.5px; line-height: 1.45; background: transparent; color: var(--ink);
+      width: 100%; resize: none; min-height: 36px; max-height: 180px; overflow-y: auto; border: 0;
+      padding: 2px 0; font-size: 14.5px; line-height: 1.5; background: transparent; color: var(--ink);
       outline: none; font-family: inherit;
     }
+    .composer-toolbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+      padding-top: 4px; border-top: 1px solid var(--border);
+    }
+    .composer-pickers {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; flex: 1;
+    }
+    .codex-select {
+      appearance: none; -webkit-appearance: none; -moz-appearance: none;
+      height: 28px; max-width: 240px; padding: 0 26px 0 11px; border-radius: 999px;
+      border: 1px solid var(--border-strong); background-color: var(--surface-soft);
+      color: var(--ink); font-size: 12px; font-weight: 600; font-family: inherit;
+      line-height: 26px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      cursor: pointer; outline: none; vertical-align: middle;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23777' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 9px center;
+      transition: background-color 120ms ease, border-color 120ms ease;
+    }
+    .codex-select::picker-icon { display: none; }
+    .codex-select:hover { border-color: var(--ink-3); background-color: var(--surface-hover); }
+    .codex-select.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; font-weight: 500; }
+    .composer-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .shell-toggle {
+      height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border-strong);
+      background: transparent; color: var(--ink-2); font-size: 11.5px; font-weight: 650;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer;
+      transition: all 120ms ease;
+    }
+    .shell-toggle.active { background: var(--ink); color: var(--canvas); border-color: var(--ink); }
     .send-btn {
-      width: 34px; height: 34px; border-radius: 50%; border: 0; flex-shrink: 0;
-      background: var(--soul); color: #FFFFFF; font-size: 16px; font-weight: 700; cursor: pointer;
+      width: 30px; height: 30px; border-radius: 50%; border: 0; flex-shrink: 0;
+      background: var(--ink); color: var(--canvas); font-size: 15px; font-weight: 700; cursor: pointer;
       display: grid; place-items: center; transition: transform 100ms ease-out, opacity 140ms ease;
     }
     .send-btn:active { transform: scale(0.90); }
@@ -447,65 +481,250 @@ export function renderUniversalPWAHTML(options?: {
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     .empty { text-align: center; color: var(--ink-2); font-size: 13.5px; padding: 36px 18px; line-height: 1.6; }
+
+    /* Desktop 3-Column Cloud Codex Layout (> 900px); Mobile PWA (<= 900px) stays untouched */
+    .codex-sidebar, .codex-inspector { display: none; }
+    .codex-center { display: flex; flex-direction: column; min-width: 0; height: 100%; overflow: hidden; }
+    .nav-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      width: 100%; padding: 8px 10px; border-radius: 10px; border: 0; background: transparent;
+      color: var(--ink-2); font-size: 13px; font-weight: 550; text-align: left; cursor: pointer;
+      transition: background 120ms ease, color 120ms ease;
+    }
+    .nav-item:hover { background: var(--surface-hover); color: var(--ink); }
+    .nav-item.active { background: var(--surface); color: var(--ink); font-weight: 650; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .nav-section-title {
+      font-size: 11px; font-weight: 650; color: var(--ink-3); text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 12px 10px 6px;
+    }
+    .node-item {
+      display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px;
+      border-radius: 10px; border: 1px solid transparent; background: transparent;
+      color: var(--ink); font-size: 12.5px; text-align: left; cursor: pointer;
+      transition: all 120ms ease;
+    }
+    .node-item:hover { background: var(--surface-hover); }
+    .node-item.active { background: var(--surface); border-color: var(--border-strong); box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .node-meta { font-size: 11px; color: var(--ink-3); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .node-pill {
+      font-size: 10px; font-weight: 650; padding: 2px 6px; border-radius: 999px;
+      background: var(--surface-soft); color: var(--ink-2); border: 1px solid var(--border); flex-shrink: 0;
+    }
+    .seg-group {
+      display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px;
+      background: var(--surface-soft); border: 1px solid var(--border);
+    }
+    .seg-btn {
+      border: 0; background: transparent; color: var(--ink-2); font-size: 12px; font-weight: 600;
+      padding: 5px 10px; border-radius: 7px; cursor: pointer; transition: all 120ms ease;
+    }
+    .seg-btn.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
+    .inspector-box {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 13px; display: flex; flex-direction: column; gap: 10px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.025);
+    }
+    .inspector-term {
+      background: var(--canvas); color: var(--ink); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11.5px; line-height: 1.55; max-height: 220px; overflow: auto;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .quick-cmd-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .quick-cmd-btn {
+      border: 1px solid var(--border); background: var(--canvas); color: var(--ink-2);
+      font-size: 11.5px; font-weight: 550; padding: 5px 9px; border-radius: 8px; cursor: pointer;
+      transition: all 120ms ease;
+    }
+    .quick-cmd-btn:hover { color: var(--ink); border-color: var(--border-strong); background: var(--surface-hover); }
+    .node-dropdown {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 4px; margin: 6px 0 4px;
+    }
+    .node-dropdown > summary {
+      list-style: none; display: flex; align-items: center; gap: 8px; padding: 7px 8px;
+      cursor: pointer; border-radius: 8px; font-size: 12.5px; font-weight: 600; color: var(--ink);
+      user-select: none; transition: background 120ms ease;
+    }
+    .node-dropdown > summary::-webkit-details-marker { display: none; }
+    .node-dropdown > summary:hover { background: var(--surface-hover); }
+    .node-dropdown-chevron { margin-left: auto; font-size: 10px; color: var(--ink-3); transition: transform 160ms ease; }
+    .node-dropdown[open] .node-dropdown-chevron { transform: rotate(180deg); }
+    .node-dropdown-body {
+      display: flex; flex-direction: column; gap: 3px; padding: 6px 2px 2px;
+      margin-top: 4px; border-top: 1px solid var(--border);
+    }
+
+    @media (min-width: 901px) {
+      .app {
+        max-width: 100%; width: 100%; display: grid;
+        grid-template-columns: 264px minmax(0, 1fr) 316px;
+        height: 100dvh; overflow: hidden;
+      }
+      .codex-sidebar {
+        display: flex; flex-direction: column; height: 100dvh; overflow-y: auto;
+        background: var(--surface-soft); border-right: 1px solid var(--border);
+        padding: 14px 12px; gap: 4px;
+      }
+      .codex-inspector {
+        display: flex; flex-direction: column; height: 100dvh; overflow-y: auto;
+        background: var(--surface-soft); border-left: 1px solid var(--border);
+        padding: 14px 12px; gap: 12px;
+      }
+      .tabbar, #device-strip, #pwa-banner { display: none !important; }
+      .topbar { padding: 12px 22px; }
+      .main { padding: 18px 26px; max-width: 900px; width: 100%; margin: 0 auto; }
+      .composer-wrap { padding: 12px 26px 18px; max-width: 900px; width: 100%; margin: 0 auto; border-top: 0; background: transparent; backdrop-filter: none; }
+    }
   </style>
 </head>
 <body>
 <div class="app">
-  <header class="topbar">
-    <div class="brand">
-      <div class="avatar-orb pulse" id="avatar-orb">
-        <img src="/icon.svg?v=2" alt="PiPiBot" width="36" height="36" style="display:block;width:100%;height:100%" />
-      </div>
-      <div style="min-width:0">
-        <div class="brand-title" id="host-title">${hostTitle}</div>
-        <div class="brand-sub"><span class="dot" id="conn-dot"></span><span id="conn-text">初始化中…</span></div>
+  <!-- Desktop Left Sidebar (3-Column Cloud Codex) -->
+  <aside class="codex-sidebar" id="codex-sidebar">
+    <div style="display:flex;align-items:center;gap:10px;padding:4px 8px 10px;border-bottom:1px solid var(--border);">
+      <img src="/icon.svg?v=2" alt="PiPiBot" width="28" height="28" style="border-radius:8px;flex-shrink:0;" />
+      <div style="min-width:0;flex:1;">
+        <div style="font-size:14px;font-weight:720;letter-spacing:-0.02em;">PiPiBot Cloud</div>
+        <div id="sidebar-user-email" style="font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">统一主控工作台</div>
       </div>
     </div>
-    <button class="status-pill" id="btn-status-sheet" type="button">
-      <span id="transport-badge">E2EE</span>
-    </button>
-  </header>
 
-  <div class="pwa-banner" id="pwa-banner">
-    <span>点击 Safari 分享 →「添加到主屏幕」，即可作为全屏 iOS App 长期使用。</span>
-    <button class="btn" id="btn-dismiss-pwa" type="button" style="padding:5px 10px;font-size:11.5px">知道了</button>
-  </div>
+    <details class="node-dropdown" id="sidebar-node-dropdown">
+      <summary>
+        <span class="dot ok" id="sidebar-active-node-dot" style="flex-shrink:0;"></span>
+        <span id="sidebar-active-node-name" style="min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">切换执行节点</span>
+        <span class="node-pill" id="sidebar-active-node-role">主控</span>
+        <span class="node-dropdown-chevron">▾</span>
+      </summary>
+      <div class="node-dropdown-body">
+        <div id="sidebar-node-list" style="display:flex;flex-direction:column;gap:3px;"></div>
+        <a class="node-item" href="/login" style="text-decoration:none;color:var(--ink-2);font-size:12px;padding:6px 8px;margin-top:2px;border-top:1px solid var(--border);border-radius:0 0 8px 8px;">+ 纳管新设备</a>
+      </div>
+    </details>
 
-  <div class="bot-strip" id="bot-strip"></div>
+    <div class="nav-section-title">工作模式</div>
+    <button class="nav-item active" data-nav="chat" type="button"><span>💬 对话编排</span></button>
+    <button class="nav-item" data-nav="harness" type="button"><span>⚡ Harness 控制台</span><span class="node-pill">独立</span></button>
+    <button class="nav-item" data-nav="mission" type="button"><span>📋 任务台</span></button>
+    <button class="nav-item" data-nav="approvals" type="button"><span>🛡️ 审批中心</span><span class="node-pill" id="nav-badge-approvals" style="display:none">0</span></button>
+    <button class="nav-item" data-nav="diff" type="button"><span>🌿 Diff 审阅</span><span class="node-pill" id="nav-badge-diff" style="display:none">0</span></button>
+    <button class="nav-item" data-nav="bots" type="button"><span>🤖 智能体与触发器</span></button>
 
-  <main class="main" id="main-view"></main>
-
-  <div class="composer-wrap" id="composer-bar" style="display:none">
-    <div class="composer-box">
-      <textarea id="chat-input" rows="1" placeholder="发消息给 PiPiBot（群聊可直接说或 @成员）…"></textarea>
-      <button class="send-btn" id="btn-send" type="button" aria-label="发送">↑</button>
+    <div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:6px;">
+      <a class="btn" href="/login" style="flex:1;text-align:center;text-decoration:none;font-size:12px;padding:7px 8px;">设备管理</a>
+      <button class="btn" id="btn-sidebar-theme" type="button" style="font-size:12px;padding:7px 10px;">🌗</button>
     </div>
+  </aside>
+
+  <!-- Center Main Workspace (Shared by Mobile PWA & Desktop 3-Column) -->
+  <div class="codex-center">
+    <header class="topbar">
+      <div class="brand">
+        <div class="avatar-orb pulse" id="avatar-orb">
+          <img src="/icon.svg?v=2" alt="PiPiBot" width="36" height="36" style="display:block;width:100%;height:100%" />
+        </div>
+        <div style="min-width:0">
+          <div class="brand-title" id="host-title">${hostTitle}</div>
+          <div class="brand-sub"><span class="dot" id="conn-dot"></span><span id="conn-text">初始化中…</span></div>
+        </div>
+      </div>
+      <button class="status-pill" id="btn-status-sheet" type="button">
+        <span id="transport-badge">E2EE</span>
+      </button>
+    </header>
+
+    <div class="pwa-banner" id="pwa-banner">
+      <span>点击 Safari 分享 →「添加到主屏幕」，即可作为全屏 iOS App 长期使用。</span>
+      <button class="btn" id="btn-dismiss-pwa" type="button" style="padding:5px 10px;font-size:11.5px">知道了</button>
+    </div>
+
+    <div class="bot-strip" id="device-strip" style="display:none;border-bottom:1px solid var(--border);padding-bottom:8px;"></div>
+
+    <main class="main" id="main-view"></main>
+
+    <div class="composer-wrap" id="composer-bar" style="display:none">
+      <div class="composer-box">
+        <textarea id="chat-input" rows="2" placeholder="发消息给主控管家（可直接自然语言指派去哪台 Linux 执行任务）…"></textarea>
+        <div class="composer-toolbar">
+          <div class="composer-pickers">
+            <select id="picker-agent" class="codex-select" title="选择智能体或纯外接 CLI Harness"></select>
+            <select id="picker-model" class="codex-select mono" title="读取自该 Harness 本地配置的模型" style="display:none"></select>
+            <select id="picker-mode" class="codex-select" title="外接 Harness 执行模式（优先 ACP，其次 TUI PTY，CLI 无头用于自动编排）" style="display:none">
+              <option value="acp">ACP 协议（推荐）</option>
+              <option value="tui">TUI 终端 PTY</option>
+              <option value="cli">CLI 无头</option>
+            </select>
+          </div>
+          <div class="composer-actions">
+            <button class="shell-toggle" id="btn-shell-mode" type="button" title="切换直接通过守护进程执行远程排查命令">&gt;_ 排查</button>
+            <button class="send-btn" id="btn-send" type="button" aria-label="发送">↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="tabbar">
+      <button class="tab active" data-tab="chat" type="button">
+        <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.6-5.4A8.5 8.5 0 1 1 21 12Z"/></svg>
+        <span>对话</span>
+      </button>
+      <button class="tab" data-tab="harness" type="button">
+        <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <span>Harness</span>
+      </button>
+      <button class="tab" data-tab="approvals" type="button">
+        <span class="tab-dot" id="badge-approvals"></span>
+        <svg viewBox="0 0 24 24"><path d="M12 3 4 7v6c0 5 3.5 7.5 8 8 4.5-.5 8-3 8-8V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span>审批</span>
+      </button>
+      <button class="tab" data-tab="diff" type="button">
+        <span class="tab-dot" id="badge-diff"></span>
+        <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M6 8.5v7A2.5 2.5 0 0 0 8.5 18H15.5"/><path d="M18 8.5V15.5"/></svg>
+        <span>Diff</span>
+      </button>
+      <button class="tab" data-tab="bots" type="button">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
+        <span>智能体</span>
+      </button>
+    </nav>
   </div>
 
-  <nav class="tabbar">
-    <button class="tab active" data-tab="chat" type="button">
-      <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.6-5.4A8.5 8.5 0 1 1 21 12Z"/></svg>
-      <span>对话</span>
-    </button>
-    <button class="tab" data-tab="mission" type="button">
-      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="2"/><rect x="14" y="4" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
-      <span>任务台</span>
-    </button>
-    <button class="tab" data-tab="approvals" type="button">
-      <span class="tab-dot" id="badge-approvals"></span>
-      <svg viewBox="0 0 24 24"><path d="M12 3 4 7v6c0 5 3.5 7.5 8 8 4.5-.5 8-3 8-8V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
-      <span>审批</span>
-    </button>
-    <button class="tab" data-tab="diff" type="button">
-      <span class="tab-dot" id="badge-diff"></span>
-      <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M6 8.5v7A2.5 2.5 0 0 0 8.5 18H15.5"/><path d="M18 8.5V15.5"/></svg>
-      <span>Diff</span>
-    </button>
-    <button class="tab" data-tab="bots" type="button">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
-      <span>智能体</span>
-    </button>
-  </nav>
+  <!-- Desktop Right Inspector (Node Telemetry + Harnesses + Quick Remote Diagnostics) -->
+  <aside class="codex-inspector" id="codex-inspector">
+    <div class="inspector-box">
+      <div class="row">
+        <div style="font-size:12.5px;font-weight:700;">当前连接节点</div>
+        <span class="badge ok" id="insp-conn-badge">E2EE</span>
+      </div>
+      <div id="insp-node-detail" style="font-size:12px;color:var(--ink-2);line-height:1.55;">加载节点上下文…</div>
+    </div>
+
+    <div class="inspector-box">
+      <div class="row">
+        <div style="font-size:12.5px;font-weight:700;">本机已上报 Harness</div>
+        <button class="quick-cmd-btn" id="btn-open-harness-console" type="button">控制台 →</button>
+      </div>
+      <div id="insp-harness-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
+    <div class="inspector-box">
+      <div class="row">
+        <div style="font-size:12.5px;font-weight:700;">远程守护进程排查</div>
+        <span style="font-size:11px;color:var(--ink-3);font-family:monospace;">daemon exec</span>
+      </div>
+      <div class="quick-cmd-row">
+        <button class="quick-cmd-btn" data-qcmd="git status -sb" type="button">Git 状态</button>
+        <button class="quick-cmd-btn" data-qcmd="df -h | head -n 8" type="button">磁盘</button>
+        <button class="quick-cmd-btn" data-qcmd="uptime && free -h 2>/dev/null || vm_stat | head -n 5" type="button">负载/内存</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input class="field" id="insp-cmd-input" style="padding:7px 10px;font-size:12px;font-family:monospace;border-radius:9px;" placeholder="输入远程排查命令…" />
+        <button id="btn-insp-run" type="button" style="height:32px;padding:0 12px;border-radius:9px;border:0;background:var(--ink);color:var(--canvas);font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;">执行</button>
+      </div>
+      <div class="inspector-term" id="insp-term-out">点击上方快捷巡检或输入命令，经 E2EE 直连当前节点执行。</div>
+    </div>
+  </aside>
 </div>
 
 <div class="sheet-backdrop" id="status-sheet">
@@ -782,6 +1001,9 @@ export function renderUniversalPWAHTML(options?: {
   const state = {
     tab: 'chat',
     selectedBotId: '',
+    selectedModel: '',
+    selectedMode: 'acp',
+    shellExecMode: false,
     transport: null,
     statusLabel: '等待配对',
     snapshot: {
@@ -800,8 +1022,92 @@ export function renderUniversalPWAHTML(options?: {
 
   const mainEl = document.getElementById('main-view');
   const composerEl = document.getElementById('composer-bar');
-  const botStripEl = document.getElementById('bot-strip');
+  const pickerAgentEl = document.getElementById('picker-agent');
+  const pickerModelEl = document.getElementById('picker-model');
+  const pickerModeEl = document.getElementById('picker-mode');
+  const shellToggleBtn = document.getElementById('btn-shell-mode');
   const inputEl = document.getElementById('chat-input');
+
+  pickerAgentEl.addEventListener('change', () => {
+    state.selectedBotId = pickerAgentEl.value;
+    state.selectedModel = '';
+    syncComposerPickers();
+  });
+  pickerModelEl.addEventListener('change', () => {
+    state.selectedModel = pickerModelEl.value;
+  });
+  pickerModeEl.addEventListener('change', () => {
+    state.selectedMode = pickerModeEl.value;
+  });
+  shellToggleBtn.addEventListener('click', () => {
+    state.shellExecMode = !state.shellExecMode;
+    shellToggleBtn.classList.toggle('active', state.shellExecMode);
+    inputEl.placeholder = state.shellExecMode
+      ? '输入要在当前节点守护进程执行的 Shell 排查命令（如 git status / df -h / journalctl）…'
+      : '向所选智能体或外接 Harness 派发任务…（Enter 发送，Shift+Enter 换行）';
+  });
+
+  function syncComposerPickers() {
+    const bots = state.snapshot.bots || [];
+    const harnesses = state.snapshot.harnesses || [];
+    const items = [];
+    if (bots.length === 0 && harnesses.length === 0) {
+      items.push({ id: '', label: '✨ 当前管家', models: [], isHarness: false });
+    } else {
+      const hasNonHarness = bots.some((b) => b.kind !== 'harness');
+      if (hasNonHarness) {
+        items.push({ id: '', label: '✨ 当前管家', models: [], isHarness: false });
+      }
+      for (const b of bots) {
+        items.push({
+          id: b.id,
+          label: (b.kind === 'harness' ? '⚡ ' : '🤖 ') + b.name,
+          models: Array.isArray(b.models) ? b.models : [],
+          defaultModel: b.defaultModel || '',
+          configSource: b.configSource || '',
+          isHarness: b.kind === 'harness',
+        });
+      }
+      for (const h of harnesses) {
+        if (!items.some((it) => it.id === h.id)) {
+          items.push({
+            id: h.id,
+            label: '⚡ ' + h.name,
+            models: Array.isArray(h.models) ? h.models : [],
+            defaultModel: h.defaultModel || '',
+            configSource: h.configSource || '',
+            isHarness: true,
+          });
+        }
+      }
+    }
+
+    if (!items.some((it) => it.id === state.selectedBotId)) {
+      state.selectedBotId = items[0]?.id || '';
+    }
+    pickerAgentEl.innerHTML = items
+      .map((it) => '<option value="' + esc(it.id) + '">' + esc(it.label) + '</option>')
+      .join('');
+    pickerAgentEl.value = state.selectedBotId;
+
+    const current = items.find((it) => it.id === state.selectedBotId);
+    if (current && current.models && current.models.length > 0) {
+      pickerModelEl.style.display = 'inline-block';
+      pickerModelEl.title = current.configSource ? ('模型配置来源：' + current.configSource) : '当前 Harness 可选模型';
+      pickerModelEl.innerHTML = current.models
+        .map((m) => '<option value="' + esc(m) + '">' + esc(m) + '</option>')
+        .join('');
+      if (!state.selectedModel || !current.models.includes(state.selectedModel)) {
+        state.selectedModel = current.defaultModel || current.models[0];
+      }
+      pickerModelEl.value = state.selectedModel;
+    } else {
+      pickerModelEl.style.display = 'none';
+    }
+
+    pickerModeEl.style.display = current && current.isHarness ? 'inline-block' : 'none';
+    pickerModeEl.value = state.selectedMode || 'acp';
+  }
   const connDot = document.getElementById('conn-dot');
   const connText = document.getElementById('conn-text');
   const badgeEl = document.getElementById('transport-badge');
@@ -875,7 +1181,6 @@ export function renderUniversalPWAHTML(options?: {
 
   function renderConnectPrompt() {
     composerEl.style.display = 'none';
-    botStripEl.classList.remove('show');
     mainEl.innerHTML = \`
       <div class="welcome-hero">
         <div class="avatar-orb pulse" style="width:68px;height:68px;border-radius:18px">
@@ -909,13 +1214,37 @@ export function renderUniversalPWAHTML(options?: {
     const clean = text.trim();
     if (!clean || !state.transport) return;
     inputEl.value = '';
-    inputEl.style.height = '28px';
+    inputEl.style.height = '36px';
+    if (state.shellExecMode) {
+      state.snapshot.messages.push({ role: 'user', content: '\`\`\`bash\\n$ ' + clean + '\\n\`\`\`' });
+      render();
+      try {
+        const res = await state.transport.request('POST', '/api/shell/exec', { command: clean, timeoutMs: 20000 });
+        const out = [res.stdout || '', res.stderr ? ('stderr:\\n' + res.stderr) : ''].filter(Boolean).join('\\n') || '(无输出)';
+        state.snapshot.messages.push({
+          role: 'assistant',
+          author: '远程守护进程 · exit=' + (res.exitCode ?? 0),
+          content: '\`\`\`\\n' + out + '\\n\`\`\`',
+        });
+        render();
+      } catch (e) {
+        state.snapshot.messages.push({ role: 'assistant', author: '系统', content: '远程命令执行失败：' + e.message });
+        render();
+      }
+      return;
+    }
     state.snapshot.messages.push({ role: 'user', content: clean });
     render();
     try {
-      await state.transport.request('POST', '/api/v1/mobile/chat', { text: clean, botId: state.selectedBotId || undefined });
+      await state.transport.request('POST', '/api/v1/mobile/chat', {
+        text: clean,
+        botId: state.selectedBotId || undefined,
+        model: state.selectedModel || undefined,
+        mode: state.selectedMode || 'acp',
+      });
       showToast('已加密送达主机');
       setTimeout(refreshSnapshot, 1200);
+      setTimeout(refreshSnapshot, 3500);
     } catch (e) {
       state.snapshot.messages.push({ role: 'assistant', author: '系统', content: '发送失败：' + e.message });
       render();
@@ -925,17 +1254,83 @@ export function renderUniversalPWAHTML(options?: {
   function render() {
     if (!state.transport) { renderConnectPrompt(); return; }
     const s = state.snapshot;
-    composerEl.style.display = state.tab === 'chat' ? 'block' : 'none';
+    composerEl.style.display = (state.tab === 'chat' || state.tab === 'harness') ? 'block' : 'none';
+    if (state.tab === 'chat' || state.tab === 'harness') {
+      syncComposerPickers();
+    }
+    syncSidebarAndInspector();
 
-    if (state.tab === 'chat' && (s.bots || []).length > 0) {
-      botStripEl.classList.add('show');
-      botStripEl.innerHTML = '<button class="bot-chip ' + (!state.selectedBotId ? 'active' : '') + '" data-bot="">✨ 当前管家</button>' +
-        s.bots.slice(0, 8).map((b) => '<button class="bot-chip ' + (state.selectedBotId === b.id ? 'active' : '') + '" data-bot="' + esc(b.id) + '">' + esc(b.name) + '</button>').join('');
-      botStripEl.querySelectorAll('.bot-chip').forEach((c) => {
-        c.onclick = () => { state.selectedBotId = c.dataset.bot; render(); };
+    if (state.tab === 'harness') {
+      const harnesses = (s.harnesses && s.harnesses.length ? s.harnesses : (s.bots || []).filter((b) => b.kind === 'harness'));
+      const sessions = s.sessions || [];
+      const activeH = harnesses.find((h) => h.id === state.selectedBotId) || harnesses[0];
+      if (activeH && state.selectedBotId !== activeH.id) {
+        state.selectedBotId = activeH.id;
+        syncComposerPickers();
+      }
+      const modeBar = \`
+        <div class="card" style="gap:12px;">
+          <div class="row">
+            <div>
+              <div class="card-title">⚡ Agent Harness 独立控制台</div>
+              <div class="sub">直连当前节点上的外接 CLI Harness，独立于普通对话；自动读取本机 Config 模型。</div>
+            </div>
+            <div class="seg-group">
+              <button class="seg-btn \${state.selectedMode === 'acp' ? 'active' : ''}" data-hmode="acp" type="button">ACP 协议</button>
+              <button class="seg-btn \${state.selectedMode === 'tui' ? 'active' : ''}" data-hmode="tui" type="button">TUI PTY</button>
+              <button class="seg-btn \${state.selectedMode === 'cli' ? 'active' : ''}" data-hmode="cli" type="button">CLI 无头</button>
+            </div>
+          </div>
+          \${harnesses.length === 0
+            ? '<div class="sub">当前节点未上报纯外接 CLI Harness。可在左侧切换到已接入的 Linux 节点（如 lenovo-amd-workstation），或在本机安装 claude / codex / pi / agy / omp。</div>'
+            : '<div style="display:flex;flex-wrap:wrap;gap:8px;">' + harnesses.map((h) => {
+                const isAct = activeH && h.id === activeH.id;
+                return '<button class="btn ' + (isAct ? 'primary' : '') + '" data-pick-harness="' + esc(h.id) + '" type="button" style="font-size:12.5px;padding:7px 12px;">⚡ ' + esc(h.name) + (h.defaultModel ? ' <span style="opacity:0.7;font-family:monospace;font-size:11px;">(' + esc(h.defaultModel) + ')</span>' : '') + '</button>';
+              }).join('') + '</div>'}
+          \${activeH && activeH.configSource ? '<div class="sub" style="font-family:monospace;font-size:11px;">配置来源：' + esc(activeH.configSource) + '</div>' : ''}
+        </div>
+      \`;
+
+      const sessionCards = sessions.length === 0
+        ? '<div class="empty">⚡ 暂无运行中的 Harness 会话。<br/>在下方输入框选择模型并直接下发开发或排查任务，即可启动 ' + esc(state.selectedMode.toUpperCase()) + ' 会话。</div>'
+        : sessions.slice().reverse().map((rs) => {
+            const isRun = rs.status === 'running';
+            const outText = (rs.outputLines || []).slice(-60).join('\\n') || '等待输出…';
+            return \`
+              <div class="card" style="gap:10px;">
+                <div class="row">
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="badge \${isRun ? 'ok' : ''}">\${isRun ? '● 运行中' : ('已结束 · exit=' + (rs.exitCode ?? 0))}</span>
+                    <strong style="font-size:13px;">\${esc(rs.agent)}</strong>
+                  </div>
+                  <div style="display:flex;gap:6px;">
+                    \${isRun ? '<button class="btn" style="padding:4px 9px;font-size:11.5px" data-sess-takeover="' + esc(rs.id) + '">接管</button>' : ''}
+                    \${isRun ? '<button class="btn danger" style="padding:4px 9px;font-size:11.5px" data-sess-stop="' + esc(rs.id) + '">停止</button>' : ''}
+                  </div>
+                </div>
+                <div class="inspector-term" style="max-height:320px;">\${esc(outText)}</div>
+                \${isRun && rs.mode === 'tui' ? '<div style="display:flex;gap:6px;"><input class="field" style="padding:7px 10px;font-size:12.5px;font-family:monospace;" data-sess-input-box="' + esc(rs.id) + '" placeholder="向 TUI PTY 发送交互输入…" /><button class="btn primary" style="padding:6px 12px;font-size:12px" data-sess-send="' + esc(rs.id) + '">发送</button></div>' : ''}
+              </div>
+            \`;
+          }).join('');
+
+      mainEl.innerHTML = modeBar + sessionCards;
+      mainEl.querySelectorAll('[data-hmode]').forEach((b) => {
+        b.onclick = () => {
+          state.selectedMode = b.dataset.hmode;
+          pickerModeEl.value = state.selectedMode;
+          render();
+        };
       });
-    } else {
-      botStripEl.classList.remove('show');
+      mainEl.querySelectorAll('[data-pick-harness]').forEach((b) => {
+        b.onclick = () => {
+          state.selectedBotId = b.dataset.pickHarness;
+          state.selectedModel = '';
+          render();
+        };
+      });
+      bindSessionControls(mainEl);
+      return;
     }
 
     if (state.tab === 'chat') {
@@ -958,12 +1353,51 @@ export function renderUniversalPWAHTML(options?: {
         });
         return;
       }
-      mainEl.innerHTML = msgs.map((m) => \`
+      const runningSessions = (s.sessions || []).filter((ss) => ss.status === 'running');
+      const liveBanner = runningSessions.length > 0 ? runningSessions.map((rs) => \`
+        <div class="card" style="padding:11px 14px;gap:8px;border-color:var(--border-strong);">
+          <div class="row">
+            <span class="badge ok">● 运行中 · \${esc(rs.agent)}</span>
+            <div style="display:flex;gap:6px">
+              <button class="btn" style="padding:4px 9px;font-size:11.5px" data-sess-takeover="\${esc(rs.id)}">接管</button>
+              <button class="btn danger" style="padding:4px 9px;font-size:11.5px" data-sess-stop="\${esc(rs.id)}">停止</button>
+            </div>
+          </div>
+          \${rs.mode === 'tui' ? '<div style="display:flex;gap:6px"><input class="field" style="padding:7px 10px;font-size:12.5px" data-sess-input-box="' + esc(rs.id) + '" placeholder="向 TUI PTY 发送交互输入（回车发送）…" /><button class="btn primary" style="padding:6px 12px;font-size:12px" data-sess-send="' + esc(rs.id) + '">输入</button></div>' : ''}
+        </div>
+      \`).join('') : '';
+
+      mainEl.innerHTML = liveBanner + msgs.map((m) => \`
         <div class="msg-wrap \${m.role === 'user' ? 'user' : 'assistant'}">
           \${m.role !== 'user' && m.author ? '<div class="msg-author">' + esc(m.author) + '</div>' : ''}
           <div class="msg \${m.role === 'user' ? 'user' : 'assistant'}">\${renderMarkdown(m.content)}</div>
         </div>
       \`).join('');
+      mainEl.querySelectorAll('[data-sess-takeover]').forEach((b) => {
+        b.onclick = async () => {
+          await state.transport.request('POST', '/api/agents/' + b.dataset.sessTakeover + '/takeover', {});
+          showToast('已接管当前会话控制权 ✓');
+        };
+      });
+      mainEl.querySelectorAll('[data-sess-stop]').forEach((b) => {
+        b.onclick = async () => {
+          await state.transport.request('POST', '/api/agents/' + b.dataset.sessStop + '/stop', {});
+          showToast('已发送停止信号');
+          setTimeout(refreshSnapshot, 600);
+        };
+      });
+      mainEl.querySelectorAll('[data-sess-send]').forEach((b) => {
+        b.onclick = async () => {
+          const sid = b.dataset.sessSend;
+          const box = mainEl.querySelector('[data-sess-input-box="' + sid + '"]');
+          const val = box ? box.value : '';
+          if (!val) return;
+          box.value = '';
+          await state.transport.request('POST', '/api/agents/' + sid + '/input', { text: val, forceTakeover: true });
+          showToast('已发送到 TUI PTY');
+          setTimeout(refreshSnapshot, 800);
+        };
+      });
       mainEl.scrollTop = mainEl.scrollHeight;
       return;
     }
@@ -1070,14 +1504,132 @@ export function renderUniversalPWAHTML(options?: {
     }
   }
 
+  function bindSessionControls(rootEl) {
+    rootEl.querySelectorAll('[data-sess-takeover]').forEach((b) => {
+      b.onclick = async () => {
+        await state.transport.request('POST', '/api/agents/' + b.dataset.sessTakeover + '/takeover', {});
+        showToast('已接管当前会话控制权 ✓');
+      };
+    });
+    rootEl.querySelectorAll('[data-sess-stop]').forEach((b) => {
+      b.onclick = async () => {
+        await state.transport.request('POST', '/api/agents/' + b.dataset.sessStop + '/stop', {});
+        showToast('已发送停止信号');
+        setTimeout(refreshSnapshot, 600);
+      };
+    });
+    rootEl.querySelectorAll('[data-sess-send]').forEach((b) => {
+      b.onclick = async () => {
+        const sid = b.dataset.sessSend;
+        const box = rootEl.querySelector('[data-sess-input-box="' + sid + '"]');
+        const val = box ? box.value : '';
+        if (!val) return;
+        box.value = '';
+        await state.transport.request('POST', '/api/agents/' + sid + '/input', { text: val, forceTakeover: true });
+        showToast('已发送到 TUI PTY');
+        setTimeout(refreshSnapshot, 800);
+      };
+    });
+  }
+
+  function syncSidebarAndInspector() {
+    document.querySelectorAll('.nav-item[data-nav]').forEach((el) => {
+      el.classList.toggle('active', el.dataset.nav === state.tab);
+    });
+    const s = state.snapshot;
+    const pend = (s.approvals?.length || 0) + (s.draftGates?.length || 0) + (s.evolutions?.length || 0);
+    const navApp = document.getElementById('nav-badge-approvals');
+    if (navApp) { navApp.textContent = String(pend); navApp.style.display = pend > 0 ? 'inline-block' : 'none'; }
+    const navDiff = document.getElementById('nav-badge-diff');
+    const wtCount = (s.worktrees || []).length;
+    if (navDiff) { navDiff.textContent = String(wtCount); navDiff.style.display = wtCount > 0 ? 'inline-block' : 'none'; }
+
+    const inspBadge = document.getElementById('insp-conn-badge');
+    if (inspBadge) inspBadge.textContent = state.statusLabel || 'E2EE';
+
+    const inspDetail = document.getElementById('insp-node-detail');
+    if (inspDetail) {
+      const curDev = accountDevices.find((d) => d.hostId === state.transport?.hostId);
+      const plat = curDev?.platform || s.platform || 'macos';
+      const ws = curDev?.workspacePath || s.workspacePath || '—';
+      inspDetail.innerHTML =
+        '<div><strong>' + esc(curDev?.name || s.hostName || 'PiPiBot') + '</strong> · ' + esc(plat) + '</div>' +
+        '<div style="font-family:monospace;font-size:11px;margin-top:4px;word-break:break-all;">工作区：' + esc(ws) + '</div>' +
+        '<div style="font-family:monospace;font-size:11px;margin-top:2px;">指纹：' + esc(state.transport?.hostId || 'local') + '</div>';
+    }
+
+    const inspHarnesses = document.getElementById('insp-harness-list');
+    if (inspHarnesses) {
+      const hs = (s.harnesses && s.harnesses.length ? s.harnesses : (s.bots || []).filter((b) => b.kind === 'harness'));
+      if (!hs.length) {
+        inspHarnesses.innerHTML = '<div style="font-size:12px;color:var(--ink-3);">当前节点为主控/管家模式，或尚未检测到外接 CLI Harness。</div>';
+      } else {
+        inspHarnesses.innerHTML = hs.map((h) =>
+          '<button class="node-item" data-jump-harness="' + esc(h.id) + '" type="button" style="padding:6px 8px;">' +
+          '<div style="min-width:0;flex:1;"><div style="font-weight:650;font-size:12px;">⚡ ' + esc(h.name) + '</div>' +
+          '<div class="node-meta" style="font-family:monospace;">' + esc(h.defaultModel || 'default') + '</div></div>' +
+          '<span class="node-pill">进入</span></button>'
+        ).join('');
+        inspHarnesses.querySelectorAll('[data-jump-harness]').forEach((btn) => {
+          btn.onclick = () => {
+            state.selectedBotId = btn.dataset.jumpHarness;
+            state.selectedModel = '';
+            setActiveTab('harness');
+          };
+        });
+      }
+    }
+  }
+
+  function setActiveTab(tabName) {
+    state.tab = tabName;
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tabName));
+    document.querySelectorAll('.nav-item[data-nav]').forEach((n) => n.classList.toggle('active', n.dataset.nav === tabName));
+    render();
+  }
+
   document.querySelectorAll('.tab').forEach((el) => {
-    el.onclick = () => {
-      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-      el.classList.add('active');
-      state.tab = el.dataset.tab;
-      render();
-    };
+    el.onclick = () => setActiveTab(el.dataset.tab);
   });
+  document.querySelectorAll('.nav-item[data-nav]').forEach((el) => {
+    el.onclick = () => setActiveTab(el.dataset.nav);
+  });
+  const btnOpenHarness = document.getElementById('btn-open-harness-console');
+  if (btnOpenHarness) btnOpenHarness.onclick = () => setActiveTab('harness');
+  const btnSidebarTheme = document.getElementById('btn-sidebar-theme');
+  if (btnSidebarTheme) {
+    btnSidebarTheme.onclick = () => {
+      const cur = document.documentElement.getAttribute('data-theme');
+      const next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('pipibot_theme', next);
+    };
+  }
+
+  async function runInspectorCommand(cmd) {
+    const clean = (cmd || '').trim();
+    const outEl = document.getElementById('insp-term-out');
+    if (!clean || !state.transport || !outEl) return;
+    outEl.textContent = '$ ' + clean + '\\n⏳ 正在通过 E2EE 执行…';
+    try {
+      const res = await state.transport.request('POST', '/api/shell/exec', { command: clean, timeoutMs: 20000 });
+      const text = [res.stdout || '', res.stderr ? ('stderr:\\n' + res.stderr) : ''].filter(Boolean).join('\\n') || '(无输出)';
+      outEl.textContent = '$ ' + clean + ' (exit=' + (res.exitCode ?? 0) + ')\\n' + text;
+    } catch (e) {
+      outEl.textContent = '$ ' + clean + '\\n❌ ' + (e.message || '执行失败（Mac 主控请通过对话自然语言调度）');
+    }
+  }
+  document.querySelectorAll('[data-qcmd]').forEach((b) => {
+    b.onclick = () => runInspectorCommand(b.dataset.qcmd);
+  });
+  const inspCmdInput = document.getElementById('insp-cmd-input');
+  const inspRunBtn = document.getElementById('btn-insp-run');
+  if (inspRunBtn && inspCmdInput) {
+    inspRunBtn.onclick = () => { runInspectorCommand(inspCmdInput.value); inspCmdInput.value = ''; };
+    inspCmdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); runInspectorCommand(inspCmdInput.value); inspCmdInput.value = ''; }
+    });
+  }
 
   document.getElementById('btn-send').onclick = () => sendChatText(inputEl.value);
   inputEl.addEventListener('keydown', (e) => {
@@ -1091,8 +1643,11 @@ export function renderUniversalPWAHTML(options?: {
   const sheetBackdrop = document.getElementById('status-sheet');
   statusPill.onclick = () => {
     const t = state.transport;
+    const liveLabel = t && t.ws && t.ws.readyState === 1
+      ? (t.mode === 'p2p' ? 'WebRTC P2P 直连（已加密）' : 'E2EE 加密中继已连接')
+      : state.statusLabel;
     document.getElementById('sheet-detail').innerHTML = t
-      ? ('当前传输通道：<strong>' + esc(state.statusLabel) + '</strong><br/>主机指纹：<code>' + esc(t.hostId || 'local') + '</code><br/>所有业务载荷与 WebRTC 信令均经端到端 AES-256-GCM 加密，中继节点全程零明文可见。')
+      ? ('当前传输通道：<strong>' + esc(liveLabel) + '</strong><br/>主机指纹：<code>' + esc(t.hostId || 'local') + '</code><br/>所有业务载荷与 WebRTC 信令均经端到端 AES-256-GCM 加密，中继节点全程零明文可见。')
       : '当前尚未绑定任何 PiPiBot 主机。';
     sheetBackdrop.classList.add('show');
   };
@@ -1106,34 +1661,135 @@ export function renderUniversalPWAHTML(options?: {
   };
   document.getElementById('btn-disconnect').onclick = () => {
     localStorage.removeItem(STORAGE_KEY);
-    location.href = '/pair';
+    location.href = '/login';
   };
 
-  async function boot() {
-    const link = parseCurrentLink();
-    const saved = loadSavedSession(link.pathHostId);
-    const hostId = link.pathHostId || saved?.hostId || '';
-    const hostPubKey = link.hostPubKey || saved?.hostPubKey || '';
-    const lanHint = link.lanHint || saved?.lanHint || '';
-    const deviceToken = saved?.deviceToken || '';
+  let accountDevices = [];
+  let accountAccessToken = localStorage.getItem('pipibot_access_token') || '';
+  let refreshTimer = null;
 
-    if (IS_RELAY_MODE && (!hostId || !hostPubKey)) {
-      setStatus('warn', '等待配对');
-      renderConnectPrompt();
-      return;
+  function renderDeviceStrip(activeHostId) {
+    // 1. Mobile compact strip
+    const strip = document.getElementById('device-strip');
+    if (strip && accountDevices.length) {
+      strip.style.display = 'flex';
+      strip.innerHTML = accountDevices.map((d) => {
+        const isAct = d.hostId === activeHostId;
+        const dot = d.isOnline ? '🟢 ' : '⚪ ';
+        return '<button class="bot-chip ' + (isAct ? 'active' : '') + '" data-host="' + esc(d.hostId) + '" type="button">' + dot + esc(d.name) + '</button>';
+      }).join('') + '<a class="bot-chip" href="/devices" style="text-decoration:none">+ 纳管设备</a>';
+      strip.querySelectorAll('button[data-host]').forEach((btn) => {
+        btn.onclick = () => {
+          const target = accountDevices.find((d) => d.hostId === btn.dataset.host);
+          if (target) connectToTargetDevice(target.hostId, target.hostPubKey || '', '', accountAccessToken, '');
+        };
+      });
     }
 
-    const transport = new E2EERelayTransport({ hostId, hostPubKey, lanHint, deviceToken, oneTimeToken: link.oneTimeToken });
+    // 2. Desktop collapsible node switcher (Primary Control Node pinned first!)
+    const activeDev = accountDevices.find((d) => d.hostId === activeHostId);
+    const activeNameEl = document.getElementById('sidebar-active-node-name');
+    const activeRoleEl = document.getElementById('sidebar-active-node-role');
+    const activeDotEl = document.getElementById('sidebar-active-node-dot');
+    if (activeNameEl && activeDev) activeNameEl.textContent = activeDev.name;
+    if (activeRoleEl && activeDev) activeRoleEl.textContent = activeDev.platform === 'macos' ? '主控' : (activeDev.platform || 'node');
+    if (activeDotEl && activeDev) activeDotEl.className = 'dot ' + (activeDev.isOnline ? 'ok' : '');
+
+    const listEl = document.getElementById('sidebar-node-list');
+    if (listEl) {
+      const sorted = accountDevices.slice().sort((a, b) => {
+        const aScore = (a.platform === 'macos' ? 4 : 0) + (a.isOnline ? 2 : 0);
+        const bScore = (b.platform === 'macos' ? 4 : 0) + (b.isOnline ? 2 : 0);
+        return bScore - aScore;
+      });
+      listEl.innerHTML = sorted.map((d) => {
+        const isAct = d.hostId === activeHostId;
+        const isPrimary = d.platform === 'macos';
+        const caps = (d.capabilities || []).slice(0, 3).join(' · ') || d.platform;
+        return '<button class="node-item ' + (isAct ? 'active' : '') + '" data-snode="' + esc(d.hostId) + '" type="button" style="padding:6px 8px;">' +
+          '<span class="dot ' + (d.isOnline ? 'ok' : '') + '" style="flex-shrink:0;"></span>' +
+          '<div style="min-width:0;flex:1;">' +
+            '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(d.name) + '</div>' +
+            '<div class="node-meta">' + esc(caps) + '</div>' +
+          '</div>' +
+          '<span class="node-pill">' + (isPrimary ? '主控' : (d.platform || 'node')) + '</span>' +
+        '</button>';
+      }).join('') || '<div style="font-size:12px;color:var(--ink-3);padding:8px 10px;">暂无已纳管设备</div>';
+      listEl.querySelectorAll('[data-snode]').forEach((btn) => {
+        btn.onclick = () => {
+          const dd = document.getElementById('sidebar-node-dropdown');
+          if (dd) dd.open = false;
+          const target = accountDevices.find((d) => d.hostId === btn.dataset.snode);
+          if (target) connectToTargetDevice(target.hostId, target.hostPubKey || '', '', accountAccessToken, '');
+        };
+      });
+    }
+  }
+
+  async function connectToTargetDevice(hostId, hostPubKey, lanHint, deviceToken, oneTimeToken) {
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+    if (state.transport && state.transport.ws) {
+      try { state.transport.ws.close(); } catch {}
+    }
+    if (hostId && hostPubKey) {
+      saveSession({ hostId, hostPubKey, lanHint, deviceToken });
+    }
+    renderDeviceStrip(hostId);
+    const transport = new E2EERelayTransport({ hostId, hostPubKey, lanHint, deviceToken, oneTimeToken });
     transport.onStatus = setStatus;
     state.transport = transport;
     render();
     try {
       await transport.connect();
       await refreshSnapshot();
-      setInterval(refreshSnapshot, 5000);
+      refreshTimer = setInterval(refreshSnapshot, 5000);
     } catch (e) {
       setStatus('err', e.message || '连接失败');
     }
+  }
+
+  async function boot() {
+    const link = parseCurrentLink();
+    const saved = loadSavedSession(link.pathHostId);
+
+    // Load unified account session & all enrolled devices so one WebUI operates every machine
+    if (IS_RELAY_MODE) {
+      try {
+        const meRes = await fetch('/api/auth/me', {
+          headers: accountAccessToken ? { Authorization: 'Bearer ' + accountAccessToken } : {}
+        });
+        if (meRes.ok) {
+          const me = await meRes.json();
+          if (me.accessToken) {
+            accountAccessToken = me.accessToken;
+            localStorage.setItem('pipibot_access_token', me.accessToken);
+          }
+          if (me.user) {
+            const emailEl = document.getElementById('sidebar-user-email');
+            if (emailEl) emailEl.textContent = me.user.email || me.user.displayName || '已登录';
+          }
+          accountDevices = Array.isArray(me.devices) ? me.devices : [];
+        }
+      } catch {}
+    }
+
+    const matchedDev = accountDevices.find((d) => d.hostId === link.pathHostId)
+      || accountDevices.find((d) => d.isOnline && d.platform === 'macos')
+      || accountDevices.find((d) => d.isOnline)
+      || accountDevices[0];
+
+    const hostId = link.pathHostId || matchedDev?.hostId || saved?.hostId || '';
+    const hostPubKey = link.hostPubKey || matchedDev?.hostPubKey || saved?.hostPubKey || '';
+    const lanHint = link.lanHint || saved?.lanHint || '';
+    const deviceToken = saved?.deviceToken || accountAccessToken || '';
+
+    if (IS_RELAY_MODE && (!hostId || !hostPubKey)) {
+      setStatus('warn', '请先登录');
+      location.href = '/login';
+      return;
+    }
+
+    await connectToTargetDevice(hostId, hostPubKey, lanHint, deviceToken, link.oneTimeToken);
   }
 
   boot();

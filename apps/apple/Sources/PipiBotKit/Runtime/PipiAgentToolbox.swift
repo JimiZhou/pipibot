@@ -240,7 +240,8 @@ public enum PipiJarvisToolRiskEvaluator {
              "show_control_menu", "list_or_switch_bot", "create_bot", "switch_session_or_project",
              "configure_group_mode", "update_settings", "check_updates", "create_routine_or_reminder",
              "materialize_blueprint_bot", "record_entity_ledger", "query_entity_ledger", "propose_blueprint_evolution",
-             "trigger_list", "trigger_upsert", "trigger_delete":
+             "trigger_list", "trigger_upsert", "trigger_delete",
+             "remote_nodes_list", "remote_node_inspect", "remote_node_run_harness", "remote_node_exec":
             return PipiToolRiskAssessment(
                 requiresApproval: false,
                 actionKind: .readOnly,
@@ -504,6 +505,14 @@ public enum PipiLivelyProgressNarrator {
             return isZh ? "正在查一下 GitHub 有没有新版本 🚀" : "Checking GitHub Releases for updates 🚀"
         case "trigger_list", "trigger_upsert", "trigger_delete":
             return isZh ? "正在管理自动化触发器 ⏱️" : "Managing automation triggers ⏱️"
+        case "remote_nodes_list":
+            return isZh ? "正在查看账号下已纳管的远程设备 🌐" : "Listing enrolled remote devices 🌐"
+        case "remote_node_inspect":
+            return isZh ? "正在通过端到端加密通道检查远程节点状态 🔍" : "Inspecting remote node over E2EE 🔍"
+        case "remote_node_run_harness":
+            return isZh ? "正在调度远程节点上的 Agent Harness 执行任务 🤖" : "Invoking remote node agent harness 🤖"
+        case "remote_node_exec":
+            return isZh ? "正在通过远程守护进程执行排查/开发操作 🛠️" : "Running remote daemon command 🛠️"
         default:
             return isZh ? "正在处理第 \(stepIndex) 步，马上好啦 ✨" : "Working on step \(stepIndex) ✨"
         }
@@ -564,6 +573,7 @@ public struct PipiAgentHostCallbacks: Sendable {
     public var queryEntityLedger: @Sendable (_ entityKey: String?, _ search: String?) async -> String
     public var proposeBlueprintEvolution: @Sendable (_ botQuery: String?, _ rationale: String, _ newRule: String?, _ newVerification: String?, _ newStepsCSV: String?) async -> String
     public var manageTriggers: @Sendable (_ action: String, _ args: [String: String]) async -> String
+    public var remoteNodeAction: @Sendable (_ action: String, _ args: [String: String]) async -> String
 
     public init(
         captureScreenshot: @escaping @Sendable () async -> PipiMacOmnipotentCommandResult,
@@ -587,7 +597,8 @@ public struct PipiAgentHostCallbacks: Sendable {
         recordEntityLedger: @escaping @Sendable (String, String, String, String, String) async -> String = { key, _, _, status, _ in "Recorded entity \(key) (\(status))." },
         queryEntityLedger: @escaping @Sendable (String?, String?) async -> String = { _, _ in "No matching entity records." },
         proposeBlueprintEvolution: @escaping @Sendable (String?, String, String?, String?, String?) async -> String = { _, rationale, _, _, _ in "Evolution proposal queued: \(rationale)" },
-        manageTriggers: @escaping @Sendable (String, [String: String]) async -> String = { action, _ in "Trigger action '\(action)' queued." }
+        manageTriggers: @escaping @Sendable (String, [String: String]) async -> String = { action, _ in "Trigger action '\(action)' queued." },
+        remoteNodeAction: @escaping @Sendable (String, [String: String]) async -> String = { action, _ in "Remote node action '\(action)' is not connected in this host context." }
     ) {
         self.captureScreenshot = captureScreenshot
         self.recordScreen = recordScreen
@@ -611,6 +622,7 @@ public struct PipiAgentHostCallbacks: Sendable {
         self.queryEntityLedger = queryEntityLedger
         self.proposeBlueprintEvolution = proposeBlueprintEvolution
         self.manageTriggers = manageTriggers
+        self.remoteNodeAction = remoteNodeAction
     }
 }
 
@@ -897,6 +909,39 @@ public enum PipiAgentToolbox {
             description: "Delete a routine trigger by its ID.",
             parameters: [
                 PipiAgentToolParam(name: "routine_id", description: "Routine ID to remove", required: true)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "remote_nodes_list",
+            description: "List all enrolled machines/nodes under the user's unified PiPiBot account, including online status, platform, workspace path, and each node's reported local agent harnesses (e.g. Claude Code, Codex, OpenCode, Pi).",
+            parameters: []
+        ),
+        PipiAgentToolDefinition(
+            name: "remote_node_inspect",
+            description: "Connect over E2EE to an enrolled remote node's daemon to inspect live system health (OS, CPU, memory, uptime, git branch/status), installed agent harnesses, and running agent sessions.",
+            parameters: [
+                PipiAgentToolParam(name: "device", description: "Target device name, hostId, or partial match (omit to auto-pick the first online remote node)", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "remote_node_run_harness",
+            description: "Invoke an installed agent harness (such as Claude Code, Codex, OpenCode, or Pi) directly on an enrolled remote node over E2EE.",
+            parameters: [
+                PipiAgentToolParam(name: "device", description: "Target device name or hostId", required: true),
+                PipiAgentToolParam(name: "agent", description: "Harness ID or name (e.g. claude-code, codex, opencode, pi). Omit to use the node's primary harness.", required: false),
+                PipiAgentToolParam(name: "prompt", description: "Task prompt to execute on the remote node's harness", required: true),
+                PipiAgentToolParam(name: "cwd", description: "Optional working directory on the remote node", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "remote_node_exec",
+            description: "Connect directly through an enrolled remote node's daemon over E2EE to perform troubleshooting or development actions: run a bounded shell command, list a directory, or read a file.",
+            parameters: [
+                PipiAgentToolParam(name: "device", description: "Target device name or hostId", required: true),
+                PipiAgentToolParam(name: "operation", description: "exec (default) | list_files | read_file", required: false),
+                PipiAgentToolParam(name: "command", description: "Shell command to execute when operation=exec", required: false),
+                PipiAgentToolParam(name: "path", description: "Directory or file path when operation=list_files or read_file", required: false),
+                PipiAgentToolParam(name: "cwd", description: "Optional working directory when operation=exec", required: false)
             ]
         )
     ]
@@ -1187,6 +1232,15 @@ public enum PipiAgentToolbox {
             }
             return PipiAgentToolExecutionResult(
                 output: await callbacks.manageTriggers(toolCall.name, argMap)
+            )
+
+        case "remote_nodes_list", "remote_node_inspect", "remote_node_run_harness", "remote_node_exec":
+            var argMap: [String: String] = [:]
+            for key in ["device", "agent", "prompt", "cwd", "operation", "command", "path"] {
+                if let val = toolCall.string(key) { argMap[key] = val }
+            }
+            return PipiAgentToolExecutionResult(
+                output: await callbacks.remoteNodeAction(toolCall.name, argMap)
             )
 
         default:

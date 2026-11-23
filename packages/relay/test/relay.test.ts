@@ -240,6 +240,94 @@ test('PipiE2EERelayServer invite key gate rejects unauthorized hosts when config
   }
 });
 
+test('PipiE2EERelayServer unified auth (Email OTP + Device Flow + Device Registry + /login UI)', async () => {
+  const relay = new PipiE2EERelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    auth: { inMemory: true, exposeDevOtp: true },
+  });
+  const { port } = await relay.start();
+  const baseHttp = `http://127.0.0.1:${port}`;
+  try {
+    // 1. /login page renders cleanly
+    const loginHtml = await (await fetch(`${baseHttp}/login`)).text();
+    assert.ok(loginHtml.includes('PiPiBot'));
+
+    // 2. Email OTP send & verify
+    const sendResp = await fetch(`${baseHttp}/api/auth/email/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'founder@pipibot.dev' }),
+    });
+    const sendData = (await sendResp.json()) as { ok: boolean; devCode?: string };
+    assert.equal(sendData.ok, true);
+    assert.ok(sendData.devCode && sendData.devCode.length === 6);
+
+    const verifyResp = await fetch(`${baseHttp}/api/auth/email/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'founder@pipibot.dev', code: sendData.devCode }),
+    });
+    const verifyData = (await verifyResp.json()) as { ok: boolean; accessToken?: string; user?: { email?: string } };
+    assert.equal(verifyData.ok, true);
+    assert.ok(verifyData.accessToken);
+    assert.equal(verifyData.user?.email, 'founder@pipibot.dev');
+
+    // 3. CLI Device Flow: start -> approve -> poll
+    const devStart = (await (await fetch(`${baseHttp}/api/auth/device/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientLabel: 'Linux GPU CLI' }),
+    })).json()) as { deviceCode: string; userCode: string };
+    assert.ok(devStart.userCode.startsWith('PIPI-'));
+
+    const approveResp = await fetch(`${baseHttp}/api/auth/device/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${verifyData.accessToken}`,
+      },
+      body: JSON.stringify({ userCode: devStart.userCode }),
+    });
+    assert.equal(((await approveResp.json()) as { ok: boolean }).ok, true);
+
+    const pollData = (await (await fetch(`${baseHttp}/api/auth/device/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceCode: devStart.deviceCode }),
+    })).json()) as { status: string; accessToken?: string };
+    assert.equal(pollData.status, 'approved');
+    assert.ok(pollData.accessToken);
+
+    // 4. Register & list devices under unified account
+    const regResp = await fetch(`${baseHttp}/api/devices/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${pollData.accessToken}`,
+      },
+      body: JSON.stringify({
+        name: 'Yujie Mac Mini',
+        platform: 'macos',
+        hostId: 'host1234567890ab',
+        hostPubKey: 'pub_test_key',
+        capabilities: ['Claude Code', 'Codex', 'Pi'],
+      }),
+    });
+    const regData = (await regResp.json()) as { ok: boolean; device: { id: string } };
+    assert.equal(regData.ok, true);
+
+    const listData = (await (await fetch(`${baseHttp}/api/devices`, {
+      headers: { Authorization: `Bearer ${verifyData.accessToken}` },
+    })).json()) as { devices: Array<{ name: string; capabilities: string[] }> };
+    assert.equal(listData.devices.length, 1);
+    assert.equal(listData.devices[0]?.name, 'Yujie Mac Mini');
+    assert.ok(listData.devices[0]?.capabilities.includes('Claude Code'));
+  } finally {
+    await relay.stop();
+  }
+});
+
 async function waitUntil(cond: () => boolean, timeoutMs = 3000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

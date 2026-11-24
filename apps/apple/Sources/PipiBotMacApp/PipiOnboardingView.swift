@@ -49,14 +49,6 @@ public struct PipiOnboardingView: View {
         ZStack {
             PipiTokens.bgCanvas.ignoresSafeArea()
 
-            RadialGradient(
-                colors: [PipiTokens.soulPrimary.opacity(0.11), Color.clear],
-                center: .init(x: 0.5, y: 0.24),
-                startRadius: 12,
-                endRadius: 380
-            )
-            .ignoresSafeArea()
-
             VStack(spacing: 0) {
                 topBar
 

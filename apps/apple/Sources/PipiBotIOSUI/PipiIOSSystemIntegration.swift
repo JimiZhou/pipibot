@@ -14,6 +14,7 @@ import UserNotifications
 public enum PipiIOSDeepLinkAction: Equatable, Sendable {
     case pairTunnel(urlString: String)
     case openTab(PipiIOSTab)
+    case openVoice
     case approveDecision(decisionId: String)
     case triggerDream
 }
@@ -54,6 +55,9 @@ public enum PipiIOSDeepLinkRouter {
         case "dream":
             return .triggerDream
 
+        case "voice", "call":
+            return .openVoice
+
         default:
             return nil
         }
@@ -73,6 +77,10 @@ public enum PipiIOSDeepLinkRouter {
 
         case .openTab(let tab):
             selectedTab = tab
+
+        case .openVoice:
+            selectedTab = .chat
+            Task { await store.startVoiceCall(with: store.activePersona.id) }
 
         case .approveDecision(let decisionId):
             selectedTab = .tasks
@@ -339,8 +347,30 @@ public struct PipiAskHarnessIntent: AppIntent {
 }
 
 @available(iOS 17.0, macOS 14.0, *)
+public struct PipiStartVoiceAssistantIntent: AppIntent {
+    public static let title: LocalizedStringResource = "Talk to PipiBot"
+    public static let description = IntentDescription("Launch PipiBot's ambient voice companion directly from the iPhone Action Button or Siri.")
+    public static let openAppWhenRun: Bool = true
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult & ProvidesDialog {
+        return .result(dialog: IntentDialog("Starting PipiBot voice companion."))
+    }
+}
+
+@available(iOS 17.0, macOS 14.0, *)
 public struct PipiIOSShortcutsProvider: AppShortcutsProvider {
     public static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: PipiStartVoiceAssistantIntent(),
+            phrases: [
+                "Talk to \(.applicationName)",
+                "Start voice in \(.applicationName)"
+            ],
+            shortTitle: "Talk to PipiBot",
+            systemImageName: "waveform"
+        )
         AppShortcut(
             intent: PipiApproveTopDecisionIntent(),
             phrases: [

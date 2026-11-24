@@ -953,4 +953,124 @@ describe('PipiBot V1 Mac Resident Daemon (@pipibot/daemon)', () => {
     const mobileHtml = await mobileRes.text();
     assert.ok(mobileHtml.includes('E2EERelayTransport') && mobileHtml.includes('PiPiBot'));
   });
+
+  test('Phase 2 Board Coordination REST API & Bounded MCP tools coordinate external harnesses safely', async () => {
+    const { handleBoundedMCPRequest } = await import('../src/mcp-server.ts');
+    // 1. Create prerequisite & dependent tasks over HTTP
+    const t1Res = await requestJson<{ thread: { id: string; status: string } }>(baseUrl, '/api/v1/board/threads', {
+      method: 'POST',
+      body: JSON.stringify({
+        channelSlug: 'dev',
+        title: 'Implement Board Lease Sweeper',
+        body: 'Sweep expired claims every cycle.',
+        priority: 'high',
+        author: { id: 'human:owner', name: 'Owner', kind: 'human' },
+      }),
+    });
+    assert.equal(t1Res.status, 201);
+    const t1Id = t1Res.data.thread.id;
+
+    const t2Res = await requestJson<{ thread: { id: string; status: string } }>(baseUrl, '/api/v1/board/threads', {
+      method: 'POST',
+      body: JSON.stringify({
+        channelSlug: 'dev',
+        title: 'Update Board Docs',
+        body: 'Document lease semantics once sweeper lands.',
+        blockedBy: [t1Id],
+        author: { id: 'human:owner', name: 'Owner', kind: 'human' },
+      }),
+    });
+    assert.equal(t2Res.status, 201);
+    assert.equal(t2Res.data.thread.status, 'blocked');
+    const t2Id = t2Res.data.thread.id;
+
+    // 2. External harness claims via Bounded MCP tool `pipibot_board_claim`
+    const mcpClaim = await handleBoundedMCPRequest(
+      {
+        id: 101,
+        method: 'tools/call',
+        params: {
+          name: 'pipibot_board_claim',
+          arguments: { channelSlug: 'dev', actorId: 'claude-code', actorName: 'Claude Code', leaseMs: 60_000 },
+        },
+      },
+      baseUrl,
+    );
+    assert.equal(mcpClaim.error, undefined);
+    const claimPayload = JSON.parse(
+      ((mcpClaim.result as { content: Array<{ text: string }> }).content[0]!).text,
+    ) as { ok: boolean; thread: { id: string }; claim: { leaseToken: string } };
+    assert.equal(claimPayload.ok, true);
+    assert.equal(claimPayload.thread.id, t1Id);
+
+    // 3. Competing harness gets 409 conflict over HTTP
+    const conflict = await requestJson<{ ok: boolean; reason: string }>(baseUrl, `/api/v1/board/threads/${t1Id}/claim`, {
+      method: 'POST',
+      body: JSON.stringify({ actor: { id: 'codex', name: 'Codex', kind: 'harness' } }),
+    });
+    assert.equal(conflict.status, 409);
+    assert.equal(conflict.data.reason, 'already_claimed');
+
+    // 4. Renew lease & post progress via Bounded MCP
+    const mcpRenew = await handleBoundedMCPRequest(
+      {
+        id: 102,
+        method: 'tools/call',
+        params: {
+          name: 'pipibot_board_renew',
+          arguments: { threadId: t1Id, actorId: 'claude-code', leaseToken: claimPayload.claim.leaseToken },
+        },
+      },
+      baseUrl,
+    );
+    assert.equal(mcpRenew.error, undefined);
+
+    const mcpPost = await handleBoundedMCPRequest(
+      {
+        id: 103,
+        method: 'tools/call',
+        params: {
+          name: 'pipibot_board_post',
+          arguments: { threadId: t1Id, actorId: 'claude-code', body: 'All unit tests green.', artifactRef: 'worktree:wt-board' },
+        },
+      },
+      baseUrl,
+    );
+    assert.equal(mcpPost.error, undefined);
+
+    // 5. Complete via Bounded MCP -> automatically unblocks dependent t2
+    const mcpComplete = await handleBoundedMCPRequest(
+      {
+        id: 104,
+        method: 'tools/call',
+        params: {
+          name: 'pipibot_board_complete',
+          arguments: {
+            threadId: t1Id,
+            actorId: 'claude-code',
+            leaseToken: claimPayload.claim.leaseToken,
+            summary: 'Lease sweeper shipped.',
+            deliverableRef: 'worktree:wt-board',
+          },
+        },
+      },
+      baseUrl,
+    );
+    assert.equal(mcpComplete.error, undefined);
+    const completePayload = JSON.parse(
+      ((mcpComplete.result as { content: Array<{ text: string }> }).content[0]!).text,
+    ) as { ok: boolean; unblockedThreadIds: string[] };
+    assert.equal(completePayload.ok, true);
+    assert.deepEqual(completePayload.unblockedThreadIds, [t2Id]);
+
+    // 6. Inspect endpoint reflects unlocked t2 + activity events
+    const inspectRes = await requestJson<{ counts: { done: number; open: number }; recentEvents: unknown[] }>(
+      baseUrl,
+      '/api/v1/board/inspect?channel=dev',
+    );
+    assert.equal(inspectRes.status, 200);
+    assert.ok(inspectRes.data.counts.done >= 1);
+    assert.ok(inspectRes.data.counts.open >= 1);
+    assert.ok(inspectRes.data.recentEvents.length >= 4);
+  });
 });

@@ -45,37 +45,37 @@ public enum PipiThemeMode: String, CaseIterable, Sendable, Identifiable {
 // MARK: - Tier 1: Foundations (Raw Immutable Palette)
 
 public enum PipiFoundations {
-    // Neutral Graphite Dark Scale (Codex / Linear Desktop Parity)
-    public static let obsidian950 = "#0B0C0E"
-    public static let obsidian900 = "#0F1012"
-    public static let obsidian850 = "#141518"
-    public static let obsidian800 = "#181A1E"
-    public static let obsidian750 = "#22242A"
-    public static let obsidian650 = "#2C2F36"
-    public static let obsidian550 = "#3B3F48"
+    // Apple Space Black / Graphite Dark Scale (Precision Anodized Depth)
+    public static let obsidian950 = "#090A0C"
+    public static let obsidian900 = "#111215"
+    public static let obsidian850 = "#0C0D10"
+    public static let obsidian800 = "#191A1F"
+    public static let obsidian750 = "#23252C"
+    public static let obsidian650 = "#2E3038"
+    public static let obsidian550 = "#3D404A"
 
-    // Neutral White-Gray Desktop Light Scale
+    // Apple Native Swiss Neutral Light Scale (#F5F5F7 System Tray + #FFFFFF Luminous Sheet)
     public static let vellum50 = "#FFFFFF"
-    public static let vellum100 = "#F8F8F9"
-    public static let vellum150 = "#F7F7F8"
-    public static let vellum200 = "#EFEFF1"
-    public static let vellum250 = "#F2F2F4"
-    public static let vellumUserBubble = "#F4F4F5"
+    public static let vellum100 = "#F5F5F7"
+    public static let vellum150 = "#F5F5F7"
+    public static let vellum200 = "#EBEBF0"
+    public static let vellum250 = "#E5E5EA"
+    public static let vellumUserBubble = "#EFEFF4"
 
-    // Neutral Ink Tokens
-    public static let inkDarkPrimary = "#F4F4F5"
-    public static let inkDarkSecondary = "#A1A1AA"
-    public static let inkDarkMuted = "#71717A"
-    public static let inkLightPrimary = "#171717"
-    public static let inkLightSecondary = "#52525B"
-    public static let inkLightMuted = "#71717A"
+    // Apple Official Neutral Ink Scale (#1D1D1F / #515154 / #86868B)
+    public static let inkDarkPrimary = "#F5F5F7"
+    public static let inkDarkSecondary = "#A1A1A6"
+    public static let inkDarkMuted = "#6E6E73"
+    public static let inkLightPrimary = "#1D1D1F"
+    public static let inkLightSecondary = "#515154"
+    public static let inkLightMuted = "#86868B"
 
     // Monochrome Primary Control Foundations
-    public static let controlLightPrimary = "#171717"
-    public static let controlLightHover = "#27272A"
-    public static let controlLightSecondaryHover = "#F4F4F5"
-    public static let controlDarkPrimary = "#F4F4F5"
-    public static let controlDarkHover = "#E4E4E7"
+    public static let controlLightPrimary = "#1D1D1F"
+    public static let controlLightHover = "#333336"
+    public static let controlLightSecondaryHover = "#E8E8ED"
+    public static let controlDarkPrimary = "#F5F5F7"
+    public static let controlDarkHover = "#E5E5EA"
 
     // Brand Accents (Retained in Foundations for Optional Visual Highlights)
     public static let cobalt400 = "#4C8DF6"
@@ -269,7 +269,11 @@ public struct PipiThemePalette: Sendable {
 // MARK: - Tier 3: Semantic Design Tokens (Referenced by All Views)
 
 public enum PipiTokens {
-    // Dynamic Adaptive Surfaces
+    // Dynamic Adaptive Surfaces (Sheet-on-Tray: Warm Stone Tray + Crisp Floating Paper Sheet)
+    public static let bgWindowTray = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.obsidian850,
+        lightHex: PipiFoundations.vellum150
+    )
     public static let bgCanvas = PipiFoundations.adaptiveColor(
         darkHex: PipiFoundations.obsidian900,
         lightHex: PipiFoundations.vellum50
@@ -298,8 +302,22 @@ public enum PipiTokens {
         darkHex: PipiFoundations.obsidian800,
         darkAlpha: 0.78,
         lightHex: PipiFoundations.vellum50,
-        lightAlpha: 0.90
+        lightAlpha: 0.92
     )
+    public static let sheetBorder = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.pureWhite,
+        darkAlpha: 0.08,
+        lightHex: PipiFoundations.inkLightPrimary,
+        lightAlpha: 0.075
+    )
+    public static let sheetShadow = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.pureBlack,
+        darkAlpha: 0.42,
+        lightHex: PipiFoundations.inkLightPrimary,
+        lightAlpha: 0.065
+    )
+    public static let sheetCornerRadius: CGFloat = 16
+    public static let sheetInset: CGFloat = 8
 
     // Dynamic Adaptive Typography
     public static let textPrimary = PipiFoundations.adaptiveColor(
@@ -439,36 +457,96 @@ public enum PipiTokens {
         lightAlpha: 0.045
     )
 
-    // Cohesive Composer & Tactile Button Surfaces (Blends Naturally with bgCanvas in Both Light & Dark)
+    // Cohesive Composer & Apple Native Chat Surfaces (Soft Tonal User Pill + Borderless Editorial Assistant)
     public static let composerSurface = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.obsidian800,
+        darkAlpha: 0.88,
+        lightHex: PipiFoundations.vellum50,
+        lightAlpha: 0.92
+    )
+    public static let userBubbleBg = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.obsidian750,
+        darkAlpha: 1.0,
+        lightHex: PipiFoundations.vellumUserBubble,
+        lightAlpha: 1.0
+    )
+    public static let userBubbleFg = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.inkDarkPrimary,
+        darkAlpha: 1.0,
+        lightHex: PipiFoundations.inkLightPrimary,
+        lightAlpha: 1.0
+    )
+    public static let assistantBubbleBg = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.obsidian800,
+        darkAlpha: 0.92,
+        lightHex: PipiFoundations.vellum50,
+        lightAlpha: 1.0
+    )
+    public static let cardSurface = PipiFoundations.adaptiveColor(
         darkHex: PipiFoundations.obsidian800,
         darkAlpha: 1.0,
         lightHex: PipiFoundations.vellum50,
         lightAlpha: 1.0
     )
-    public static let userBubbleBg = PipiFoundations.adaptiveColor(
-        darkHex: PipiFoundations.obsidian800,
-        darkAlpha: 1.0,
-        lightHex: PipiFoundations.vellumUserBubble,
-        lightAlpha: 1.0
+    public static let cardTopSpecular = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.pureWhite,
+        darkAlpha: 0.11,
+        lightHex: PipiFoundations.pureWhite,
+        lightAlpha: 0.95
+    )
+    public static let cardBorderHairline = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.pureWhite,
+        darkAlpha: 0.08,
+        lightHex: PipiFoundations.inkLightPrimary,
+        lightAlpha: 0.065
+    )
+    public static let shadowKey = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.pureBlack,
+        darkAlpha: 0.36,
+        lightHex: PipiFoundations.inkLightPrimary,
+        lightAlpha: 0.055
+    )
+    public static let shadowAmbient = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.pureBlack,
+        darkAlpha: 0.22,
+        lightHex: PipiFoundations.inkLightPrimary,
+        lightAlpha: 0.03
+    )
+    public static let inlineCodeBg = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.pureWhite,
+        darkAlpha: 0.09,
+        lightHex: PipiFoundations.inkLightPrimary,
+        lightAlpha: 0.06
+    )
+    public static let voiceAuraPrimary = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.accentSkyDark,
+        darkAlpha: 0.22,
+        lightHex: PipiFoundations.accentIrisLight,
+        lightAlpha: 0.11
+    )
+    public static let voiceAuraSecondary = PipiFoundations.adaptiveColor(
+        darkHex: PipiFoundations.accentIrisDark,
+        darkAlpha: 0.16,
+        lightHex: PipiFoundations.accentSkyLight,
+        lightAlpha: 0.08
     )
     public static let composerBorder = PipiFoundations.adaptiveColor(
         darkHex: PipiFoundations.pureWhite,
-        darkAlpha: 0.12,
+        darkAlpha: 0.11,
         lightHex: PipiFoundations.inkLightPrimary,
-        lightAlpha: 0.11
+        lightAlpha: 0.09
     )
     public static let composerBorderFocused = PipiFoundations.adaptiveColor(
         darkHex: PipiFoundations.pureWhite,
-        darkAlpha: 0.26,
+        darkAlpha: 0.24,
         lightHex: PipiFoundations.inkLightPrimary,
-        lightAlpha: 0.26
+        lightAlpha: 0.22
     )
     public static let composerShadow = PipiFoundations.adaptiveColor(
         darkHex: PipiFoundations.pureBlack,
         darkAlpha: 0.34,
         lightHex: PipiFoundations.inkLightPrimary,
-        lightAlpha: 0.05
+        lightAlpha: 0.065
     )
     public static let buttonSecondaryBg = PipiFoundations.adaptiveColor(
         darkHex: PipiFoundations.obsidian800,
@@ -747,21 +825,21 @@ public enum PipiTokens {
         Font.system(size: scaledPointSize(size, scale: scale), weight: weight, design: design)
     }
 
-    public static var fontHero: Font { Font.system(size: scaledPointSize(28), weight: .bold, design: .rounded) }
-    public static var fontTitle: Font { Font.system(size: scaledPointSize(21), weight: .semibold, design: .default) }
-    public static var fontHeadline: Font { Font.system(size: scaledPointSize(16), weight: .semibold, design: .default) }
-    public static var fontBody: Font { Font.system(size: scaledPointSize(15), weight: .regular, design: .default) }
-    public static var fontSubheadline: Font { Font.system(size: scaledPointSize(14), weight: .medium, design: .default) }
-    public static var fontCaption: Font { Font.system(size: scaledPointSize(13), weight: .medium, design: .default) }
-    public static var fontMicro: Font { Font.system(size: scaledPointSize(12), weight: .semibold, design: .default) }
-    public static var fontMono: Font { Font.system(size: scaledPointSize(13), weight: .medium, design: .monospaced) }
-    public static var fontMonoSmall: Font { Font.system(size: scaledPointSize(12), weight: .medium, design: .monospaced) }
+    public static var fontHero: Font { Font.system(size: scaledPointSize(28), weight: .medium, design: .default) }
+    public static var fontTitle: Font { Font.system(size: scaledPointSize(20), weight: .medium, design: .default) }
+    public static var fontHeadline: Font { Font.system(size: scaledPointSize(15.5), weight: .medium, design: .default) }
+    public static var fontBody: Font { Font.system(size: scaledPointSize(14.5), weight: .regular, design: .default) }
+    public static var fontSubheadline: Font { Font.system(size: scaledPointSize(13.5), weight: .medium, design: .default) }
+    public static var fontCaption: Font { Font.system(size: scaledPointSize(13), weight: .regular, design: .default) }
+    public static var fontMicro: Font { Font.system(size: scaledPointSize(12), weight: .medium, design: .default) }
+    public static var fontMono: Font { Font.system(size: scaledPointSize(13), weight: .regular, design: .monospaced) }
+    public static var fontMonoSmall: Font { Font.system(size: scaledPointSize(12), weight: .regular, design: .monospaced) }
 
-    public static let trackingHero: CGFloat = -0.55
-    public static let trackingTitle: CGFloat = -0.35
-    public static let trackingHeadline: CGFloat = -0.16
+    public static let trackingHero: CGFloat = -0.45
+    public static let trackingTitle: CGFloat = -0.30
+    public static let trackingHeadline: CGFloat = -0.14
     public static let trackingBody: CGFloat = 0.0
-    public static let trackingMicro: CGFloat = 0.48
+    public static let trackingMicro: CGFloat = 0.0
 }
 
 // MARK: - Environment Key for Text Scale Invalidation
@@ -777,26 +855,105 @@ public extension EnvironmentValues {
     }
 }
 
-// MARK: - Fluid Motion Curves (Blueprint §7.4 + Reduced-Motion Fallback)
+// MARK: - Crisp Motion Budget (< 300ms, Exits Faster Than Entries, Zero Bounce)
 
 public enum PipiMotion {
-    /// Default UI spring: critically damped, zero bounce (response 0.3, damping 1.0).
-    public static let smooth = Animation.spring(response: 0.3, dampingFraction: 1.0)
+    /// Keyboard highlight / selection change: instant (0ms).
+    public static let instant: Animation? = nil
 
-    /// Fast direct-manipulation spring for press, hover, and focus transitions.
-    public static let snappy = Animation.spring(response: 0.2, dampingFraction: 1.0)
+    /// Tactile button press (scale 0.97): 100ms.
+    public static let press = Animation.easeOut(duration: 0.10)
 
-    /// Spatial panel / drawer / inspector spring (response 0.3, damping 1.0 — no bounce without momentum).
-    public static let drawer = Animation.spring(response: 0.3, dampingFraction: 1.0)
+    /// Menu / overlay close & collapse: 140ms (faster than entry).
+    public static let exit = Animation.easeIn(duration: 0.14)
 
-    /// Non-bouncy tactile confirmation spring for button/copy feedback.
-    public static let tactile = Animation.spring(response: 0.25, dampingFraction: 1.0)
+    /// Pointer hover state transition: 150ms.
+    public static let hover = Animation.easeOut(duration: 0.15)
 
-    /// Under-damped spring reserved strictly for momentum-driven gestures (e.g. swipe cards).
-    public static let momentum = Animation.spring(response: 0.3, dampingFraction: 0.8)
+    /// Fast direct-manipulation transition (press, hover, focus): 150ms, no bounce.
+    public static let snappy = Animation.easeOut(duration: 0.15)
 
-    /// Respects system `accessibilityReduceMotion` by substituting an instant calm cross-fade.
+    /// Menu / popover open: 200ms, no bounce.
+    public static let open = Animation.easeOut(duration: 0.20)
+
+    /// Default calm UI transition: 220ms, no bounce.
+    public static let smooth = Animation.easeOut(duration: 0.22)
+
+    /// Panel, drawer, or height transition: 260ms, no bounce (strictly < 300ms).
+    public static let drawer = Animation.easeOut(duration: 0.26)
+
+    /// Tactile confirmation feedback: 140ms, no bounce.
+    public static let tactile = Animation.easeOut(duration: 0.14)
+
+    /// Gesture settle transition: critically damped, 260ms, zero bounce.
+    public static let momentum = Animation.spring(response: 0.26, dampingFraction: 1.0)
+
+    /// Respects system `accessibilityReduceMotion` by substituting a brief 100ms cross-fade.
     public static func adaptive(_ animation: Animation, reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : animation
+        reduceMotion ? .easeOut(duration: 0.10) : animation
+    }
+}
+
+// MARK: - Apple Native Precision Surface & Liquid Glass Modifiers
+
+public extension View {
+    /// Gallery-grade Apple card surface: luminous `#FFFFFF` (Light) / anodized `#191A1F` (Dark),
+    /// subtle top-edge specular catch-light bevel, hairline border, and dual-layer ambient + key shadow.
+    func pipiAppleCard(cornerRadius: CGFloat = 14, elevated: Bool = true) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return self
+            .background(PipiTokens.cardSurface, in: shape)
+            .overlay(
+                shape.stroke(
+                    LinearGradient(
+                        colors: [PipiTokens.cardTopSpecular, PipiTokens.cardBorderHairline, PipiTokens.cardBorderHairline],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
+            )
+            .shadow(color: elevated ? PipiTokens.shadowKey : .clear, radius: elevated ? 10 : 0, x: 0, y: elevated ? 3 : 0)
+            .shadow(color: elevated ? PipiTokens.shadowAmbient : .clear, radius: elevated ? 2 : 0, x: 0, y: elevated ? 1 : 0)
+    }
+
+    /// Translucent Apple Liquid Glass chrome (floating composer, dock, voice controls):
+    /// `.ultraThinMaterial` + subtle adaptive glaze + luminous top rim + soft contextual drop shadow.
+    func pipiLiquidGlassChrome(cornerRadius: CGFloat = 24) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return self
+            .background(.ultraThinMaterial, in: shape)
+            .background(PipiTokens.composerSurface.opacity(0.65), in: shape)
+            .overlay(
+                shape.stroke(
+                    LinearGradient(
+                        colors: [PipiTokens.glassTopHighlight, PipiTokens.liquidGlassBorder],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
+            )
+            .shadow(color: PipiTokens.shadowKey, radius: 14, x: 0, y: 5)
+            .shadow(color: PipiTokens.shadowAmbient, radius: 2, x: 0, y: 1)
+    }
+
+    /// Capsule variant of Apple Liquid Glass chrome for floating docks and pill controls.
+    func pipiLiquidGlassCapsule() -> some View {
+        self
+            .background(.ultraThinMaterial, in: Capsule())
+            .background(PipiTokens.composerSurface.opacity(0.62), in: Capsule())
+            .overlay(
+                Capsule().stroke(
+                    LinearGradient(
+                        colors: [PipiTokens.glassTopHighlight, PipiTokens.liquidGlassBorder],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
+            )
+            .shadow(color: PipiTokens.shadowKey, radius: 14, x: 0, y: 6)
+            .shadow(color: PipiTokens.shadowAmbient, radius: 2, x: 0, y: 1)
     }
 }

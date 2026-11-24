@@ -902,7 +902,6 @@ public struct PipiBotInspectorView: View {
         Text(title)
             .font(PipiTokens.fontMicro)
             .foregroundStyle(PipiTokens.textMuted)
-            .textCase(.uppercase)
     }
 
     private var cardDivider: some View {

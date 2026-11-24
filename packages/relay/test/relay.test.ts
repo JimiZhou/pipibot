@@ -4,7 +4,13 @@
  */
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+
+import { checkAndUpgradeCli } from '../../daemon/src/relay-agent-host.ts';
 
 import {
   deriveSessionKey,
@@ -324,6 +330,189 @@ test('PipiE2EERelayServer unified auth (Email OTP + Device Flow + Device Registr
     assert.equal(listData.devices[0]?.name, 'Yujie Mac Mini');
     assert.ok(listData.devices[0]?.capabilities.includes('Claude Code'));
   } finally {
+    await relay.stop();
+  }
+});
+
+test('Dual-perspective WebUI renders Primary Control Node + Herdr Harness TUI + Remote Browser viewport with valid JS', async () => {
+  const relay = new PipiE2EERelayServer({ host: '127.0.0.1', port: 0 });
+  const { port } = await relay.start();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/app`);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+
+    // Primary Control Node default perspective + Herdr TUI tab
+    assert.ok(html.includes('主节点总控'));
+    assert.ok(html.includes('节点 Harness TUI'));
+    assert.ok(html.includes('id="pane-master"'));
+    assert.ok(html.includes('id="pane-herdr"'));
+
+    // Native ANSI streaming + raw PTY keystrokes + Remote Headless Browser CDP viewport
+    assert.ok(html.includes('renderAnsiHtml'));
+    assert.ok(html.includes('agent_stream'));
+    assert.ok(html.includes('browser_frame'));
+    assert.ok(html.includes('/api/agents/run'));
+    assert.ok(html.includes('/api/browser/launch'));
+    assert.ok(html.includes('/api/browser/action'));
+    assert.ok(html.includes('data-sview="split"'));
+    assert.ok(html.includes('data-rawkey="ctrlc"'));
+
+    // Ensure embedded client script parses cleanly
+    const scriptMatch = /<script>([\s\S]*?)<\/script>/.exec(html);
+    assert.ok(scriptMatch?.[1]);
+    assert.doesNotThrow(() => new Function(scriptMatch[1]!));
+  } finally {
+    await relay.stop();
+  }
+});
+
+test('Adaptive 3-tier /install.sh, embedded agents (/cli/pipibot-lite.py, /cli/pipibot-edge.sh) and Edge Relay bridge', async () => {
+  const relay = new PipiE2EERelayServer({ host: '127.0.0.1', port: 0, auth: { inMemory: true, exposeDevOtp: true } });
+  const { port } = await relay.start();
+  const baseHttp = `http://127.0.0.1:${port}`;
+  try {
+    // 1. Adaptive installer + Python Lite + POSIX Edge scripts
+    const installRes = await fetch(`${baseHttp}/install.sh`);
+    assert.equal(installRes.status, 200);
+    const installSh = await installRes.text();
+    assert.ok(installSh.startsWith('#!/bin/sh'));
+    assert.ok(installSh.includes('SELECTED_MODE'));
+    assert.ok(installSh.includes('/cli/pipibot-lite.py'));
+    assert.ok(installSh.includes('/cli/pipibot-edge.sh'));
+
+    const pyRes = await fetch(`${baseHttp}/cli/pipibot-lite.py`);
+    assert.equal(pyRes.status, 200);
+    assert.ok((await pyRes.text()).includes('/api/edge/heartbeat'));
+
+    const edgeRes = await fetch(`${baseHttp}/cli/pipibot-edge.sh`);
+    assert.equal(edgeRes.status, 200);
+    assert.ok((await edgeRes.text()).includes('/api/edge/heartbeat'));
+
+    // 2. Authenticate a user and test Edge Heartbeat <-> Exec <-> Result round-trip
+    const sendData = (await (await fetch(`${baseHttp}/api/auth/email/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'edge@pipibot.dev' }),
+    })).json()) as { devCode: string };
+    const verifyData = (await (await fetch(`${baseHttp}/api/auth/email/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'edge@pipibot.dev', code: sendData.devCode }),
+    })).json()) as { accessToken: string };
+    const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${verifyData.accessToken}` };
+
+    const hostId = 'edge_openwrt_01';
+    // Start edge long-poll heartbeat
+    const hbPromise = fetch(`${baseHttp}/api/edge/heartbeat`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ hostId, hostName: 'OpenWrt Router', arch: 'mips', memMB: 64, mode: 'edge' }),
+    }).then((r) => r.json() as Promise<{ ok: boolean; task: { id: string; command: string } | null }>);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    // Issue remote command from WebUI
+    const execPromise = fetch(`${baseHttp}/api/edge/exec`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ hostId, command: 'uname -a', timeoutMs: 5000 }),
+    }).then((r) => r.json() as Promise<{ ok: boolean; exitCode: number; stdout: string }>);
+
+    const hb = await hbPromise;
+    assert.equal(hb.ok, true);
+    assert.ok(hb.task);
+    assert.equal(hb.task.command, 'uname -a');
+
+    // Edge submits command result
+    await fetch(`${baseHttp}/api/edge/result`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ hostId, taskId: hb.task.id, exitCode: 0, stdout: 'Linux OpenWrt 5.15 mips' }),
+    });
+
+    const execResult = await execPromise;
+    assert.equal(execResult.ok, true);
+    assert.equal(execResult.exitCode, 0);
+    assert.ok(execResult.stdout.includes('OpenWrt'));
+
+    // Snapshot reflects online edge node
+    const snap = (await (await fetch(`${baseHttp}/api/edge/snapshot?hostId=${hostId}`, {
+      headers: authHeaders,
+    })).json()) as { online: boolean; arch: string; edgeMode: boolean };
+    assert.equal(snap.online, true);
+    assert.equal(snap.arch, 'mips');
+    assert.equal(snap.edgeMode, true);
+  } finally {
+    await relay.stop();
+  }
+});
+
+test('Managed node CLI auto-upgrade: /cli/version.json SHA-256 verification, atomic swap, idempotent check & Lite/Edge syntax', async () => {
+  const relay = new PipiE2EERelayServer({ host: '127.0.0.1', port: 0, auth: { inMemory: true } });
+  const { port } = await relay.start();
+  const baseHttp = `http://127.0.0.1:${port}`;
+  const sandboxDir = mkdtempSync(join(tmpdir(), 'pipibot-cli-upgrade-'));
+  try {
+    // 1. /cli/version.json exposes version + SHA-256 for all 3 tiers
+    const verResp = await fetch(`${baseHttp}/cli/version.json`);
+    assert.equal(verResp.status, 200);
+    const manifest = (await verResp.json()) as {
+      version: string;
+      artifacts: {
+        node: { url: string; sha256: string; bytes: number } | null;
+        lite: { url: string; sha256: string; bytes: number };
+        edge: { url: string; sha256: string; bytes: number };
+      };
+    };
+    assert.equal(manifest.version, '0.13.3');
+    assert.ok(manifest.artifacts.node?.sha256 && manifest.artifacts.node.sha256.length === 64);
+    assert.ok(manifest.artifacts.lite.sha256.length === 64);
+    assert.ok(manifest.artifacts.edge.sha256.length === 64);
+
+    // 2. Response headers match manifest SHA-256
+    const nodeRes = await fetch(`${baseHttp}/cli/pipibot.ts`);
+    assert.equal(nodeRes.headers.get('x-pipibot-cli-sha256'), manifest.artifacts.node.sha256);
+    assert.equal(nodeRes.headers.get('x-pipibot-cli-version'), '0.13.3');
+
+    // 3. Simulate an outdated installed CLI and verify atomic self-upgrade + idempotent re-check
+    const installedPath = join(sandboxDir, 'pipibot.ts');
+    writeFileSync(installedPath, '// old version placeholder\nexport const PIPIBOT_CLI_VERSION = "0.13.0";\n', 'utf8');
+
+    const up1 = await checkAndUpgradeCli({
+      relayOrigin: baseHttp,
+      scriptPath: installedPath,
+      restartDaemon: false,
+    });
+    assert.equal(up1.ok, true);
+    assert.equal(up1.updated, true);
+    assert.equal(up1.latestVersion, '0.13.3');
+    assert.equal(up1.localSha256, manifest.artifacts.node.sha256);
+    assert.ok(readFileSync(installedPath, 'utf8').includes('PIPIBOT_CLI_VERSION'));
+
+    const up2 = await checkAndUpgradeCli({
+      relayOrigin: baseHttp,
+      scriptPath: installedPath,
+      restartDaemon: false,
+    });
+    assert.equal(up2.ok, true);
+    assert.equal(up2.updated, false);
+    assert.equal(up2.reason, 'already_up_to_date');
+
+    // 4. Verify Python Lite & POSIX Edge scripts parse cleanly and include auto-upgrade hooks
+    const pyCode = await (await fetch(`${baseHttp}/cli/pipibot-lite.py`)).text();
+    assert.ok(pyCode.includes('check_and_self_upgrade'));
+    const pyFile = join(sandboxDir, 'pipibot-lite.py');
+    writeFileSync(pyFile, pyCode, 'utf8');
+    execFileSync('python3', ['-m', 'py_compile', pyFile]);
+
+    const shCode = await (await fetch(`${baseHttp}/cli/pipibot-edge.sh`)).text();
+    assert.ok(shCode.includes('cmd_upgrade'));
+    const shFile = join(sandboxDir, 'pipibot-edge.sh');
+    writeFileSync(shFile, shCode, 'utf8');
+    execFileSync('sh', ['-n', shFile]);
+  } finally {
+    rmSync(sandboxDir, { recursive: true, force: true });
     await relay.stop();
   }
 });

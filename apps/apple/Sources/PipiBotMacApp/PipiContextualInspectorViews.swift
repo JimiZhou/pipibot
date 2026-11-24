@@ -298,7 +298,7 @@ public struct PipiSessionInspectorView: View {
                                 addedVerification: [lang == .zhHans ? "交付前显式核对每条验收标准" : "Explicitly verify every criterion before closing"]
                             )
                         } label: {
-                            Label(s.t("对照目标生成自进化提案", "Propose Goal Review Diff"), systemImage: "wand.and.stars")
+                            Label(s.t("对照目标生成自进化提案", "Propose goal review diff"), systemImage: "arrow.triangle.2.circlepath")
                                 .font(PipiTokens.fontCaption.weight(.medium))
                         }
                         .buttonStyle(.bordered)

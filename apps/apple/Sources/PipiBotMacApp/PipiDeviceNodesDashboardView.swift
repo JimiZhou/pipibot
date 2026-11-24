@@ -337,7 +337,7 @@ struct PipiDeviceNodesDashboardView: View {
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundStyle(PipiTokens.textPrimary)
                     .lineLimit(1)
-                tagPill(dev.platform.uppercased(), highlighted: false)
+                tagPill(dev.platform.capitalized, highlighted: false)
                 Spacer()
                 Text(dev.isOnline ? (tel.map { "运行 \($0.formattedUptime)" } ?? s.t("在线", "Online")) : s.t("离线", "Offline"))
                     .font(.system(size: 11, weight: .medium))

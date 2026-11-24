@@ -1480,7 +1480,7 @@ export class ByokDirectHarnessDriver implements HarnessDriver {
     cfg: ByokProviderConfig,
     apiKey?: string,
   ): Promise<DriverExecutionResult> {
-    const maxIters = ctx.request.maxToolIterations ?? 6;
+    const maxIters = ctx.request.maxToolIterations ?? 16;
     const tools = cfg.supportsTools
       ? ctx.mcpBridge.listRoutedMcpTools().map((t) => ({
           type: 'function',
@@ -1635,7 +1635,7 @@ export class ByokDirectHarnessDriver implements HarnessDriver {
     let toolCallsExecuted = 0;
     let inputTokens = 0;
     let outputTokens = 0;
-    const maxIters = ctx.request.maxToolIterations ?? 6;
+    const maxIters = ctx.request.maxToolIterations ?? 16;
 
     for (let iter = 0; iter < maxIters; iter += 1) {
       ctx.pulse.update({ phase: 'streaming_model' });

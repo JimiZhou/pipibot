@@ -479,7 +479,6 @@ public struct PipiCommandPaletteView: View {
                                         Text(entry.section)
                                             .font(PipiTokens.fontMicro)
                                             .foregroundStyle(PipiTokens.textMuted)
-                                            .textCase(.uppercase)
                                             .padding(.horizontal, PipiTokens.spacing12)
                                             .padding(.top, idx == 0 ? 6 : 10)
                                             .padding(.bottom, 2)

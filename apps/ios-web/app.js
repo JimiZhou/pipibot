@@ -16,6 +16,38 @@ function createSeedState() {
     theme: 'dark',
     activeTab: 'outcomes',
     activeDecisionId: null,
+    boardChannelFilter: 'all',
+    board: {
+      channels: [
+        { slug: 'inbox', title: 'Inbox' },
+        { slug: 'dev', title: 'Dev' },
+        { slug: 'ops', title: 'Ops' },
+      ],
+      threads: [
+        {
+          id: 'bth-seed-1',
+          channelSlug: 'dev',
+          kind: 'task',
+          title: '补齐 Jarvis 早停自动续跑与并发只读单测',
+          status: 'claimed',
+          priority: 'high',
+          blockedBy: [],
+          claim: { actor: { id: 'bot:coder', name: 'Coder · 编程搭档', kind: 'bot' }, expiresAt: new Date(Date.now() + 14 * 60_000).toISOString(), leaseToken: 'seed_lease_1' },
+          messages: [{ id: 'bm-1', body: '已将 maxSteps 提升至 20 并添加早停守卫。' }],
+        },
+        {
+          id: 'bth-seed-2',
+          channelSlug: 'ops',
+          kind: 'task',
+          title: '云主机节点巡检与 omp CLI 验证',
+          status: 'open',
+          priority: 'normal',
+          blockedBy: [],
+          messages: [{ id: 'bm-2', body: '核验三台在线节点内存与 harness 可用性。' }],
+        },
+      ],
+      events: [],
+    },
     selectedHarness: 'pi',
     avatarState: 'ambient-breathe',
     avatarExpression: 'happy',
@@ -486,13 +518,14 @@ export async function initApp() {
 
   async function refreshAllDaemonData() {
     if (!state.liveDaemon) return;
-    const [outRes, decRes, cueRes, fleetRes, memRes, chatRes] = await Promise.allSettled([
+    const [outRes, decRes, cueRes, fleetRes, memRes, chatRes, boardRes] = await Promise.allSettled([
       apiFetch('/api/v1/outcomes'),
       apiFetch('/api/v1/decisions?status=pending'),
       apiFetch('/api/v1/cue'),
       apiFetch('/api/v1/fleet'),
       apiFetch('/api/v1/memory'),
       apiFetch('/api/v1/chat/transcript'),
+      apiFetch('/api/v1/board'),
     ]);
 
     if (outRes.status === 'fulfilled' && Array.isArray(outRes.value.outcomes)) {
@@ -521,6 +554,16 @@ export async function initApp() {
         text: e.text || e.content || '',
       }));
     }
+    if (boardRes.status === 'fulfilled' && boardRes.value) {
+      const snap = boardRes.value.board || boardRes.value;
+      if (Array.isArray(snap.threads)) {
+        state.board = {
+          channels: Array.isArray(snap.channels) && snap.channels.length ? snap.channels : state.board.channels,
+          threads: snap.threads,
+          events: Array.isArray(snap.events) ? snap.events : [],
+        };
+      }
+    }
     renderAll();
   }
 
@@ -537,7 +580,7 @@ export async function initApp() {
       }
     });
 
-    const reloadEvents = ['outcome.update', 'decision.needs_you', 'decision.resolved', 'cue.suggestion', 'node.heartbeat', 'evolution.digest_ready'];
+    const reloadEvents = ['outcome.update', 'decision.needs_you', 'decision.resolved', 'cue.suggestion', 'node.heartbeat', 'evolution.digest_ready', 'board.event'];
     for (const evtName of reloadEvents) {
       es.addEventListener(evtName, () => {
         void refreshAllDaemonData();
@@ -613,11 +656,138 @@ export async function initApp() {
     }
   }
 
+  function boardStatusLabel(status) {
+    const zh = { open: '待认领', claimed: '进行中', blocked: '已阻塞', needs_you: '待确认', done: '已完成', cancelled: '已取消' };
+    const en = { open: 'Open', claimed: 'Claimed', blocked: 'Blocked', needs_you: 'Needs you', done: 'Done', cancelled: 'Cancelled' };
+    return (isZh ? zh[status] : en[status]) || status;
+  }
+
+  function boardStatusPillClass(status) {
+    if (status === 'claimed') return 'is-ok';
+    if (status === 'needs_you' || status === 'blocked') return 'is-warn';
+    if (status === 'done') return 'is-ok';
+    return '';
+  }
+
+  function formatLeaseCountdown(claim) {
+    if (!claim || !claim.expiresAt) return '';
+    const diffMs = Date.parse(claim.expiresAt) - Date.now();
+    if (!Number.isFinite(diffMs) || diffMs <= 0) return isZh ? '租约到期' : 'Expired';
+    const mins = Math.max(1, Math.ceil(diffMs / 60000));
+    return isZh ? `剩余 ${mins}m` : `${mins}m left`;
+  }
+
+  async function handleBoardAction(action, threadId) {
+    const actor = { id: 'human:mobile', name: isZh ? '手机端主人' : 'Owner (Mobile)', kind: 'human' };
+    const thread = (state.board.threads || []).find((t) => t.id === threadId);
+    if (!thread) return;
+    if (state.liveDaemon) {
+      try {
+        if (action === 'claim') {
+          await apiFetch(`/api/v1/board/threads/${encodeURIComponent(threadId)}/claim`, {
+            method: 'POST',
+            body: JSON.stringify({ actor, leaseSeconds: 900 }),
+          });
+        } else if (action === 'complete') {
+          await apiFetch(`/api/v1/board/threads/${encodeURIComponent(threadId)}/complete`, {
+            method: 'POST',
+            body: JSON.stringify({
+              actor: thread.claim?.actor || actor,
+              leaseToken: thread.claim?.leaseToken,
+              summary: isZh ? '已在移动端确认完成。' : 'Completed from mobile companion.',
+            }),
+          });
+        }
+        await refreshAllDaemonData();
+        return;
+      } catch {
+        // fall through to optimistic local update
+      }
+    }
+    if (action === 'claim') {
+      thread.status = 'claimed';
+      thread.claim = { actor, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), leaseToken: 'local_lease' };
+    } else if (action === 'complete') {
+      thread.status = 'done';
+      thread.claim = undefined;
+    }
+    renderAll();
+  }
+
+  async function handleQuickBoardPost(title, channelSlug) {
+    const clean = (title || '').trim();
+    if (!clean) return;
+    const slug = channelSlug && channelSlug !== 'all' ? channelSlug : 'inbox';
+    const actor = { id: 'human:mobile', name: isZh ? '手机端主人' : 'Owner (Mobile)', kind: 'human' };
+    if (state.liveDaemon) {
+      try {
+        await apiFetch('/api/v1/board/threads', {
+          method: 'POST',
+          body: JSON.stringify({ channelSlug: slug, title: clean, kind: 'task', priority: 'normal', author: actor }),
+        });
+        await refreshAllDaemonData();
+        return;
+      } catch {
+        // fall through to local optimistic create
+      }
+    }
+    state.board.threads.unshift({
+      id: `bth-local-${Date.now()}`,
+      channelSlug: slug,
+      kind: 'task',
+      title: clean,
+      status: 'open',
+      priority: 'normal',
+      blockedBy: [],
+      messages: [],
+    });
+    renderAll();
+  }
+
   function renderOutcomesTab(container) {
+    const channels = state.board?.channels || [];
+    const allThreads = state.board?.threads || [];
+    const filter = state.boardChannelFilter || 'all';
+    const visibleThreads = filter === 'all' ? allThreads : allThreads.filter((t) => t.channelSlug === filter);
+
     container.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="font-size:16px;">${copy.outcomes(state.outcomes.length)}</strong>
-        <button class="pipi-btn pipi-btn-primary" id="btn-new-outcome" type="button">
+        <span style="font-size:16px;font-weight:500;">${isZh ? `协同任务板 (${visibleThreads.length})` : `Board (${visibleThreads.length})`}</span>
+        <span class="mono" style="font-size:11px;color:var(--pipi-text-muted);">${state.liveDaemon ? (isZh ? '实时同步' : 'Live') : (isZh ? '本地预览' : 'Preview')}</span>
+      </div>
+      <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;">
+        <button class="pipi-btn pipi-btn-desktop ${filter === 'all' ? 'pipi-btn-primary' : ''}" data-board-ch="all" type="button">${isZh ? '全部' : 'All'}</button>
+        ${channels.map((c) => `<button class="pipi-btn pipi-btn-desktop ${filter === c.slug ? 'pipi-btn-primary' : ''}" data-board-ch="${escapeHtml(c.slug)}" type="button">#${escapeHtml(c.slug)}</button>`).join('')}
+      </div>
+      <form id="board-quick-form" style="display:flex;gap:8px;align-items:center;">
+        <input id="board-quick-input" type="text" placeholder="${isZh ? '发布一条新任务到当前频道…' : 'Post a task to this channel…'}" style="flex:1;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--pipi-border-subtle);background:var(--pipi-bg-elevated);color:var(--pipi-text-primary);font-size:13px;" />
+        <button class="pipi-btn pipi-btn-desktop pipi-btn-primary" type="submit">${isZh ? '发布' : 'Post'}</button>
+      </form>
+      ${visibleThreads.length === 0 ? `
+        <div style="font-size:13px;color:var(--pipi-text-muted);padding:8px 0;">${isZh ? '该频道暂无任务。' : 'No tasks in this channel.'}</div>
+      ` : visibleThreads.slice(0, 8).map((th) => {
+        const leaseStr = th.status === 'claimed' ? formatLeaseCountdown(th.claim) : '';
+        const holder = th.claim?.actor?.name || '';
+        const meta = [`#${th.channelSlug}`, holder, leaseStr].filter(Boolean).join(' · ');
+        return `
+        <article class="pipi-list-card">
+          <div class="pipi-list-card-head">
+            <div>
+              <div class="pipi-list-card-title">${escapeHtml(th.title)}</div>
+              <div class="pipi-list-card-sub mono" style="font-size:11px;">${escapeHtml(meta)}</div>
+            </div>
+            <span class="pipi-pill ${boardStatusPillClass(th.status)} mono">${escapeHtml(boardStatusLabel(th.status))}</span>
+          </div>
+          <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;">
+            ${th.status === 'open' ? `<button class="pipi-btn pipi-btn-desktop" data-board-act="claim" data-tid="${escapeHtml(th.id)}" type="button">${isZh ? '认领' : 'Claim'}</button>` : ''}
+            ${th.status !== 'done' && th.status !== 'cancelled' && th.status !== 'blocked' ? `<button class="pipi-btn pipi-btn-desktop pipi-btn-primary" data-board-act="complete" data-tid="${escapeHtml(th.id)}" type="button">${isZh ? '完成' : 'Complete'}</button>` : ''}
+          </div>
+        </article>`;
+      }).join('')}
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+        <span style="font-size:15px;font-weight:500;">${copy.outcomes(state.outcomes.length)}</span>
+        <button class="pipi-btn pipi-btn-desktop" id="btn-new-outcome" type="button">
           <svg class="pipi-icon-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -644,6 +814,24 @@ export async function initApp() {
       `).join('')}
     `;
 
+    container.querySelectorAll('[data-board-ch]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.boardChannelFilter = btn.dataset.boardCh || 'all';
+        renderAll();
+      });
+    });
+    container.querySelectorAll('[data-board-act]').forEach((btn) => {
+      btn.addEventListener('click', () => handleBoardAction(btn.dataset.boardAct, btn.dataset.tid));
+    });
+    $('#board-quick-form')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = $('#board-quick-input');
+      if (input && input.value.trim()) {
+        const val = input.value;
+        input.value = '';
+        handleQuickBoardPost(val, state.boardChannelFilter);
+      }
+    });
     $('#btn-new-outcome')?.addEventListener('click', openCreateOutcomeFormSheet);
     container.querySelectorAll('[data-eval-id]').forEach((btn) => {
       btn.addEventListener('click', () => handleEvaluateOutcome(btn.dataset.evalId));

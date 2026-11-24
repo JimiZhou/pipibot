@@ -733,6 +733,23 @@ extension PipiAppStore {
                 return "未找到目标远程节点（\(args["device"] ?? "未指定")）。"
             }
             let op = (args["operation"] ?? "exec").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if op == "upgrade" {
+                let res = await invokeRemoteNodeRPC(
+                    device: dev,
+                    method: "POST",
+                    path: "/api/system/upgrade",
+                    body: ["force": (args["force"] == "true")],
+                    timeoutSeconds: 35
+                )
+                guard res.ok else { return "升级远程节点「\(dev.name)」CLI 失败：\(res.errorMessage ?? "HTTP \(res.status)")" }
+                let updated = (res.body["updated"] as? Bool) ?? false
+                let latest = (res.body["latestVersion"] as? String) ?? "latest"
+                let reason = (res.body["reason"] as? String) ?? ""
+                if updated {
+                    return "⬆️ 远程节点「\(dev.name)」CLI 已升级至 v\(latest)，正在后台无缝重启守护进程。"
+                }
+                return "✅ 远程节点「\(dev.name)」CLI 无需升级（当前已是 v\(latest)，\(reason)）。"
+            }
             if op == "list_files" {
                 var body: [String: Any] = [:]
                 if let path = args["path"], !path.isEmpty { body["path"] = path }
@@ -749,9 +766,11 @@ extension PipiAppStore {
             }
             let cmd = (args["command"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cmd.isEmpty else { return "执行远程命令需要提供 command。" }
-            var body: [String: Any] = ["command": cmd, "timeoutMs": 20_000]
+            let requestedSec = Int((args["timeout_seconds"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 45
+            let clampedSec = max(5, min(120, requestedSec))
+            var body: [String: Any] = ["command": cmd, "timeoutMs": clampedSec * 1_000]
             if let cwd = args["cwd"], !cwd.isEmpty { body["cwd"] = cwd }
-            let res = await invokeRemoteNodeRPC(device: dev, method: "POST", path: "/api/shell/exec", body: body, timeoutSeconds: 28)
+            let res = await invokeRemoteNodeRPC(device: dev, method: "POST", path: "/api/shell/exec", body: body, timeoutSeconds: Double(clampedSec + 10))
             guard res.ok else { return "在节点「\(dev.name)」执行命令失败：\(res.errorMessage ?? "HTTP \(res.status)")" }
             let exitCode = (res.body["exitCode"] as? Int) ?? 0
             let stdout = (res.body["stdout"] as? String) ?? ""

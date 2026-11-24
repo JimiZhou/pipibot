@@ -93,6 +93,10 @@ public struct PipiResidentPersistedState: Codable, Sendable {
     public var wechatPrimaryBotId: String?
     public var wechatRoutingModeRaw: String?
     public var wechatGroupMemberBotIds: [String]?
+    // Phase 2: Board Coordination Persistence
+    public var boardChannels: [PipiBoardChannel]?
+    public var boardThreads: [PipiBoardThread]?
+    public var boardEvents: [PipiBoardActivityEvent]?
 
     private enum CodingKeys: String, CodingKey {
         case outcomes, decisions, museCards, activeHarness, themeModeRaw, keepAwakeEnabled, updatedAt
@@ -112,6 +116,7 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         case autoCheckUpdatesEnabled, proactiveCLIDelegationEnabled, securityAuditorBotId
         case wechatAutoConnectEnabled, wechatTypingIndicatorEnabled, wechatPrimaryBotId
         case wechatRoutingModeRaw, wechatGroupMemberBotIds
+        case boardChannels, boardThreads, boardEvents
     }
 
     public init(
@@ -161,7 +166,10 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         wechatTypingIndicatorEnabled: Bool? = nil,
         wechatPrimaryBotId: String? = nil,
         wechatRoutingModeRaw: String? = nil,
-        wechatGroupMemberBotIds: [String]? = nil
+        wechatGroupMemberBotIds: [String]? = nil,
+        boardChannels: [PipiBoardChannel]? = nil,
+        boardThreads: [PipiBoardThread]? = nil,
+        boardEvents: [PipiBoardActivityEvent]? = nil
     ) {
         self.outcomes = outcomes
         self.decisions = decisions
@@ -210,6 +218,9 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         self.wechatPrimaryBotId = wechatPrimaryBotId
         self.wechatRoutingModeRaw = wechatRoutingModeRaw
         self.wechatGroupMemberBotIds = wechatGroupMemberBotIds
+        self.boardChannels = boardChannels
+        self.boardThreads = boardThreads
+        self.boardEvents = boardEvents
     }
 
     public init(from decoder: Decoder) throws {
@@ -264,6 +275,9 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         self.wechatPrimaryBotId = try? c.decodeIfPresent(String.self, forKey: .wechatPrimaryBotId)
         self.wechatRoutingModeRaw = try? c.decodeIfPresent(String.self, forKey: .wechatRoutingModeRaw)
         self.wechatGroupMemberBotIds = try? c.decodeIfPresent([String].self, forKey: .wechatGroupMemberBotIds)
+        self.boardChannels = (try? c.decodeIfPresent(PipiLossyArray<PipiBoardChannel>.self, forKey: .boardChannels))?.elements
+        self.boardThreads = (try? c.decodeIfPresent(PipiLossyArray<PipiBoardThread>.self, forKey: .boardThreads))?.elements
+        self.boardEvents = (try? c.decodeIfPresent(PipiLossyArray<PipiBoardActivityEvent>.self, forKey: .boardEvents))?.elements
     }
 }
 

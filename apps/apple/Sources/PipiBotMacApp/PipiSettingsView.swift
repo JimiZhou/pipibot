@@ -519,8 +519,8 @@ public struct PipiSettingsView: View {
                     }
                     Spacer()
                     PipiActionButton(
-                        s.t("启动引导式配置", "Launch Guided Setup"),
-                        systemImage: "wand.and.stars",
+                        s.t("启动引导式配置", "Launch guided setup"),
+                        systemImage: "checklist",
                         tone: .secondary,
                         density: .desktopCompact
                     ) {
@@ -3038,7 +3038,7 @@ public struct PipiSettingsView: View {
                         .font(PipiTokens.fontCaption)
                         .foregroundStyle(PipiTokens.textSecondary)
                     Spacer()
-                    PipiActionButton(s.t("逐步授权向导", "Guided Permissions"), systemImage: "wand.and.stars", tone: .primary, density: .desktopCompact) {
+                    PipiActionButton(s.t("逐步授权向导", "Guided permissions"), systemImage: "checkmark.shield", tone: .primary, density: .desktopCompact) {
                         onClose?()
                         store.reopenOnboarding(atStep: 2)
                     }

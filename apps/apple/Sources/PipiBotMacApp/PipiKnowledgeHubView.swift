@@ -18,7 +18,7 @@ public enum PipiKnowledgeHubTab: String, CaseIterable, Identifiable, Sendable {
     public var iconName: String {
         switch self {
         case .wiki: return "books.vertical"
-        case .proactive: return "sparkles.rectangle.stack"
+        case .proactive: return "bell.badge"
         case .pocketNotes: return "note.text"
         case .botMemory: return "brain.head.profile"
         case .builtinSkills: return "shippingbox"
@@ -554,7 +554,7 @@ public struct PipiKnowledgeHubView: View {
 
             if store.proactiveBriefings.isEmpty {
                 PipiEmptyState(
-                    systemImage: "sparkles.rectangle.stack",
+                    systemImage: "bell.badge",
                     title: s.proactiveEmptyTitle,
                     message: s.proactiveEmptyMessage,
                     buttonTitle: s.proactiveScanNow
@@ -691,7 +691,7 @@ public struct PipiKnowledgeHubView: View {
                             message: s.t("每位助手的经验摘要相互隔离，仅在会话首轮或上下文压缩后注入，不破坏提示词缓存。", "Strictly isolated per assistant and injected only on first or post-compaction turns to preserve prompt caching.")
                         )
                         Spacer()
-                        PipiActionButton(s.botMemoryConsolidateNow, systemImage: "sparkles", tone: .secondary, density: .desktopCompact) {
+                        PipiActionButton(s.botMemoryConsolidateNow, systemImage: "arrow.triangle.2.circlepath", tone: .secondary, density: .desktopCompact) {
                             Task {
                                 let res = await store.consolidateBotMemoryNow(for: resolvedBotId)
                                 draftBotSummary = res.summary
@@ -1170,9 +1170,8 @@ public struct PipiKnowledgeHubView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(PipiTokens.fontCaption.weight(.semibold))
+            .font(PipiTokens.fontMicro)
             .foregroundStyle(PipiTokens.textSecondary)
-            .textCase(.uppercase)
     }
 
     private func openNewWikiPageSheet() {

@@ -241,13 +241,37 @@ public enum PipiJarvisToolRiskEvaluator {
              "configure_group_mode", "update_settings", "check_updates", "create_routine_or_reminder",
              "materialize_blueprint_bot", "record_entity_ledger", "query_entity_ledger", "propose_blueprint_evolution",
              "trigger_list", "trigger_upsert", "trigger_delete",
-             "remote_nodes_list", "remote_node_inspect", "remote_node_run_harness", "remote_node_exec":
+             "remote_nodes_list", "remote_node_inspect", "remote_node_run_harness", "remote_node_exec",
+             "browser_snapshot", "device_vision_ocr", "device_clipboard", "device_npu_status", "run_script":
             return PipiToolRiskAssessment(
                 requiresApproval: false,
                 actionKind: .readOnly,
                 target: toolCall.string("path") ?? normalizedWorkspace,
                 summary: "\(toolCall.name)",
                 reason: "只读探索、富媒体交付或管家控制操作，静默放行。"
+            )
+
+        case "browser_browse", "browser_open":
+            let rawURL = toolCall.string("url") ?? ""
+            let check = PipiBrowserCUASafetyPolicy.validateNavigationURL(rawURL)
+            if !check.allowed, let risk = check.assessment {
+                return risk
+            }
+            return PipiToolRiskAssessment(
+                requiresApproval: false,
+                actionKind: .readOnly,
+                target: check.normalizedURL,
+                summary: "\(toolCall.name): \(check.normalizedURL.prefix(100))",
+                reason: "真实浏览器打开公开网页并提取内容，静默放行。"
+            )
+
+        case "browser_act":
+            return PipiToolRiskAssessment(
+                requiresApproval: false,
+                actionKind: .readOnly,
+                target: toolCall.string("ref") ?? toolCall.string("action") ?? "page",
+                summary: "browser_act(\(toolCall.string("action") ?? "act"))",
+                reason: "浏览器交互由 CUA 安全策略实时校验（高敏支付/删除/密码自动拦截确认）。"
             )
 
         case "write_file", "edit_file":
@@ -467,6 +491,8 @@ public enum PipiLivelyProgressNarrator {
         case "run_shell":
             let cmd = call.string("command") ?? ""
             return isZh ? "在终端里跑一下检查：\(cmd.prefix(36)) ⚡" : "Running command: \(cmd.prefix(36)) ⚡"
+        case "run_script":
+            return isZh ? "正在本机沙箱引擎里运行脚本计算 ⚡" : "Running sandboxed JS script locally ⚡"
         case "get_system_status":
             return isZh ? "顺手看一眼你这台 Mac 的实时状态 💻" : "Checking your Mac's live health 💻"
         case "web_search", "fetch_webpage":
@@ -513,6 +539,23 @@ public enum PipiLivelyProgressNarrator {
             return isZh ? "正在调度远程节点上的 Agent Harness 执行任务 🤖" : "Invoking remote node agent harness 🤖"
         case "remote_node_exec":
             return isZh ? "正在通过远程守护进程执行排查/开发操作 🛠️" : "Running remote daemon command 🛠️"
+        case "browser_browse":
+            let u = call.string("url") ?? "网页"
+            return isZh ? "正在启动独立浏览器子代理打开并深度阅读 \(u.prefix(40)) 🌐" : "Browsing \(u.prefix(40)) with Web CUA subagent 🌐"
+        case "browser_open":
+            let u = call.string("url") ?? "网页"
+            return isZh ? "正在用真实浏览器打开 \(u.prefix(40)) 并截取页面快照 🌐" : "Opening \(u.prefix(40)) in live browser 🌐"
+        case "browser_act":
+            let act = call.string("action") ?? "交互"
+            return isZh ? "正在网页中执行 \(act) 操作并刷新视图 🖱️" : "Performing browser \(act) action 🖱️"
+        case "browser_snapshot":
+            return isZh ? "正在读取当前网页内容与视口截图 👀" : "Inspecting live browser viewport 👀"
+        case "device_vision_ocr":
+            return isZh ? "正在调用本机 Apple Vision NPU 识字与析图 🧠" : "Running on-device Apple Vision NPU OCR 🧠"
+        case "device_clipboard":
+            return isZh ? "正在访问本机剪贴板 📋" : "Accessing device clipboard 📋"
+        case "device_npu_status":
+            return isZh ? "正在检测本机 NPU 算力与设备状态 ⚡" : "Inspecting Apple Neural Engine status ⚡"
         default:
             return isZh ? "正在处理第 \(stepIndex) 步，马上好啦 ✨" : "Working on step \(stepIndex) ✨"
         }
@@ -534,17 +577,20 @@ public enum PipiLivelyProgressNarrator {
 public struct PipiAgentToolExecutionResult: Sendable {
     public let output: String
     public let artifacts: [PipiDeliverableArtifact]
+    public let visionImages: [PipiEncodedImagePart]
     public let isError: Bool
     public let needsApproval: PipiToolRiskAssessment?
 
     public init(
         output: String,
         artifacts: [PipiDeliverableArtifact] = [],
+        visionImages: [PipiEncodedImagePart] = [],
         isError: Bool = false,
         needsApproval: PipiToolRiskAssessment? = nil
     ) {
         self.output = output
         self.artifacts = artifacts
+        self.visionImages = visionImages
         self.isError = isError
         self.needsApproval = needsApproval
     }
@@ -675,10 +721,17 @@ public enum PipiAgentToolbox {
         ),
         PipiAgentToolDefinition(
             name: "run_shell",
-            description: "Execute a zsh shell command on this Mac (git, ls, swift, npm, python3, curl, system inspection, etc.).",
+            description: "Execute a shell command. On macOS runs native zsh (git, ls, swift, npm, python3, curl, etc.); on iPhone runs the built-in sandboxed POSIX shell (ls, cat, grep, wc, sort, find, curl, pipes, js) locally and automatically routes heavy desktop toolchains (python3, git, swift, npm, ffmpeg) to an online enrolled Mac/Linux host over E2EE. Prefer batching related steps with &&.",
             parameters: [
-                PipiAgentToolParam(name: "command", description: "Shell command string to execute", required: true),
+                PipiAgentToolParam(name: "command", description: "Shell command string to execute (compound commands encouraged for efficiency)", required: true),
                 PipiAgentToolParam(name: "working_directory", description: "Optional working directory", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "run_script",
+            description: "Execute sandboxed JavaScript directly on Apple's built-in JavaScriptCore engine (works offline on both iPhone and Mac with zero latency). Provides `console.log` and workspace-jailed `fs.read/write/append/list/exists/remove` for exact math, JSON/CSV transforms, data analysis, and file processing.",
+            parameters: [
+                PipiAgentToolParam(name: "code", description: "JavaScript source code to evaluate; return a value or use console.log()", required: true)
             ]
         ),
         PipiAgentToolDefinition(
@@ -695,10 +748,66 @@ public enum PipiAgentToolbox {
         ),
         PipiAgentToolDefinition(
             name: "fetch_webpage",
-            description: "Fetch and extract readable text from a public HTTP/HTTPS URL.",
+            description: "Fast plain-HTTP fetch for static docs/JSON/API URLs. For JS-rendered sites (X/Twitter, SPAs, web apps, dashboards, or pages needing clicks/scrolling/screenshots), use `browser_browse` or `browser_open` instead.",
             parameters: [
                 PipiAgentToolParam(name: "url", description: "Full URL to fetch", required: true)
             ]
+        ),
+        PipiAgentToolDefinition(
+            name: "browser_browse",
+            description: "Launch an isolated Web CUA (Computer Use Agent) Browser Subagent with real Chromium + visual screenshot feedback to open a JS-rendered webpage (X/Twitter posts, articles, dashboards, SPAs), scroll, click 'Show more'/tabs, read diagrams, and return a clean factual summary + evidence screenshot without bloating the main conversation.",
+            parameters: [
+                PipiAgentToolParam(name: "url", description: "Target http/https URL to open", required: true),
+                PipiAgentToolParam(name: "goal", description: "Clear objective of what information to extract or verify on the site", required: true),
+                PipiAgentToolParam(name: "use_signed_in_session", description: "Optional 'true' to attach to user's signed-in Chrome CDP (port 9222); default 'false' uses an isolated silent headless Chromium", required: false),
+                PipiAgentToolParam(name: "max_steps", description: "Optional max browsing steps (default 8, max 12)", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "browser_open",
+            description: "Open a URL in a live Chromium session, wait for full JS rendering, and return structured visible text, numbered interactive elements ([e1]..[eN]), and a live viewport screenshot for visual inspection.",
+            parameters: [
+                PipiAgentToolParam(name: "url", description: "Target http/https URL", required: true),
+                PipiAgentToolParam(name: "use_signed_in_session", description: "Optional 'true' to attach to signed-in Chrome CDP on port 9222", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "browser_act",
+            description: "Interact with the currently open live browser page (click by ref like 'e3', type text, scroll up/down/bottom, press_key, wait, back, reload) and return the updated DOM snapshot + viewport screenshot.",
+            parameters: [
+                PipiAgentToolParam(name: "action", description: "click | type | scroll | press_key | wait | back | reload", required: true),
+                PipiAgentToolParam(name: "ref", description: "Interactive element ref from snapshot (e.g. 'e1', 'e7') for click/type", required: false),
+                PipiAgentToolParam(name: "text", description: "Text to type when action=type", required: false),
+                PipiAgentToolParam(name: "submit", description: "Set 'true' to press Enter after typing", required: false),
+                PipiAgentToolParam(name: "direction", description: "down | up | top | bottom (for action=scroll)", required: false),
+                PipiAgentToolParam(name: "key", description: "Key name (Enter, Escape, Tab, PageDown, Space) for action=press_key", required: false),
+                PipiAgentToolParam(name: "seconds", description: "Seconds to wait (for action=wait)", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "browser_snapshot",
+            description: "Capture a fresh structured DOM snapshot (visible text + numbered interactive elements) and live viewport screenshot from the current Chromium page.",
+            parameters: []
+        ),
+        PipiAgentToolDefinition(
+            name: "device_vision_ocr",
+            description: "Run on-device Apple Neural Engine (Vision NPU) OCR, QR/barcode decoding, and scene tagging on a local image or screenshot file with zero cloud latency.",
+            parameters: [
+                PipiAgentToolParam(name: "path", description: "Local image file path (JPG/PNG/HEIC)", required: true)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "device_clipboard",
+            description: "Read or write text on the user's iPhone/Mac system clipboard (UIPasteboard / NSPasteboard).",
+            parameters: [
+                PipiAgentToolParam(name: "operation", description: "read (default) | write", required: false),
+                PipiAgentToolParam(name: "text", description: "Text to copy when operation=write", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "device_npu_status",
+            description: "Inspect live Apple Neural Engine (NPU) readiness, thermal state, battery/low-power mode, Vision/Speech/NaturalLanguage/FoundationModels availability, and recommended local workload tier.",
+            parameters: []
         ),
         PipiAgentToolDefinition(
             name: "capture_screenshot",
@@ -935,16 +1044,103 @@ public enum PipiAgentToolbox {
         ),
         PipiAgentToolDefinition(
             name: "remote_node_exec",
-            description: "Connect directly through an enrolled remote node's daemon over E2EE to perform troubleshooting or development actions: run a bounded shell command, list a directory, or read a file.",
+            description: "Connect directly through an enrolled remote node's daemon over E2EE to perform troubleshooting or development actions: run a bounded shell command, list a directory, or read a file. Batch multi-step inspection or fix+verify commands with && into one call to minimize network round-trips.",
             parameters: [
                 PipiAgentToolParam(name: "device", description: "Target device name or hostId", required: true),
-                PipiAgentToolParam(name: "operation", description: "exec (default) | list_files | read_file", required: false),
-                PipiAgentToolParam(name: "command", description: "Shell command to execute when operation=exec", required: false),
+                PipiAgentToolParam(name: "operation", description: "exec (default) | list_files | read_file | upgrade (self-upgrade remote node CLI over E2EE)", required: false),
+                PipiAgentToolParam(name: "command", description: "Shell command to execute when operation=exec (combine fix + verification in one command when safe)", required: false),
                 PipiAgentToolParam(name: "path", description: "Directory or file path when operation=list_files or read_file", required: false),
-                PipiAgentToolParam(name: "cwd", description: "Optional working directory when operation=exec", required: false)
+                PipiAgentToolParam(name: "cwd", description: "Optional working directory when operation=exec", required: false),
+                PipiAgentToolParam(name: "timeout_seconds", description: "Optional timeout in seconds (default 45, max 120; use 90-120 for npm/apt/build installs)", required: false)
             ]
         )
     ]
+
+    /// Autonomous execution guardrails for the native Jarvis tool loop:
+    /// detects premature "almost done / 1 line left / should I proceed?" mid-task handoffs
+    /// and classifies read-only tools safe for concurrent batch execution.
+    public enum ContinuationGuard {
+        public static let defaultMaxSteps: Int = 20
+        public static let maxAutoContinues: Int = 2
+
+        private static let parallelReadOnlyTools: Set<String> = [
+            "list_directory",
+            "read_file",
+            "search_files",
+            "get_system_status",
+            "web_search",
+            "fetch_webpage",
+            "read_calendar_and_reminders",
+            "read_mail_or_sms",
+            "remote_nodes_list",
+            "remote_node_inspect",
+            "query_entity_ledger",
+            "trigger_list"
+        ]
+
+        public static func isReadOnlyParallelizableTool(_ name: String) -> Bool {
+            parallelReadOnlyTools.contains(name)
+        }
+
+        /// Returns `true` when the assistant stopped emitting tool calls mid-task and produced a
+        /// half-finished "almost there / one step left / should I fix it?" status update instead of
+        /// finishing and verifying the work.
+        public static func shouldAutoContinue(
+            replyText: String,
+            executedStepCount: Int,
+            autoContinueCount: Int,
+            maxAutoContinues: Int = ContinuationGuard.maxAutoContinues
+        ) -> Bool {
+            guard executedStepCount > 0, autoContinueCount < maxAutoContinues else { return false }
+            let trimmed = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return false }
+            let lower = trimmed.lowercased()
+
+            // Respect genuine hard blockers: approvals, credentials, explicit user choices
+            let genuineBlockerSignals = [
+                "审批", "确认卡片", "安全确认", "高危", "安全护栏",
+                "需要你提供", "请提供", "密码", "token", "api key", "apikey", "密钥", "登录", "扫码",
+                "不可逆", "无法连接", "离线", "not connected", "permission denied by user"
+            ]
+            if genuineBlockerSignals.contains(where: { lower.contains($0) }) {
+                return false
+            }
+
+            // Respect verified completion signals
+            let verifiedCompletionSignals = [
+                "搞定，收工", "已搞定", "已全部完成", "已完成并验证", "验证通过", "exit=0",
+                "all tests pass", "verified and complete", "已全局可用"
+            ]
+            if verifiedCompletionSignals.contains(where: { lower.contains($0) }) {
+                return false
+            }
+
+            // Detect premature mid-task handoff / "almost done" / "should I proceed" phrasing
+            let prematureStopSignals = [
+                "还差最后", "就差一行", "就差最后一步", "还差一步", "还差一小步", "离成功就差",
+                "快出锅", "修整汇报", "进度汇报", "阶段性汇报", "还没完全跑通",
+                "要不要我继续", "要不要我直接", "要不要继续", "要我继续", "需要我继续",
+                "等你指示", "下一步我打算", "如果你同意", "你定", "改吗", "继续改吗",
+                "should i proceed", "would you like me to continue", "one last step left", "almost done, just need to"
+            ]
+            return prematureStopSignals.contains(where: { lower.contains($0) })
+        }
+
+        public static func continuationNudgePrompt() -> String {
+            """
+            [系统执行指令 · 禁止中途交球]
+            不要停在半路汇报或反问主人。你刚才已经定位到了根因或下一步方案，且该操作在允许范围内——请立刻继续调用工具完成剩余修改，并运行验证命令确认真正跑通（如检查 exit=0 / 版本输出 / 测试通过），全部验证成功后再一次性把最终结果发给主人。尽量把修改与验证合并为一次 compound shell 命令以节省耗时。
+            """
+        }
+
+        public static func remainingBudgetHint(remainingSteps: Int) -> String {
+            "[步数提醒] 当前仅剩 \(remainingSteps) 轮工具调用额度。请把剩余修复动作和最终验证命令合并在一次执行中完成，确认成功后再直接给出最终结果。"
+        }
+
+        public static func repeatedCallPivotHint(toolName: String) -> String {
+            "[防原地打转提醒] 你连续多次重复调用了相同的 `\(toolName)` 参数但未推进进展。请立即切换排查思路或合并命令直接验证根因，不要再重复执行相同命令。"
+        }
+    }
 
     /// Compact prompt-protocol instructions appended when an endpoint falls back from native `tools` JSON to `<pipi_tool>`.
     public static func structuredToolFallbackPrompt() -> String {
@@ -1048,7 +1244,26 @@ public enum PipiAgentToolbox {
             let cmd = toolCall.string("command") ?? ""
             let rawCwd = toolCall.string("working_directory") ?? workspaceDirectory
             let cwd = PipiJarvisToolRiskEvaluator.resolveExpandedPath(rawCwd, workspaceDirectory: workspaceDirectory)
-            return await executeRunShell(command: cmd, workingDirectory: cwd)
+            return await executeRunShell(command: cmd, workingDirectory: cwd, callbacks: callbacks)
+
+        case "run_script":
+            let code = (toolCall.argumentsDictionary()["code"] as? String) ?? (toolCall.string("code") ?? "")
+            let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return PipiAgentToolExecutionResult(output: "run_script 的 code 参数不能为空。", isError: true)
+            }
+            let shell: PipiMobileSandboxShell
+            if !workspaceDirectory.isEmpty, FileManager.default.fileExists(atPath: workspaceDirectory) {
+                shell = PipiMobileSandboxShell(rootDirectory: URL(fileURLWithPath: workspaceDirectory, isDirectory: true))
+            } else {
+                shell = PipiMobileSandboxShell.shared
+            }
+            let res = await shell.runJavaScript(trimmed, source: "agent", recordTranscript: true)
+            let header = "[JavaScriptCore Sandbox · exit \(res.exitCode) · \(res.durationMs)ms]"
+            return PipiAgentToolExecutionResult(
+                output: "\(header)\n\(res.combinedOutput)",
+                isError: res.exitCode != 0
+            )
 
         case "get_system_status":
             return await executeGetSystemStatus()
@@ -1236,15 +1451,173 @@ public enum PipiAgentToolbox {
 
         case "remote_nodes_list", "remote_node_inspect", "remote_node_run_harness", "remote_node_exec":
             var argMap: [String: String] = [:]
-            for key in ["device", "agent", "prompt", "cwd", "operation", "command", "path"] {
+            for key in ["device", "agent", "prompt", "cwd", "operation", "command", "path", "timeout_seconds"] {
                 if let val = toolCall.string(key) { argMap[key] = val }
             }
             return PipiAgentToolExecutionResult(
                 output: await callbacks.remoteNodeAction(toolCall.name, argMap)
             )
 
+        case "browser_browse":
+            let urlStr = toolCall.string("url") ?? ""
+            let goal = toolCall.string("goal") ?? "Extract and summarize the full page content."
+            let useSignedIn = (toolCall.string("use_signed_in_session") ?? "").lowercased() == "true"
+            let maxSteps = toolCall.int("max_steps") ?? 8
+            guard let cfg = llmConfig else {
+                // Fallback to single live browser_open snapshot when no LLM config was passed
+                return await executeBrowserOpen(urlString: urlStr, useSignedIn: useSignedIn, deliverablesDir: deliverablesDirectory, callbacks: callbacks)
+            }
+            do {
+                let res = try await PipiBrowserCUASubagent.run(
+                    url: urlStr,
+                    goal: goal,
+                    llmConfig: cfg,
+                    deliverablesDirectory: deliverablesDirectory,
+                    useSignedInSession: useSignedIn,
+                    maxSteps: maxSteps
+                )
+                if let blocked = res.blockedAssessment {
+                    return PipiAgentToolExecutionResult(
+                        output: res.summary,
+                        visionImages: res.latestImage.map { [$0] } ?? [],
+                        isError: false,
+                        needsApproval: blocked
+                    )
+                }
+                let visitedLine = res.visitedURLs.isEmpty ? "" : "\n\n[Visited: \(res.visitedURLs.joined(separator: ", ")) · \(res.stepsExecuted) step(s)]"
+                return PipiAgentToolExecutionResult(
+                    output: res.summary + visitedLine,
+                    visionImages: res.latestImage.map { [$0] } ?? [],
+                    isError: false
+                )
+            } catch {
+                return PipiAgentToolExecutionResult(
+                    output: "浏览器子代理执行失败：\(error.localizedDescription)",
+                    isError: true
+                )
+            }
+
+        case "browser_open":
+            let urlStr = toolCall.string("url") ?? ""
+            let useSignedIn = (toolCall.string("use_signed_in_session") ?? "").lowercased() == "true"
+            return await executeBrowserOpen(urlString: urlStr, useSignedIn: useSignedIn, deliverablesDir: deliverablesDirectory, callbacks: callbacks)
+
+        case "browser_act":
+            let kind = PipiBrowserCUAActionKind(rawValue: (toolCall.string("action") ?? "scroll").lowercased()) ?? .scroll
+            let req = PipiBrowserCUAActionRequest(
+                action: kind,
+                ref: toolCall.string("ref"),
+                text: toolCall.string("text"),
+                key: toolCall.string("key"),
+                direction: toolCall.string("direction"),
+                seconds: toolCall.int("seconds").map { Double($0) },
+                submit: (toolCall.string("submit") ?? "").lowercased() == "true"
+            )
+            do {
+                let (snap, blocked) = try await PipiBrowserCUADriver.shared.perform(
+                    request: req,
+                    deliverablesDirectory: deliverablesDirectory,
+                    skipSafetyCheck: skipRiskCheck
+                )
+                if let blocked {
+                    return PipiAgentToolExecutionResult(
+                        output: "⏸️ 浏览器操作触发安全护栏：\(blocked.summary) — \(blocked.reason)",
+                        visionImages: snap.encodedImagePart.map { [$0] } ?? [],
+                        isError: false,
+                        needsApproval: blocked
+                    )
+                }
+                return PipiAgentToolExecutionResult(
+                    output: snap.formattedForModel(),
+                    visionImages: snap.encodedImagePart.map { [$0] } ?? [],
+                    isError: false
+                )
+            } catch {
+                return PipiAgentToolExecutionResult(
+                    output: "浏览器交互失败：\(error.localizedDescription)",
+                    isError: true
+                )
+            }
+
+        case "browser_snapshot":
+            do {
+                let snap = try await PipiBrowserCUADriver.shared.captureSnapshot(deliverablesDirectory: deliverablesDirectory)
+                return PipiAgentToolExecutionResult(
+                    output: snap.formattedForModel(),
+                    visionImages: snap.encodedImagePart.map { [$0] } ?? [],
+                    isError: false
+                )
+            } catch {
+                return PipiAgentToolExecutionResult(
+                    output: "获取当前页面快照失败：\(error.localizedDescription)",
+                    isError: true
+                )
+            }
+
+        case "device_vision_ocr":
+            let rawPath = toolCall.string("path") ?? ""
+            let resolved = PipiJarvisToolRiskEvaluator.resolveExpandedPath(rawPath, workspaceDirectory: workspaceDirectory)
+            guard let res = await PipiOnDeviceNPUEngine.analyzeImageFile(at: resolved) else {
+                return PipiAgentToolExecutionResult(output: "无法读取或解析图片文件：\(resolved)", isError: true)
+            }
+            return PipiAgentToolExecutionResult(output: res.formattedSummary(), isError: false)
+
+        case "device_clipboard":
+            let op = (toolCall.string("operation") ?? "read").lowercased()
+            if op == "write" {
+                let text = toolCall.string("text") ?? ""
+                await MainActor.run { PipiOnDeviceNPUEngine.writeClipboardText(text) }
+                return PipiAgentToolExecutionResult(output: "已写入系统剪贴板（\(text.count) 字符）。", isError: false)
+            }
+            let clip = await MainActor.run { PipiOnDeviceNPUEngine.readClipboardText() } ?? ""
+            if clip.isEmpty {
+                return PipiAgentToolExecutionResult(output: "当前系统剪贴板为空。", isError: false)
+            }
+            return PipiAgentToolExecutionResult(output: "[System Clipboard]\n\(clip.prefix(4000))", isError: false)
+
+        case "device_npu_status":
+            let p = await MainActor.run { PipiOnDeviceNPUEngine.currentProfile() }
+            let batteryLine = p.batteryLevelPercent.map { "\($0)% (\(p.isCharging ? "charging" : "battery"))" } ?? "AC / N/A"
+            let summary = """
+            [Apple Device & Neural Engine Status]
+            Platform: \(p.platform) · \(p.processorCount) cores · \(p.physicalMemoryGB) GB unified memory
+            Thermal: \(p.thermalState) · Low Power Mode: \(p.isLowPowerMode) · Battery: \(batteryLine)
+            Recommended NPU Tier: \(p.recommendedTier.rawValue)
+            On-Device Capabilities:
+            - Apple Vision NPU (OCR / QR / Scene): \(p.supportsVisionNPU ? "ready" : "unavailable")
+            - On-Device Speech NPU (STT): \(p.supportsOnDeviceSpeechNPU ? "ready" : "cloud fallback")
+            - NaturalLanguage NPU (Entities / Embeddings): \(p.supportsNaturalLanguageNPU ? "ready" : "unavailable")
+            - Apple Foundation Models (On-Device 3B LLM): \(p.supportsAppleFoundationModels ? "available" : "not on this OS")
+            """
+            return PipiAgentToolExecutionResult(output: summary, isError: false)
+
         default:
             return PipiAgentToolExecutionResult(output: "未知工具：\(toolCall.name)", isError: true)
+        }
+    }
+
+    private static func executeBrowserOpen(
+        urlString: String,
+        useSignedIn: Bool,
+        deliverablesDir: URL,
+        callbacks: PipiAgentHostCallbacks
+    ) async -> PipiAgentToolExecutionResult {
+        do {
+            let snap = try await PipiBrowserCUADriver.shared.navigate(
+                url: urlString,
+                useSignedInSession: useSignedIn,
+                deliverablesDirectory: deliverablesDir
+            )
+            return PipiAgentToolExecutionResult(
+                output: snap.formattedForModel(),
+                visionImages: snap.encodedImagePart.map { [$0] } ?? [],
+                isError: false
+            )
+        } catch {
+            return PipiAgentToolExecutionResult(
+                output: "真实浏览器打开网页失败：\(error.localizedDescription)",
+                isError: true
+            )
         }
     }
 
@@ -1436,14 +1809,19 @@ public enum PipiAgentToolbox {
         }
     }
 
-    private static func executeRunShell(command: String, workingDirectory: String) async -> PipiAgentToolExecutionResult {
-        #if os(macOS)
+    private static func executeRunShell(
+        command: String,
+        workingDirectory: String,
+        callbacks: PipiAgentHostCallbacks? = nil
+    ) async -> PipiAgentToolExecutionResult {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return PipiAgentToolExecutionResult(output: "命令为空。", isError: true)
         }
+        #if os(macOS)
+        let started = Date()
         let cwd = FileManager.default.fileExists(atPath: workingDirectory) ? workingDirectory : NSHomeDirectory()
-        return await Task.detached(priority: .userInitiated) {
+        let execResult = await Task.detached(priority: .userInitiated) {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
             proc.arguments = ["-lc", trimmed]
@@ -1464,7 +1842,7 @@ public enum PipiAgentToolbox {
             do {
                 try proc.run()
             } catch {
-                return PipiAgentToolExecutionResult(output: "无法启动命令：\(error.localizedDescription)", isError: true)
+                return (exitCode: 127, output: "无法启动命令：\(error.localizedDescription)", isError: true)
             }
 
             let deadline = Date().addingTimeInterval(35)
@@ -1488,14 +1866,64 @@ public enum PipiAgentToolbox {
                 combined = String(combined.prefix(10_000)) + "\n... (输出已截断)"
             }
             if timedOut {
-                return PipiAgentToolExecutionResult(output: "命令执行超过 35 秒已超时中止。\n\(combined)", isError: true)
+                return (exitCode: 124, output: "命令执行超过 35 秒已超时中止。\n\(combined)", isError: true)
             }
-            let ok = (proc.terminationStatus == 0)
-            let header = ok ? "$ \(trimmed) (exit 0)" : "$ \(trimmed) (exit \(proc.terminationStatus))"
-            return PipiAgentToolExecutionResult(output: combined.isEmpty ? "\(header)\n(无输出)" : "\(header)\n\(combined)", isError: !ok)
+            let code = Int(proc.terminationStatus)
+            let ok = (code == 0)
+            let header = ok ? "$ \(trimmed) (exit 0)" : "$ \(trimmed) (exit \(code))"
+            return (exitCode: code, output: combined.isEmpty ? "\(header)\n(无输出)" : "\(header)\n\(combined)", isError: !ok)
         }.value
+        let elapsedMs = max(1, Int(Date().timeIntervalSince(started) * 1000))
+        await MainActor.run {
+            PipiMobileTerminalLog.shared.append(
+                PipiTerminalTranscriptEntry(
+                    source: "agent",
+                    targetLabel: "Mac Shell",
+                    command: trimmed,
+                    output: execResult.output,
+                    exitCode: execResult.exitCode,
+                    durationMs: elapsedMs
+                )
+            )
+        }
+        return PipiAgentToolExecutionResult(output: execResult.output, isError: execResult.isError)
         #else
-        return PipiAgentToolExecutionResult(output: "Shell 工具仅在 macOS 上可用。", isError: true)
+        // iOS / iPadOS: Tier 2 E2EE Relay for heavy toolchains -> fallback to Tier 1 Native Sandbox Shell
+        if PipiMobileSandboxShell.requiresDesktopHostRelay(command: trimmed) {
+            if let cb = callbacks {
+                let started = Date()
+                let remoteOut = await cb.remoteNodeAction("remote_node_exec", ["command": trimmed])
+                let unavailableSignals = ["未找到目标远程节点", "没有在线", "未启用远程节点", "未连接"]
+                if !remoteOut.isEmpty && !unavailableSignals.contains(where: { remoteOut.contains($0) }) {
+                    let elapsedMs = max(1, Int(Date().timeIntervalSince(started) * 1000))
+                    await MainActor.run {
+                        PipiMobileTerminalLog.shared.append(
+                            PipiTerminalTranscriptEntry(
+                                source: "agent",
+                                targetLabel: "Remote Host",
+                                command: trimmed,
+                                output: remoteOut,
+                                exitCode: 0,
+                                durationMs: elapsedMs
+                            )
+                        )
+                    }
+                    return PipiAgentToolExecutionResult(output: "[Remote Host Relay]\n\(remoteOut)", isError: false)
+                }
+            }
+            return PipiAgentToolExecutionResult(
+                output: "命令 `\(trimmed.prefix(40))` 需要桌面级工具链（如 python3 / git / swift / npm），但当前没有在线的 Mac/Linux 托管节点。如需在 iPhone 本地做数据处理或文件操作，请改用 `run_script`（内置 JavaScriptCore 引擎）或沙箱 POSIX 命令（ls / cat / grep / sort / wc / find / curl）。",
+                isError: true
+            )
+        }
+
+        let shell = PipiMobileSandboxShell.shared
+        let res = await shell.execute(trimmed, source: "agent", recordTranscript: true)
+        let header = "$ \(trimmed) (exit \(res.exitCode) · \(res.cwd))"
+        return PipiAgentToolExecutionResult(
+            output: "\(header)\n\(res.combinedOutput)",
+            isError: res.exitCode != 0
+        )
         #endif
     }
 
@@ -1507,7 +1935,10 @@ public enum PipiAgentToolbox {
         )
         return snap
         #else
-        return PipiAgentToolExecutionResult(output: "系统状态检查仅在 macOS 可用。")
+        let p = await MainActor.run { PipiOnDeviceNPUEngine.currentProfile() }
+        let batt = p.batteryLevelPercent.map { "\($0)% (\(p.isCharging ? "charging" : "battery"))" } ?? "N/A"
+        let text = "iPhone System Status: \(p.processorCount) cores · \(p.physicalMemoryGB) GB RAM · Thermal: \(p.thermalState) · LowPower: \(p.isLowPowerMode) · Battery: \(batt) · NPU Tier: \(p.recommendedTier.rawValue)"
+        return PipiAgentToolExecutionResult(output: text)
         #endif
     }
 

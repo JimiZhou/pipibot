@@ -34,6 +34,7 @@ public struct PipiWorkspaceView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var destination: WorkspaceDestination = .home
     @State private var sidebarFilter: SidebarTaskFilter = .all
+    @State private var missionBoardFocusNeedsYou: Bool = false
     @State private var selectedGroupInspectorTab: PipiGroupInspectorTab = .membersTasks
     @State private var pendingGroupMentionInsert: String? = nil
     @State private var showHostPopover: Bool = false
@@ -219,7 +220,26 @@ public struct PipiWorkspaceView: View {
                     .navigationSplitViewColumnWidth(min: 248, ideal: 272, max: 340)
                     .toolbar(removing: .sidebarToggle)
             } detail: {
+                let sheetShape = RoundedRectangle(cornerRadius: PipiTokens.sheetCornerRadius, style: .continuous)
                 detailStage
+                    .clipShape(sheetShape)
+                    .overlay(
+                        sheetShape.strokeBorder(
+                            LinearGradient(
+                                colors: [PipiTokens.cardTopSpecular, PipiTokens.sheetBorder, PipiTokens.sheetBorder],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 0.75
+                        )
+                    )
+                    .shadow(color: PipiTokens.shadowKey, radius: 14, x: 0, y: 4)
+                    .shadow(color: PipiTokens.shadowAmbient, radius: 3, x: 0, y: 1)
+                    .padding(.top, PipiTokens.sheetInset)
+                    .padding(.trailing, PipiTokens.sheetInset)
+                    .padding(.bottom, PipiTokens.sheetInset)
+                    .padding(.leading, 4)
+                    .background(PipiTokens.bgWindowTray.ignoresSafeArea())
                     .toolbar {
                         toolbarContent
                     }
@@ -356,7 +376,8 @@ public struct PipiWorkspaceView: View {
                         showGroupCreatorSheet = true
                     },
                     onOpenNeedsYouInbox: {
-                        destination = .needsYou
+                        missionBoardFocusNeedsYou = true
+                        destination = .missionBoard
                     },
                     onToggleQuickBar: onToggleQuickBar,
                     onOpenSettings: onOpenSettings,
@@ -613,9 +634,9 @@ public struct PipiWorkspaceView: View {
                 case .missionBoard:
                     HStack(spacing: PipiTokens.spacing8) {
                         Image(systemName: "rectangle.3.group")
-                            .font(.system(size: 13.5, weight: .semibold))
-                            .foregroundStyle(PipiTokens.soulPrimary)
-                        Text(s.t("任务台", "Mission Board"))
+                            .font(.system(size: 13.5, weight: .medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.t("任务板", "Board"))
                             .font(PipiTokens.fontHeadline)
                             .foregroundStyle(PipiTokens.textPrimary)
                     }
@@ -1113,73 +1134,87 @@ public struct PipiWorkspaceView: View {
                 .padding(.horizontal, 4)
                 .padding(.bottom, 8)
 
-                // 1. 新对话 (⌘N)
-                sidebarNavRow(
-                    icon: "square.and.pencil",
-                    title: s.newChat,
-                    isSelected: false,
-                    trailingHint: "⌘N"
-                ) {
-                    let created = store.createConversation(projectId: store.activeConversation?.projectId)
-                    destination = .session(created.id)
-                    isComposerFocused = true
-                }
+                // Primary Quick Actions: + New Task (⌘N) + New Group Channel
+                HStack(spacing: 6) {
+                    let isNewHovered = hoveredToolbarChip == "nav_new_task"
+                    Button {
+                        let created = store.createConversation(projectId: store.activeConversation?.projectId)
+                        destination = .session(created.id)
+                        isComposerFocused = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 12, weight: .medium))
+                            Text(s.t("新任务", "New task"))
+                                .font(PipiTokens.fontCaption.weight(.medium))
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text("⌘N")
+                                .font(PipiTokens.fontMonoSmall)
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                        .foregroundStyle(PipiTokens.textPrimary)
+                        .padding(.horizontal, 10)
+                        .frame(height: 32)
+                        .background(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .fill(isNewHovered ? PipiTokens.bgSurfaceHover : PipiTokens.bgElevated)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PipiPressButtonStyle(pressedScale: 0.97))
+                    .onHover { hovering in
+                        hoveredToolbarChip = hovering ? "nav_new_task" : (hoveredToolbarChip == "nav_new_task" ? nil : hoveredToolbarChip)
+                    }
+                    .help("\(s.newChat) (⌘N)")
 
-                // 2. 新建群聊
-                sidebarNavRow(
-                    icon: "person.2",
-                    title: s.newGroupChat,
-                    isSelected: false
-                ) {
-                    groupCreatorPreselectedBotIds = []
-                    editingGroupChat = nil
-                    showGroupCreatorSheet = true
+                    PipiGhostIconButton(
+                        systemImage: "person.2",
+                        size: 32,
+                        iconSize: 13,
+                        cornerRadius: PipiTokens.radiusSM,
+                        accessibilityLabel: s.newGroupChat
+                    ) {
+                        groupCreatorPreselectedBotIds = []
+                        editingGroupChat = nil
+                        showGroupCreatorSheet = true
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                    )
+                    .help(s.newGroupChat)
                 }
+                .padding(.bottom, 8)
 
-                // 2.5 我的设备节点（主控 + 所有纳管节点硬件状态与 Harness 看板）
-                sidebarNavRow(
-                    icon: "server.rack",
-                    title: s.t("我的设备节点", "My Device Nodes"),
-                    isSelected: destination == .deviceNodes,
-                    showPulseDot: false
-                ) {
-                    destination = .deviceNodes
-                }
-
-                // 3. 任务台 (Mission Board — 看板 / Worktree Diff / 事件与进化 / 用量)
+                // 3 Calm Board-First Destinations (Device Nodes & Pairing live in Host popover / Settings)
                 let missionBadge = store.worktreeSessions.filter { $0.status == .readyForReview }.count
                     + store.blueprintEvolutionProposals.filter { $0.status == .pending }.count
+                    + store.totalNeedsYouCount
                 sidebarNavRow(
                     icon: "rectangle.3.group",
-                    title: s.t("任务台", "Mission Board"),
-                    isSelected: destination == .missionBoard,
+                    title: s.t("任务板", "Board"),
+                    isSelected: destination == .missionBoard || destination == .needsYou,
                     badgeCount: missionBadge,
-                    showPulseDot: !store.activeGroupLanes.isEmpty
+                    showPulseDot: !store.activeGroupLanes.isEmpty || !store.activeRuns.isEmpty
                 ) {
+                    missionBoardFocusNeedsYou = false
                     destination = .missionBoard
                 }
 
-                // 4. 待我确认
-                sidebarNavRow(
-                    icon: "bell",
-                    title: s.needsYouInboxTitle,
-                    isSelected: destination == .needsYou,
-                    badgeCount: store.totalNeedsYouCount
-                ) {
-                    destination = .needsYou
-                }
-
-                // 4. 智能体
                 sidebarNavRow(
                     icon: "cpu",
                     title: s.botHome,
                     isSelected: destination == .home,
-                    showPulseDot: !store.activeRuns.isEmpty || !store.collaboratingBotIds.isEmpty
+                    showPulseDot: !store.collaboratingBotIds.isEmpty
                 ) {
                     destination = .home
                 }
 
-                // 5. 知识与主动简报 (Wave 2)
                 sidebarNavRow(
                     icon: "books.vertical",
                     title: s.knowledgeHubTitle,
@@ -1198,13 +1233,11 @@ public struct PipiWorkspaceView: View {
                 .frame(height: 1)
                 .padding(.horizontal, PipiTokens.spacing12)
 
-            // Pinned Section Header for Conversations & Collaboration
+            // Pinned Section Header for Threads & Channels (Sentence Case, No All-Caps)
             HStack(spacing: PipiTokens.spacing8) {
-                Text(s.sessionsSection)
-                    .font(PipiTokens.fontMicro.weight(.semibold))
-                    .tracking(PipiTokens.trackingMicro)
+                Text(s.t("频道与对话", "Threads"))
+                    .font(PipiTokens.fontMicro)
                     .foregroundStyle(PipiTokens.textMuted)
-                    .textCase(.uppercase)
 
                 if let filterId = store.selectedBotFilterId,
                    let bot = store.personas.first(where: { $0.id == filterId }) {
@@ -1402,9 +1435,7 @@ public struct PipiWorkspaceView: View {
                             HStack {
                                 Text(s.projectsSection)
                                     .font(PipiTokens.fontMicro)
-                                    .tracking(PipiTokens.trackingMicro)
                                     .foregroundStyle(PipiTokens.textMuted)
-                                    .textCase(.uppercase)
                                 Spacer()
                                 PipiGhostIconButton(
                                     systemImage: "plus",
@@ -1540,7 +1571,7 @@ public struct PipiWorkspaceView: View {
                     .frame(width: 20)
 
                 Text(title)
-                    .font(PipiTokens.fontSubheadline.weight(isSelected ? .semibold : .medium))
+                    .font(PipiTokens.fontSubheadline.weight(isSelected ? .medium : .regular))
                     .foregroundStyle(isSelected || isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
                     .lineLimit(1)
 
@@ -1548,13 +1579,9 @@ public struct PipiWorkspaceView: View {
 
                 if badgeCount > 0 {
                     Text("\(badgeCount)")
-                        .font(PipiTokens.fontMonoSmall.weight(.semibold))
+                        .font(PipiTokens.fontMonoSmall.weight(.medium))
                         .monospacedDigit()
-                        .foregroundStyle(PipiTokens.textInverse)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1.5)
-                        .background(PipiTokens.stateWarning)
-                        .clipShape(Capsule())
+                        .foregroundStyle(PipiTokens.stateWarning)
                 }
 
                 if showPulseDot {
@@ -1568,23 +1595,14 @@ public struct PipiWorkspaceView: View {
                 }
             }
             .padding(.horizontal, PipiTokens.spacing8)
-            .frame(height: 34)
+            .frame(height: 32)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? PipiTokens.bgElevated : (isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isSelected ? PipiTokens.borderSubtle : Color.clear, lineWidth: 1)
-            )
-            .shadow(
-                color: isSelected ? PipiTokens.subtleShadow.opacity(0.65) : Color.clear,
-                radius: 2,
-                y: 1
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .fill(isSelected ? PipiTokens.bgSurfaceHover : (isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear))
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.985))
+        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.97))
         .onHover { hovering in
             hoveredToolbarChip = hovering ? navKey : (hoveredToolbarChip == navKey ? nil : hoveredToolbarChip)
         }
@@ -1602,20 +1620,12 @@ public struct PipiWorkspaceView: View {
         let isSettingsHovered = hoveredToolbarChip == "popover_runtime"
 
         return VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
-            // Header: 32x32 desktopcomputer badge + bold machine name + macOS · 运行中
+            // Header: bare desktopcomputer glyph + machine name + macOS · 运行中
             HStack(spacing: PipiTokens.spacing12) {
-                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
-                    .fill(PipiTokens.bgSurface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
-                            .stroke(PipiTokens.borderSubtle, lineWidth: 1)
-                    )
-                    .frame(width: 32, height: 32)
-                    .overlay(
-                        Image(systemName: "desktopcomputer")
-                            .font(.system(size: 14.5, weight: .medium))
-                            .foregroundStyle(PipiTokens.textPrimary)
-                    )
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(PipiTokens.textSecondary)
+                    .frame(width: 24, height: 24)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(store.localHost.displayName(lang))
@@ -1856,6 +1866,37 @@ public struct PipiWorkspaceView: View {
 
             // Clean Bottom Action Section
             VStack(alignment: .leading, spacing: 2) {
+                let isNodesHovered = hoveredToolbarChip == "popover_nodes"
+                Button {
+                    showHostPopover = false
+                    destination = .deviceNodes
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(isNodesHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                            .frame(width: 18)
+                        Text(s.t("设备节点与 Harness", "Device nodes & harnesses"))
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .fill(isNodesHovered ? PipiTokens.buttonGhostHoverBg : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PipiPressButtonStyle(pressedScale: 0.97))
+                .onHover { hovering in
+                    hoveredToolbarChip = hovering ? "popover_nodes" : (hoveredToolbarChip == "popover_nodes" ? nil : hoveredToolbarChip)
+                }
+
                 Button {
                     showHostPopover = false
                     onToggleQuickBar()
@@ -2174,7 +2215,7 @@ public struct PipiWorkspaceView: View {
                 PipiDotIndicator(vitality: .busy, color: color, size: 5)
             } else if let systemImage {
                 Image(systemName: systemImage)
-                    .font(.system(size: 9.5, weight: .semibold))
+                    .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(color)
             } else {
                 Circle()
@@ -2182,21 +2223,17 @@ public struct PipiWorkspaceView: View {
                     .frame(width: 5, height: 5)
             }
             Text(label)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 10.5, weight: .regular))
                 .foregroundStyle(color)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(color.opacity(0.12))
-        .clipShape(Capsule())
     }
 
     private func sidebarUnreadBadge(count: Int) -> some View {
         Text(count > 9 ? "9+" : "\(count)")
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
             .monospacedDigit()
-            .foregroundStyle(Color.white)
+            .foregroundStyle(PipiTokens.textInverse)
             .padding(.horizontal, 5.5)
             .frame(minWidth: 18, minHeight: 16)
             .background(PipiTokens.soulPrimary)
@@ -2465,6 +2502,12 @@ public struct PipiWorkspaceView: View {
         case .missionBoard:
             PipiMissionBoardView(
                 store: store,
+                initialFocusNeedsYou: missionBoardFocusNeedsYou,
+                onNewTask: {
+                    let created = store.createConversation(projectId: store.activeConversation?.projectId)
+                    destination = .session(created.id)
+                    isComposerFocused = true
+                },
                 onOpenArchitect: {
                     let conv = store.openBotArchitectSession()
                     destination = .session(conv.id)
@@ -2844,75 +2887,75 @@ public struct PipiWorkspaceView: View {
 
         return Group {
             if msg.role == .user {
-                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
-                    if let files = msg.attachments, !files.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(files) { file in
-                                    HStack(spacing: 4) {
-                                        Image(systemName: file.iconName)
-                                            .font(.system(size: 10, weight: .semibold))
-                                            .foregroundStyle(PipiTokens.textSecondary)
-                                        Text(file.name)
-                                            .font(PipiTokens.fontMonoSmall)
-                                            .foregroundStyle(PipiTokens.textSecondary)
-                                            .lineLimit(1)
+                HStack {
+                    Spacer(minLength: 64)
+                    VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                        if let files = msg.attachments, !files.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(files) { file in
+                                        HStack(spacing: 4) {
+                                            Image(systemName: file.iconName)
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundStyle(PipiTokens.userBubbleFg.opacity(0.82))
+                                            Text(file.name)
+                                                .font(PipiTokens.fontMonoSmall)
+                                                .foregroundStyle(PipiTokens.userBubbleFg.opacity(0.9))
+                                                .lineLimit(1)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(PipiTokens.userBubbleFg.opacity(0.14))
+                                        .clipShape(Capsule())
                                     }
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2.5)
-                                    .background(PipiTokens.bgElevated)
-                                    .overlay(Capsule().stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                                    .clipShape(Capsule())
                                 }
                             }
+                            .scrollIndicators(.hidden)
                         }
-                        .scrollIndicators(.hidden)
-                    }
 
-                    Text(msg.content)
-                        .font(PipiTokens.fontBody)
-                        .foregroundStyle(PipiTokens.textPrimary)
-                        .textSelection(.enabled)
-                        .lineSpacing(5.5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, PipiTokens.spacing16)
-                .padding(.vertical, PipiTokens.spacing12)
-                .background(PipiTokens.userBubbleBg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: PipiTokens.radiusComposer, style: .continuous)
-                        .stroke(PipiTokens.borderSubtle, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusComposer, style: .continuous))
-                .overlay(alignment: .topTrailing) {
-                    if isHovered || copiedMessageId == msg.id {
-                        Button {
-                            triggerCopy(msg.content, messageId: msg.id)
-                        } label: {
-                            Image(systemName: copiedMessageId == msg.id ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 10.5, weight: .semibold))
-                                .foregroundStyle(copiedMessageId == msg.id ? PipiTokens.stateSuccess : PipiTokens.textMuted)
-                                .frame(width: 24, height: 24)
-                                .background(PipiTokens.bgElevated)
-                                .overlay(Circle().stroke(PipiTokens.borderSubtle, lineWidth: 1))
-                                .clipShape(Circle())
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
-                        .padding(PipiTokens.spacing8)
-                        .accessibilityLabel(s.copy)
+                        Text(msg.content)
+                            .font(PipiTokens.fontBody)
+                            .foregroundStyle(PipiTokens.userBubbleFg)
+                            .textSelection(.enabled)
+                            .lineSpacing(5)
                     }
-                }
-                .onHover { hovering in
-                    hoveredMessageId = hovering ? msg.id : nil
-                }
-                .contextMenu {
-                    Button(s.copy) {
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                    .background(
+                        PipiTokens.userBubbleBg,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    )
+                    .frame(maxWidth: 560, alignment: .trailing)
+                    .overlay(alignment: .topLeading) {
+                        if isHovered || copiedMessageId == msg.id {
+                            Button {
+                                triggerCopy(msg.content, messageId: msg.id)
+                            } label: {
+                                Image(systemName: copiedMessageId == msg.id ? "checkmark" : "doc.on.doc")
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .foregroundStyle(copiedMessageId == msg.id ? PipiTokens.stateSuccess : PipiTokens.textSecondary)
+                                    .frame(width: 24, height: 24)
+                                    .background(PipiTokens.bgElevated)
+                                    .overlay(Circle().stroke(PipiTokens.borderSubtle, lineWidth: 1))
+                                    .clipShape(Circle())
+                                    .contentTransition(.symbolEffect(.replace))
+                            }
+                            .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+                            .offset(x: -32, y: 4)
+                            .accessibilityLabel(s.copy)
+                        }
+                    }
+                    .onHover { hovering in
+                        hoveredMessageId = hovering ? msg.id : nil
+                    }
+                    .contextMenu {
+                        Button(s.copy) {
+                            triggerCopy(msg.content, messageId: msg.id)
+                        }
+                    }
+                    .accessibilityAction(named: s.copy) {
                         triggerCopy(msg.content, messageId: msg.id)
                     }
-                }
-                .accessibilityAction(named: s.copy) {
-                    triggerCopy(msg.content, messageId: msg.id)
                 }
             } else {
                 HStack(alignment: .top, spacing: PipiTokens.spacing12) {
@@ -2923,7 +2966,7 @@ public struct PipiWorkspaceView: View {
                                 .frame(width: 30, height: 30)
                                 .overlay(
                                     Image(systemName: "exclamationmark.triangle.fill")
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(.system(size: 13, weight: .medium))
                                         .foregroundStyle(PipiTokens.stateWarning)
                                 )
                         } else {
@@ -2939,10 +2982,10 @@ public struct PipiWorkspaceView: View {
                     }
                     .padding(.top, 1)
 
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: PipiTokens.spacing8) {
                             Text(store.activePersona.name(lang))
-                                .font(PipiTokens.fontCaption.weight(.semibold))
+                                .font(PipiTokens.fontCaption.weight(.medium))
                                 .foregroundStyle(PipiTokens.textPrimary)
 
                             if let label = msg.engineLabel {
@@ -3028,6 +3071,7 @@ public struct PipiWorkspaceView: View {
                                 accent: activeAccent,
                                 isStreaming: isStreaming
                             )
+                            .padding(.vertical, 2)
                         }
 
                         if let delivered = msg.attachments, !delivered.isEmpty {
@@ -3427,37 +3471,7 @@ public struct PipiWorkspaceView: View {
         .padding(.horizontal, 18)
         .padding(.top, 14)
         .padding(.bottom, 12)
-        .background(
-            ZStack {
-                if !reduceTransparency {
-                    shape.fill(.ultraThinMaterial)
-                }
-                shape.fill(PipiTokens.composerSurface.opacity(reduceTransparency ? 1.0 : 0.92))
-                shape.fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.06),
-                            Color.clear
-                        ],
-                        startPoint: .top,
-                        endPoint: UnitPoint(x: 0.5, y: 0.4)
-                    )
-                )
-            }
-        )
-        .overlay(
-            shape.strokeBorder(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.22),
-                        Color.clear
-                    ],
-                    startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.45)
-                ),
-                lineWidth: 0.85
-            )
-        )
+        .background(PipiTokens.composerSurface, in: shape)
         .overlay(
             shape.stroke(
                 isDropTargeted ? PipiTokens.soulPrimary : ((isComposerFocused || isNativeComposerFocused) ? PipiTokens.composerBorderFocused : PipiTokens.composerBorder),
@@ -3466,16 +3480,12 @@ public struct PipiWorkspaceView: View {
         )
         .clipShape(shape)
         .shadow(
-            color: Color.black.opacity(0.06),
-            radius: 2,
-            y: 1
-        )
-        .shadow(
             color: PipiTokens.composerShadow,
-            radius: (isComposerFocused || isNativeComposerFocused) ? 20 : 12,
-            y: (isComposerFocused || isNativeComposerFocused) ? 7 : 4
+            radius: (isComposerFocused || isNativeComposerFocused) ? 14 : 8,
+            x: 0,
+            y: (isComposerFocused || isNativeComposerFocused) ? 4 : 2
         )
-        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isComposerFocused || isNativeComposerFocused)
+        .animation(PipiMotion.adaptive(PipiMotion.hover, reduceMotion: reduceMotion), value: isComposerFocused || isNativeComposerFocused)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDroppedFiles(providers)
         }

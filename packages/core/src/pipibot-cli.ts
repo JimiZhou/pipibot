@@ -19,7 +19,16 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { ActionKind, ArtifactDocumentKind, TeamCollaborationPattern, WikiEntityCategory } from '@pipibot/protocol';
+import type {
+  ActionKind,
+  ArtifactDocumentKind,
+  BoardTaskPriority,
+  BoardTaskStatus,
+  BoardThreadKind,
+  TeamCollaborationPattern,
+  WikiEntityCategory,
+} from '@pipibot/protocol';
+import { PipiBoardEngine } from './board-engine.ts';
 import {
   BUILTIN_SKILL_PACKS,
   projectBuiltinSkillsReadOnly,
@@ -255,6 +264,112 @@ export const PIPIBOT_CLI_COMMANDS: readonly CliCommandDefinition[] = [
     flags: [
       { name: 'lane', type: 'string', required: true, description: 'Lane ID (e.g. screen:global or browser:bot_coder)' },
       { name: 'note', type: 'string', description: 'Optional human review note' },
+    ],
+  },
+  {
+    id: 'board.list',
+    group: 'board',
+    subcommand: 'list',
+    summary: 'List Board channels and task threads (filterable by channel, status, and label).',
+    actionKind: 'read_only',
+    requiresOperationId: false,
+    flags: [
+      { name: 'channel', type: 'string', description: 'Optional channel slug (e.g. inbox, dev, ops)' },
+      { name: 'status', type: 'string', description: 'Optional status filter', enum: ['open', 'blocked', 'claimed', 'needs_you', 'done', 'cancelled'] },
+      { name: 'label', type: 'string', description: 'Optional label filter' },
+    ],
+  },
+  {
+    id: 'board.post',
+    group: 'board',
+    subcommand: 'post',
+    summary: 'Create a new Board task thread or post a progress reply to an existing thread.',
+    actionKind: 'local_write',
+    requiresOperationId: true,
+    flags: [
+      { name: 'thread', type: 'string', description: 'Existing thread ID to reply to; omit to create a new thread' },
+      { name: 'channel', type: 'string', description: 'Target channel slug when creating a new thread (default: inbox)' },
+      { name: 'title', type: 'string', description: 'Thread title when creating a new thread' },
+      { name: 'body', type: 'string', required: true, description: 'Message or task description body' },
+      { name: 'kind', type: 'string', description: 'Thread kind', enum: ['discussion', 'task', 'review', 'incident'] },
+      { name: 'priority', type: 'string', description: 'Task priority', enum: ['urgent', 'high', 'normal', 'low'] },
+      { name: 'labels', type: 'string', description: 'Comma-separated labels' },
+      { name: 'blocked-by', type: 'string', description: 'Comma-separated prerequisite thread IDs' },
+      { name: 'actor', type: 'string', description: 'Posting actor ID (default: human:cli)' },
+      { name: 'artifact', type: 'string', description: 'Optional diff, PR URL, or artifact reference' },
+      { name: 'operation-id', type: 'string', description: 'Idempotency key for safe retries' },
+    ],
+  },
+  {
+    id: 'board.claim',
+    group: 'board',
+    subcommand: 'claim',
+    summary: 'Atomically claim a specific Board task (or next open task) with a renewable TTL lease.',
+    actionKind: 'local_write',
+    requiresOperationId: false,
+    flags: [
+      { name: 'thread', type: 'string', description: 'Specific thread ID to claim; omit to claim next open task' },
+      { name: 'channel', type: 'string', description: 'Optional channel filter when claiming next open task' },
+      { name: 'label', type: 'string', description: 'Optional label filter when claiming next open task' },
+      { name: 'actor', type: 'string', required: true, description: 'Claiming agent or harness ID (e.g. codex, claude-code)' },
+      { name: 'lease-sec', type: 'number', description: 'Lease TTL in seconds (default: 900)' },
+      { name: 'note', type: 'string', description: 'Optional claim note' },
+    ],
+  },
+  {
+    id: 'board.renew',
+    group: 'board',
+    subcommand: 'renew',
+    summary: 'Renew an active Board task lease heartbeat.',
+    actionKind: 'local_write',
+    requiresOperationId: false,
+    flags: [
+      { name: 'thread', type: 'string', required: true, description: 'Thread ID' },
+      { name: 'actor', type: 'string', required: true, description: 'Claim owner actor ID' },
+      { name: 'token', type: 'string', required: true, description: 'Active lease token returned by board.claim' },
+      { name: 'lease-sec', type: 'number', description: 'New lease TTL in seconds (default: 900)' },
+    ],
+  },
+  {
+    id: 'board.complete',
+    group: 'board',
+    subcommand: 'complete',
+    summary: 'Complete a Board task with deliverable summary and automatically unblock dependent tasks.',
+    actionKind: 'local_write',
+    requiresOperationId: false,
+    flags: [
+      { name: 'thread', type: 'string', required: true, description: 'Thread ID to complete' },
+      { name: 'actor', type: 'string', required: true, description: 'Completing actor ID' },
+      { name: 'token', type: 'string', description: 'Optional active lease token for safety check' },
+      { name: 'summary', type: 'string', description: 'Completion summary' },
+      { name: 'deliverable', type: 'string', description: 'Deliverable reference (PR URL, worktree branch, artifact ID)' },
+    ],
+  },
+  {
+    id: 'board.followup',
+    group: 'board',
+    subcommand: 'followup',
+    summary: 'Schedule a thread-scoped follow-up check-in on the Board.',
+    actionKind: 'local_write',
+    requiresOperationId: false,
+    flags: [
+      { name: 'thread', type: 'string', required: true, description: 'Thread ID' },
+      { name: 'actor', type: 'string', required: true, description: 'Scheduling actor ID' },
+      { name: 'prompt', type: 'string', required: true, description: 'Follow-up check-in instruction' },
+      { name: 'in-sec', type: 'number', description: 'Delay in seconds from now (default: 300)' },
+      { name: 'due-at', type: 'string', description: 'Explicit ISO-8601 due timestamp' },
+    ],
+  },
+  {
+    id: 'board.inspect',
+    group: 'board',
+    subcommand: 'inspect',
+    summary: 'Inspect live Board channels, active leases, pending follow-ups, and recent activity stream.',
+    actionKind: 'read_only',
+    requiresOperationId: false,
+    flags: [
+      { name: 'channel', type: 'string', description: 'Optional channel filter' },
+      { name: 'limit', type: 'number', description: 'Max recent activity events to return (default: 40)' },
     ],
   },
 ];
@@ -593,6 +708,132 @@ export async function runPipiBotCli(
           typeof flags.note === 'string' ? flags.note : undefined,
         );
         payload = { lane: String(flags.lane), unlocked, lanes: cu.listLanes() };
+        break;
+      }
+      case 'board.list': {
+        const board = new PipiBoardEngine({ dataDir: rootDir });
+        payload = board.snapshot({
+          channelSlug: typeof flags.channel === 'string' ? flags.channel : undefined,
+          status: typeof flags.status === 'string' ? (flags.status as BoardTaskStatus) : undefined,
+          label: typeof flags.label === 'string' ? flags.label : undefined,
+        });
+        break;
+      }
+      case 'board.post': {
+        const board = new PipiBoardEngine({ dataDir: rootDir });
+        const actorId = typeof flags.actor === 'string' && flags.actor.trim() ? flags.actor.trim() : 'human:cli';
+        const author = {
+          id: actorId,
+          name: actorId.includes(':') ? actorId.split(':').slice(1).join(':') : actorId,
+          kind: actorId.startsWith('human:') ? ('human' as const) : ('harness' as const),
+        };
+        if (typeof flags.thread === 'string' && flags.thread.trim()) {
+          const msg = board.postMessage(flags.thread.trim(), {
+            author,
+            body: String(flags.body),
+            artifactRef: typeof flags.artifact === 'string' ? flags.artifact : undefined,
+          });
+          if (!msg) {
+            return { exitCode: 1, stdout: '', stderr: `Thread not found: ${flags.thread}` };
+          }
+          payload = { message: msg };
+        } else {
+          const bodyStr = String(flags.body);
+          const title = typeof flags.title === 'string' && flags.title.trim() ? flags.title.trim() : bodyStr.slice(0, 72);
+          const labels = typeof flags.labels === 'string' ? flags.labels.split(',').map((s) => s.trim()).filter(Boolean) : [];
+          const blockedBy =
+            typeof flags['blocked-by'] === 'string'
+              ? flags['blocked-by'].split(',').map((s) => s.trim()).filter(Boolean)
+              : [];
+          const thread = board.createThread({
+            channelSlug: typeof flags.channel === 'string' ? flags.channel : 'inbox',
+            title,
+            body: bodyStr,
+            kind: typeof flags.kind === 'string' ? (flags.kind as BoardThreadKind) : 'task',
+            priority: typeof flags.priority === 'string' ? (flags.priority as BoardTaskPriority) : 'normal',
+            labels,
+            blockedBy,
+            author,
+          });
+          payload = { thread };
+        }
+        break;
+      }
+      case 'board.claim': {
+        const board = new PipiBoardEngine({ dataDir: rootDir });
+        const actorId = String(flags.actor).trim();
+        const actor = { id: actorId, name: actorId, kind: 'harness' as const };
+        const leaseMs = typeof flags['lease-sec'] === 'number' ? flags['lease-sec'] * 1000 : undefined;
+        const result =
+          typeof flags.thread === 'string' && flags.thread.trim()
+            ? board.claimTask(flags.thread.trim(), {
+                actor,
+                leaseMs,
+                note: typeof flags.note === 'string' ? flags.note : undefined,
+              })
+            : board.claimNextTask({
+                actor,
+                channelSlug: typeof flags.channel === 'string' ? flags.channel : undefined,
+                label: typeof flags.label === 'string' ? flags.label : undefined,
+                leaseMs,
+                note: typeof flags.note === 'string' ? flags.note : undefined,
+              });
+        payload = result;
+        if (!result.ok) {
+          return { exitCode: 1, stdout: JSON.stringify(result, null, 2), stderr: result.reason ?? 'claim failed' };
+        }
+        break;
+      }
+      case 'board.renew': {
+        const board = new PipiBoardEngine({ dataDir: rootDir });
+        const leaseMs = typeof flags['lease-sec'] === 'number' ? flags['lease-sec'] * 1000 : undefined;
+        const result = board.renewLease(String(flags.thread), {
+          actorId: String(flags.actor),
+          leaseToken: String(flags.token),
+          leaseMs,
+        });
+        payload = result;
+        if (!result.ok) {
+          return { exitCode: 1, stdout: JSON.stringify(result, null, 2), stderr: result.reason ?? 'renew failed' };
+        }
+        break;
+      }
+      case 'board.complete': {
+        const board = new PipiBoardEngine({ dataDir: rootDir });
+        const actorId = String(flags.actor).trim();
+        const result = board.completeTask(String(flags.thread), {
+          actor: { id: actorId, name: actorId, kind: 'harness' },
+          leaseToken: typeof flags.token === 'string' ? flags.token : undefined,
+          summary: typeof flags.summary === 'string' ? flags.summary : undefined,
+          deliverableRef: typeof flags.deliverable === 'string' ? flags.deliverable : undefined,
+        });
+        payload = result;
+        if (!result.ok) {
+          return { exitCode: 1, stdout: JSON.stringify(result, null, 2), stderr: result.reason ?? 'complete failed' };
+        }
+        break;
+      }
+      case 'board.followup': {
+        const board = new PipiBoardEngine({ dataDir: rootDir });
+        const actorId = String(flags.actor).trim();
+        const fup = board.scheduleFollowUp(String(flags.thread), {
+          actor: { id: actorId, name: actorId, kind: 'harness' },
+          prompt: String(flags.prompt),
+          dueAt: typeof flags['due-at'] === 'string' ? flags['due-at'] : undefined,
+          inMs: typeof flags['in-sec'] === 'number' ? flags['in-sec'] * 1000 : undefined,
+        });
+        if (!fup) {
+          return { exitCode: 1, stdout: '', stderr: `Thread not found: ${flags.thread}` };
+        }
+        payload = { followUp: fup };
+        break;
+      }
+      case 'board.inspect': {
+        const board = new PipiBoardEngine({ dataDir: rootDir });
+        payload = board.inspect({
+          channelSlug: typeof flags.channel === 'string' ? flags.channel : undefined,
+          limit: typeof flags.limit === 'number' ? flags.limit : 40,
+        });
         break;
       }
     }

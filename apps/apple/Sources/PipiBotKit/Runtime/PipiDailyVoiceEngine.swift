@@ -619,6 +619,28 @@ public final class PipiDailyVoiceEngine {
         lastError = nil
         liveTranscript = ""
 
+        #if os(iOS)
+        // Request iPhone microphone permission and configure hardware AEC (.voiceChat) + AirPods/speaker routing
+        let micGranted: Bool = await withCheckedContinuation { continuation in
+            AVAudioApplication.requestRecordPermission { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+        guard micGranted else {
+            setState(.error)
+            lastError = PipiVoiceEngineError.microphoneAuthorizationDenied.localizedDescription
+            throw PipiVoiceEngineError.microphoneAuthorizationDenied
+        }
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(
+            .playAndRecord,
+            mode: .voiceChat,
+            options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .duckOthers]
+        )
+        try audioSession.setPreferredIOBufferDuration(0.01)
+        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        #endif
+
         let authStatus = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status)
@@ -646,6 +668,9 @@ public final class PipiDailyVoiceEngine {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        if #available(iOS 16.0, macOS 13.0, *) {
+            request.addsPunctuation = true
+        }
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         } else if config.privacyPolicy == .onDeviceOnly {
@@ -712,6 +737,9 @@ public final class PipiDailyVoiceEngine {
         recognitionRequest = nil
         recognitionTask?.cancel()
         recognitionTask = nil
+        #endif
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         #endif
         vad.reset()
         if state == .listening || state == .transcribing || state == .interrupted {

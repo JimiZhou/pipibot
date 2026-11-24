@@ -365,25 +365,36 @@ function auditWebApp() {
         fail(`design-system/tokens.css missing 3-tier section marker: ${tierMarker}`);
       }
     }
+    if (/cubic-bezier\s*\(\s*0\.34\s*,\s*1\.56/.test(tokensCss)) {
+      fail('design-system/tokens.css contains forbidden overshoot/bounce easing (DESIGN_RULES.md: no bounce)');
+    }
   }
 
   if (iosCss) {
     const strippedCss = iosCss.replace(/\/\*[\s\S]*?\*\//g, '');
     const hexHits = strippedCss.match(/#(?:[0-9A-Fa-f]{3,8})\b/g) || [];
     const rgbHits = strippedCss.match(/\brgba?\s*\(/gi) || [];
+    const heavyWeights = strippedCss.match(/font-weight\s*:\s*(?:600|700|800|bold)\b/gi) || [];
+    const upperTransform = strippedCss.match(/text-transform\s*:\s*uppercase\b/gi) || [];
     if (hexHits.length > 0) {
       fail(`apps/ios-web/styles.css contains raw hex colors: ${hexHits.join(', ')}`);
     }
     if (rgbHits.length > 0) {
       fail(`apps/ios-web/styles.css contains raw rgb/rgba literals: ${rgbHits.length} occurrences`);
     }
+    if (heavyWeights.length > 0) {
+      fail(`apps/ios-web/styles.css violates Regular/Medium weight rule (found ${heavyWeights.length} bold/semibold declarations)`);
+    }
+    if (upperTransform.length > 0) {
+      fail(`apps/ios-web/styles.css violates sentence-case rule (found text-transform: uppercase)`);
+    }
     for (const blockCls of ['.pipi-list-card', '.pipi-sheet', '.pipi-form-sheet', '.pipi-dock', '.pipi-bottom-bar', '.pipi-empty-state']) {
       if (!iosCss.includes(blockCls)) {
         fail(`apps/ios-web/styles.css missing canonical block class: ${blockCls}`);
       }
     }
-    if (hexHits.length === 0 && rgbHits.length === 0) {
-      pass('apps/ios-web/styles.css passed: 0 raw hex/rgb literals, all 6 canonical named blocks present.');
+    if (hexHits.length === 0 && rgbHits.length === 0 && heavyWeights.length === 0 && upperTransform.length === 0) {
+      pass('apps/ios-web/styles.css passed: 0 raw hex/rgb literals, Regular/Medium weights only, sentence-case only, all 6 canonical named blocks present.');
     }
   }
 
@@ -460,13 +471,33 @@ function auditAppleSources() {
       if (/(?:Color|UIColor|NSColor|hex)\s*[:(][^)]*0x[0-9A-Fa-f]{6,8}/.test(line)) {
         fail(`${rel}:${idx + 1}: raw 0x hex color literal outside DesignTokens.swift`);
       }
+      // UI Unslop bans in Mac & iOS UI view files
+      if (rel.includes('PipiBotMacApp/') || rel.includes('PipiBotIOSUI/')) {
+        if (/["'](?:sparkles(?:\.[^"']*)?|wand\.and\.stars)["']/.test(line)) {
+          fail(`${rel}:${idx + 1}: forbidden AI-slop icon (sparkles/wand.and.stars) — see DESIGN_RULES.md`);
+        }
+        if (/\.textCase\(\.uppercase\)/.test(line)) {
+          fail(`${rel}:${idx + 1}: forbidden .textCase(.uppercase) — use sentence case per DESIGN_RULES.md`);
+        }
+      }
     });
   }
 
   if (!hasDesignTokens) fail('apps/apple/Sources missing DesignTokens.swift');
   if (!hasCanonicalBlocks) fail('apps/apple/Sources missing CanonicalBlocks.swift');
 
-  pass(`apps/apple/Sources passed: audited ${auditedViewCount} Swift files outside DesignTokens.swift (0 raw color hexes, 6 canonical SwiftUI blocks verified).`);
+  pass(`apps/apple/Sources passed: audited ${auditedViewCount} Swift files outside DesignTokens.swift (0 raw color hexes, 0 sparkle/wand icons, 0 uppercase textCase, 6 canonical SwiftUI blocks verified).`);
+}
+
+function auditDesignRulesMd() {
+  const rules = readUtf8('DESIGN_RULES.md');
+  if (!rules) return;
+  for (const required of ['## Never', '## Always', '300ms', '0.97']) {
+    if (!rules.includes(required)) {
+      fail(`DESIGN_RULES.md missing required section/rule: ${required}`);
+    }
+  }
+  pass('DESIGN_RULES.md present and verified.');
 }
 
 /* --------------------------------------------------------------------------
@@ -474,6 +505,7 @@ function auditAppleSources() {
  * ------------------------------------------------------------------------ */
 auditPenDocument();
 auditDesignMemoryMd();
+auditDesignRulesMd();
 auditWebApp();
 auditAppleSources();
 

@@ -80,7 +80,6 @@ public struct PipiLiquidGlassModifier: ViewModifier {
     public func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let resolvedBorder = borderColor ?? (reduceTransparency ? PipiTokens.borderStrong : PipiTokens.borderSubtle)
-        let topSpecular = Color.white.opacity(colorScheme == .dark ? 0.14 : 0.80)
         Group {
             if reduceTransparency {
                 content
@@ -92,63 +91,28 @@ public struct PipiLiquidGlassModifier: ViewModifier {
             }
         }
         .overlay(
-            shape.strokeBorder(
-                LinearGradient(
-                    colors: [topSpecular, Color.clear],
-                    startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.45)
-                ),
-                lineWidth: 0.9
-            )
-        )
-        .overlay(
             shape.stroke(resolvedBorder, lineWidth: borderWidth)
         )
         .clipShape(shape)
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.36 : 0.06), radius: 2, y: 1)
         .shadow(color: PipiTokens.elevatedShadow, radius: shadowRadius, y: shadowY)
     }
 }
 
 public struct PipiStructuralMaterialModifier: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorScheme) private var colorScheme
-
     public init() {}
 
     public func body(content: Content) -> some View {
-        if reduceTransparency {
-            content.background {
-                PipiTokens.bgSidebar
-                    .ignoresSafeArea()
-            }
-        } else {
-            content
-                .background {
-                    ZStack {
-                        Rectangle().fill(.regularMaterial)
-                        PipiTokens.bgSidebar.opacity(colorScheme == .dark ? 0.78 : 0.86)
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(colorScheme == .dark ? 0.035 : 0.45),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: UnitPoint(x: 0.5, y: 0.35)
-                        )
-                    }
-                    .ignoresSafeArea()
-                }
+        content.background {
+            PipiTokens.bgSidebar
+                .ignoresSafeArea()
         }
     }
 }
 
-/// Sculpted tactile card surface with subtle top specular hairline and dual-layer contact + ambient shadow.
+/// Clean flat card surface with crisp 1px border (shadows reserved strictly for floating overlays).
 public struct PipiTactileCardModifier: ViewModifier {
     public var cornerRadius: CGFloat
     public var elevated: Bool
-
-    @Environment(\.colorScheme) private var colorScheme
 
     public init(cornerRadius: CGFloat = PipiTokens.radiusMD, elevated: Bool = false) {
         self.cornerRadius = cornerRadius
@@ -157,49 +121,16 @@ public struct PipiTactileCardModifier: ViewModifier {
 
     public func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        let isDark = (colorScheme == .dark)
         content
-            .background(
-                ZStack {
-                    shape.fill(PipiTokens.bgElevated)
-                    shape.fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(isDark ? 0.032 : 0.65),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: UnitPoint(x: 0.5, y: 0.42)
-                        )
-                    )
-                }
-            )
-            .overlay(
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(isDark ? 0.11 : 0.85),
-                            Color.clear
-                        ],
-                        startPoint: .top,
-                        endPoint: UnitPoint(x: 0.5, y: 0.5)
-                    ),
-                    lineWidth: 0.75
-                )
-            )
+            .background(PipiTokens.bgElevated, in: shape)
             .overlay(
                 shape.strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
             )
             .clipShape(shape)
             .shadow(
-                color: Color.black.opacity(isDark ? (elevated ? 0.38 : 0.24) : (elevated ? 0.07 : 0.04)),
-                radius: elevated ? 3 : 1.5,
-                y: 1
-            )
-            .shadow(
-                color: Color.black.opacity(isDark ? (elevated ? 0.30 : 0.16) : (elevated ? 0.08 : 0.045)),
-                radius: elevated ? 16 : 8,
-                y: elevated ? 6 : 3
+                color: elevated ? PipiTokens.elevatedShadow : Color.clear,
+                radius: elevated ? 14 : 0,
+                y: elevated ? 6 : 0
             )
     }
 }
@@ -267,7 +198,7 @@ private struct PipiPressButtonBody: View {
         configuration.label
             .scaleEffect(configuration.isPressed && !reduceMotion ? pressedScale : 1.0)
             .opacity(configuration.isPressed ? pressedOpacity : 1.0)
-            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: configuration.isPressed)
+            .animation(PipiMotion.adaptive(PipiMotion.press, reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 
@@ -305,11 +236,11 @@ public struct PipiActionButton: View {
             HStack(spacing: density.gap) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: density.iconSize, weight: .semibold))
+                        .font(.system(size: density.iconSize, weight: .medium))
                         .frame(width: density.iconSize, height: density.iconSize)
                 }
                 Text(title)
-                    .font(density == .mobile ? PipiTokens.fontSubheadline.weight(.semibold) : PipiTokens.fontCaption.weight(.semibold))
+                    .font(density == .mobile ? PipiTokens.fontSubheadline : PipiTokens.fontCaption.weight(.medium))
                     .lineLimit(1)
             }
             .padding(.horizontal, density == .mobile ? PipiTokens.spacing16 : PipiTokens.spacing12)
@@ -321,32 +252,9 @@ public struct PipiActionButton: View {
                 RoundedRectangle(cornerRadius: density.cornerRadius, style: .continuous)
                     .strokeBorder(borderColor, lineWidth: 1)
             )
-            .overlay(
-                Group {
-                    if tone == .secondary || tone == .primary {
-                        RoundedRectangle(cornerRadius: density.cornerRadius, style: .continuous)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        PipiTokens.borderStrong.opacity(tone == .primary ? 0.30 : 0.55),
-                                        Color.clear
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                ),
-                                lineWidth: 0.75
-                            )
-                    }
-                }
-            )
             .clipShape(RoundedRectangle(cornerRadius: density.cornerRadius, style: .continuous))
-            .shadow(
-                color: tone == .ghost ? Color.clear : PipiTokens.subtleShadow.opacity(isHovered ? 0.85 : 0.5),
-                radius: isHovered ? 3.5 : 1.5,
-                y: 1
-            )
             .opacity(isHovered && tone == .primary ? 0.90 : 1.0)
-            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+            .animation(PipiMotion.adaptive(PipiMotion.hover, reduceMotion: reduceMotion), value: isHovered)
         }
         .buttonStyle(PipiPressButtonStyle())
         .onHover { hovering in
@@ -421,17 +329,17 @@ public struct PipiGhostIconButton: View {
     public var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: iconSize, weight: .semibold))
+                .font(.system(size: iconSize, weight: .medium))
                 .foregroundStyle(isActive ? activeColor : (isHovered ? PipiTokens.textPrimary : PipiTokens.textSecondary))
                 .frame(width: size, height: size)
                 .background(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(isActive ? activeColor.opacity(0.14) : (isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear))
+                        .fill(isActive ? PipiTokens.bgSurfaceHover : (isHovered ? PipiTokens.buttonGhostHoverBg : Color.clear))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+                .animation(PipiMotion.adaptive(PipiMotion.hover, reduceMotion: reduceMotion), value: isHovered)
         }
-        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.97))
         .onHover { hovering in
             isHovered = hovering
         }
@@ -713,16 +621,16 @@ public struct PipiDock: View {
         HStack(spacing: PipiTokens.spacing12) {
             PipiAvatarView(engine: avatarEngine, size: 42, compactMode: false)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(PipiTokens.fontSubheadline.weight(.semibold))
-                    .foregroundStyle(PipiTokens.textPrimary)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(PipiTokens.fontCaption)
-                    .foregroundStyle(PipiTokens.textSecondary)
-                    .lineLimit(1)
-            }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(PipiTokens.fontSubheadline)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        .lineLimit(1)
+                }
 
             Spacer(minLength: PipiTokens.spacing8)
 
@@ -798,11 +706,8 @@ public struct PipiEmptyState: View {
         let _ = textScale
         VStack(spacing: PipiTokens.spacing16) {
             Image(systemName: systemImage)
-                .font(.system(size: 32, weight: .medium))
-                .foregroundStyle(PipiTokens.soulPrimary)
-                .frame(width: 60, height: 60)
-                .background(PipiTokens.soulPrimary.opacity(0.12))
-                .clipShape(Circle())
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(PipiTokens.textMuted)
 
             VStack(spacing: PipiTokens.spacing8) {
                 Text(title)
@@ -1254,13 +1159,8 @@ public struct PipiTextField: View {
                 .strokeBorder(borderColor, lineWidth: isFocused ? 1.25 : 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-        .shadow(
-            color: isFocused ? PipiTokens.subtleShadow.opacity(0.65) : PipiTokens.subtleShadow.opacity(0.25),
-            radius: isFocused ? 3 : 1,
-            y: 1
-        )
-        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isFocused)
-        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+        .animation(PipiMotion.adaptive(PipiMotion.hover, reduceMotion: reduceMotion), value: isFocused)
+        .animation(PipiMotion.adaptive(PipiMotion.hover, reduceMotion: reduceMotion), value: isHovered)
         .onHover { isHovered = $0 }
     }
 }
@@ -1321,13 +1221,8 @@ public struct PipiSecureField: View {
                 .strokeBorder(borderColor, lineWidth: isFocused ? 1.25 : 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-        .shadow(
-            color: isFocused ? PipiTokens.subtleShadow.opacity(0.65) : PipiTokens.subtleShadow.opacity(0.25),
-            radius: isFocused ? 3 : 1,
-            y: 1
-        )
-        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isFocused)
-        .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+        .animation(PipiMotion.adaptive(PipiMotion.hover, reduceMotion: reduceMotion), value: isFocused)
+        .animation(PipiMotion.adaptive(PipiMotion.hover, reduceMotion: reduceMotion), value: isHovered)
         .onHover { isHovered = $0 }
     }
 }
@@ -1376,7 +1271,7 @@ public struct PipiSelectMenu<Option: Identifiable & Hashable>: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9.5, weight: .semibold))
+                    .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(PipiTokens.textMuted)
             }
             .padding(.horizontal, 10)
@@ -1387,15 +1282,14 @@ public struct PipiSelectMenu<Option: Identifiable & Hashable>: View {
                     .strokeBorder(isHovered ? PipiTokens.buttonHoverBorder : PipiTokens.composerBorder, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-            .shadow(color: PipiTokens.subtleShadow.opacity(isHovered ? 0.55 : 0.3), radius: isHovered ? 2.5 : 1, y: 1)
-            .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
+            .animation(PipiMotion.adaptive(PipiMotion.hover, reduceMotion: reduceMotion), value: isHovered)
         }
         .pipiPlainMenu()
         .onHover { isHovered = $0 }
     }
 }
 
-/// Refined segmented capsule selector with machined active pill contrast.
+/// Refined segmented selector with crisp neutral active state.
 public struct PipiSegmentedControl<Option: Identifiable & Hashable>: View {
     public let options: [Option]
     @Binding public var selection: Option
@@ -1423,20 +1317,19 @@ public struct PipiSegmentedControl<Option: Identifiable & Hashable>: View {
                     }
                 } label: {
                     Text(labelForOption(option))
-                        .font(PipiTokens.fontCaption.weight(isSelected ? .semibold : .regular))
+                        .font(PipiTokens.fontCaption.weight(isSelected ? .medium : .regular))
                         .foregroundStyle(isSelected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
                         .lineLimit(1)
                         .padding(.horizontal, 10)
                         .frame(height: 26)
                         .background(
-                            RoundedRectangle(cornerRadius: PipiTokens.radiusXS + 2, style: .continuous)
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusXS, style: .continuous)
                                 .fill(isSelected ? PipiTokens.bgElevated : Color.clear)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: PipiTokens.radiusXS + 2, style: .continuous)
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusXS, style: .continuous)
                                 .strokeBorder(isSelected ? PipiTokens.borderSubtle : Color.clear, lineWidth: 1)
                         )
-                        .shadow(color: isSelected ? PipiTokens.subtleShadow.opacity(0.45) : Color.clear, radius: 1.5, y: 1)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1480,7 +1373,7 @@ public struct PipiInfoHelpButton: View {
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
                 Text(title)
-                    .font(PipiTokens.fontSubheadline.weight(.semibold))
+                    .font(PipiTokens.fontSubheadline)
                     .foregroundStyle(PipiTokens.textPrimary)
                 Text(message)
                     .font(PipiTokens.fontCaption)

@@ -405,7 +405,6 @@ public struct PipiInlineApprovalCard: View {
                 Text(strings.needsYouLabel)
                     .font(PipiTokens.fontMicro)
                     .foregroundStyle(isPending ? PipiTokens.stateWarning : PipiTokens.textSecondary)
-                    .textCase(.uppercase)
 
                 if let risk = approval.riskLevel {
                     let riskFg: Color = {

@@ -1,3 +1,9 @@
+// PiPiBot — Clean-room MIT implementation.
+// Copyright (c) 2026 JimiZhou & PipiBot Contributors. Licensed under the MIT License.
+//
+// Fluid Physics Swipe Deck for High-Signal Human Decisions:
+// Stacked card depth, velocity-aware momentum projection, directional intent stamps, and tactile haptics.
+
 import SwiftUI
 import PipiBotKit
 
@@ -6,6 +12,7 @@ public struct NeedsYouSwipeDeckView: View {
     public var onHaptic: (PipiIOSCompanionRootView.HapticKind) -> Void
 
     @State private var dragOffset: CGSize = .zero
+    @State private var crossedThreshold: Bool = false
     @State private var inspectedEvidence: ArtifactEvidenceRef?
 
     public init(
@@ -21,76 +28,117 @@ public struct NeedsYouSwipeDeckView: View {
     public var body: some View {
         ZStack {
             VStack(spacing: PipiTokens.spacing16) {
-                if let topDecision = store.pendingDecisions.first {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(s.approvalsTitle)
-                                .font(PipiTokens.fontTitle)
-                                .foregroundStyle(PipiTokens.textPrimary)
-                            Text(s.t("还有 \(store.pendingDecisions.count) 项待确认", "\(store.pendingDecisions.count) pending approvals"))
-                                .font(PipiTokens.fontCaption)
-                                .foregroundStyle(PipiTokens.textSecondary)
-                        }
+                let pending = store.pendingDecisions
+                if let topDecision = pending.first {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(s.t("待你拍板", "Needs your call"))
+                            .font(PipiTokens.fontHeadline)
+                            .foregroundStyle(PipiTokens.textPrimary)
+
+                        Text("\(pending.count)")
+                            .font(PipiTokens.fontMonoSmall)
+                            .monospacedDigit()
+                            .foregroundStyle(PipiTokens.textMuted)
+
                         Spacer()
-                        Text(s.t("滑动或点击", "Swipe or Tap"))
+
+                        Text(s.t("右滑通过 · 左滑跳过", "Right approve · Left skip"))
                             .font(PipiTokens.fontMicro)
                             .foregroundStyle(PipiTokens.textMuted)
-                            .padding(.horizontal, PipiTokens.spacing8)
-                            .padding(.vertical, 4)
-                            .background(PipiTokens.bgSurface)
-                            .clipShape(Capsule())
                     }
                     .padding(.horizontal, PipiTokens.spacing16)
 
-                    decisionCard(topDecision)
-                        .padding(.horizontal, PipiTokens.spacing16)
-                        .offset(x: dragOffset.width, y: dragOffset.height * 0.2)
-                        .rotationEffect(.degrees(Double(dragOffset.width / 22.0)))
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    dragOffset = value.translation
-                                }
-                                .onEnded { value in
-                                    if value.translation.width > 110 {
-                                        let approveId = topDecision.recommendedOptionId
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                            dragOffset = .zero
-                                        }
-                                        Task {
-                                            await store.resolveDecision(topDecision.id, optionId: approveId)
-                                            onHaptic(.success)
-                                        }
-                                    } else if value.translation.width < -110,
-                                              let rejectId = topDecision.options.last?.id {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                            dragOffset = .zero
-                                        }
-                                        Task {
-                                            await store.resolveDecision(topDecision.id, optionId: rejectId)
-                                            onHaptic(.medium)
-                                        }
-                                    } else {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                            dragOffset = .zero
-                                        }
-                                    }
-                                }
-                        )
+                    // Stacked card deck with 1:1 depth interpolation during drag
+                    let progress = min(1.0, abs(dragOffset.width) / 140.0)
+                    ZStack {
+                        ForEach(Array(pending.prefix(3).enumerated().reversed()), id: \.element.id) { idx, decision in
+                            if idx == 0 {
+                                decisionCard(decision, isTop: true, dragProgress: progress)
+                                    .offset(x: dragOffset.width, y: dragOffset.height * 0.18)
+                                    .rotationEffect(.degrees(Double(dragOffset.width / 26.0)))
+                                    .gesture(
+                                        DragGesture(minimumDistance: 10)
+                                            .onChanged { value in
+                                                dragOffset = value.translation
+                                                let nowCrossed = abs(value.translation.width) > 95
+                                                if nowCrossed != crossedThreshold {
+                                                    crossedThreshold = nowCrossed
+                                                    if nowCrossed { onHaptic(.light) }
+                                                }
+                                            }
+                                            .onEnded { value in
+                                                // Apple Fluid momentum projection: honor flick velocity via predictedEndTranslation
+                                                let projectedX = value.predictedEndTranslation.width
+                                                let commitApprove = value.translation.width > 100 || projectedX > 190
+                                                let commitSkip = value.translation.width < -100 || projectedX < -190
+                                                crossedThreshold = false
 
-                    Spacer(minLength: 0)
-                } else {
-                    PipiEmptyState(
-                        systemImage: "checkmark.seal.fill",
-                        title: s.approvalsEmptyTitle,
-                        message: s.approvalsEmptyMessage,
-                        buttonTitle: s.runCheck,
-                        buttonAction: {
-                            if let firstId = store.outcomes.first?.id {
-                                Task { await store.evaluateOutcome(firstId) }
+                                                if commitApprove {
+                                                    let approveId = topDecision.recommendedOptionId
+                                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                                                        dragOffset = CGSize(width: 440, height: 18)
+                                                    }
+                                                    Task {
+                                                        try? await Task.sleep(for: .milliseconds(160))
+                                                        dragOffset = .zero
+                                                        await store.resolveDecision(topDecision.id, optionId: approveId)
+                                                        onHaptic(.success)
+                                                    }
+                                                } else if commitSkip, let rejectId = topDecision.options.last?.id {
+                                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                                                        dragOffset = CGSize(width: -440, height: 18)
+                                                    }
+                                                    Task {
+                                                        try? await Task.sleep(for: .milliseconds(160))
+                                                        dragOffset = .zero
+                                                        await store.resolveDecision(topDecision.id, optionId: rejectId)
+                                                        onHaptic(.medium)
+                                                    }
+                                                } else {
+                                                    // Critically damped settle (zero distracting bounce on cancel)
+                                                    withAnimation(.spring(response: 0.28, dampingFraction: 1.0)) {
+                                                        dragOffset = .zero
+                                                    }
+                                                }
+                                            }
+                                    )
+                            } else {
+                                let baseScale = 1.0 - (CGFloat(idx) * 0.045)
+                                let liftedScale = baseScale + (CGFloat(progress) * 0.045)
+                                let baseY = CGFloat(idx) * 10.0
+                                let liftedY = max(0, baseY - (CGFloat(progress) * 10.0))
+                                decisionCard(decision, isTop: false, dragProgress: 0)
+                                    .scaleEffect(liftedScale)
+                                    .offset(y: liftedY)
+                                    .opacity(idx == 1 ? 0.72 + (0.28 * progress) : 0.42)
+                                    .allowsHitTesting(false)
                             }
                         }
+                    }
+                    .padding(.horizontal, PipiTokens.spacing16)
+                    .padding(.bottom, PipiTokens.spacing16)
+                } else {
+                    VStack(spacing: PipiTokens.spacing12) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 32, weight: .light))
+                            .foregroundStyle(PipiTokens.textMuted)
+                        Text(s.approvalsEmptyTitle)
+                            .font(PipiTokens.fontHeadline)
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.approvalsEmptyMessage)
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 36)
+                    .padding(.horizontal, PipiTokens.spacing20)
+                    .background(PipiTokens.bgCanvas, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(PipiTokens.borderSubtle, lineWidth: 1)
                     )
+                    .padding(.horizontal, PipiTokens.spacing16)
                 }
             }
 
@@ -114,38 +162,50 @@ public struct NeedsYouSwipeDeckView: View {
         }
     }
 
-    private func decisionCard(_ decision: NeedsYouDecision) -> some View {
+    private func decisionCard(_ decision: NeedsYouDecision, isTop: Bool, dragProgress: Double) -> some View {
         let sevColor = PipiTokens.color(for: decision.severity)
+        let isApproving = isTop && dragOffset.width > 36
+        let isSkipping = isTop && dragOffset.width < -36
+        let borderColor: Color = isApproving
+            ? PipiTokens.stateSuccess
+            : (isSkipping ? PipiTokens.stateError : PipiTokens.sheetBorder)
 
         return VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
             HStack(spacing: PipiTokens.spacing8) {
-                Text(decision.severity.rawValue.uppercased())
-                    .font(PipiTokens.fontMicro)
-                    .foregroundStyle(sevColor)
-                    .padding(.horizontal, PipiTokens.spacing8)
-                    .padding(.vertical, 4)
-                    .background(sevColor.opacity(0.14))
-                    .clipShape(Capsule())
-
-                Text(decision.category.displayName)
-                    .font(PipiTokens.fontMicro)
-                    .foregroundStyle(PipiTokens.textSecondary)
-                    .padding(.horizontal, PipiTokens.spacing8)
-                    .padding(.vertical, 4)
-                    .background(PipiTokens.bgInset)
-                    .clipShape(Capsule())
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(sevColor)
+                        .frame(width: 6, height: 6)
+                    Text(decision.category.displayName)
+                        .font(PipiTokens.fontMicro)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                }
 
                 Spacer()
+
+                if isApproving {
+                    Text(s.t("通过", "Approve"))
+                        .font(PipiTokens.fontMicro.weight(.medium))
+                        .foregroundStyle(PipiTokens.stateSuccess)
+                        .opacity(dragProgress)
+                } else if isSkipping {
+                    Text(s.t("跳过", "Skip"))
+                        .font(PipiTokens.fontMicro.weight(.medium))
+                        .foregroundStyle(PipiTokens.stateError)
+                        .opacity(dragProgress)
+                }
             }
 
-            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(decision.title)
-                    .font(PipiTokens.fontTitle)
+                    .font(PipiTokens.fontHeadline)
                     .foregroundStyle(PipiTokens.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(decision.summary)
                     .font(PipiTokens.fontBody)
                     .foregroundStyle(PipiTokens.textSecondary)
+                    .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -157,70 +217,63 @@ public struct NeedsYouSwipeDeckView: View {
                             onHaptic(.light)
                         } label: {
                             HStack(spacing: PipiTokens.spacing8) {
-                                Image(systemName: ref.kind == .video ? "play.rectangle.fill" : "doc.text.magnifyingglass")
-                                    .font(.system(size: PipiTokens.buttonIconMobile, weight: .medium))
-                                    .foregroundStyle(PipiTokens.soulSecondary)
+                                Image(systemName: ref.kind == .video ? "play.rectangle" : "doc.text")
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundStyle(PipiTokens.textSecondary)
 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(ref.kind.label)
-                                        .font(PipiTokens.fontCaption.weight(.semibold))
-                                        .foregroundStyle(PipiTokens.textPrimary)
-                                    Text(ref.caption)
-                                        .font(PipiTokens.fontCaption)
-                                        .foregroundStyle(PipiTokens.textSecondary)
-                                        .lineLimit(1)
-                                }
+                                Text(ref.caption)
+                                    .font(PipiTokens.fontCaption)
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                    .lineLimit(1)
 
                                 Spacer()
 
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(PipiTokens.textMuted)
+                                Text(s.t("查看", "View"))
+                                    .font(PipiTokens.fontMicro.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textInverse)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 4)
+                                    .background(PipiTokens.soulPrimary, in: Capsule())
                             }
-                            .padding(PipiTokens.spacing12)
-                            .background(PipiTokens.bgInset)
-                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(PipiTokens.bgSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.98))
                     }
                 }
             }
 
-            VStack(spacing: PipiTokens.spacing8) {
-                ForEach(decision.options) { option in
-                    let tone: PipiButtonTone = {
-                        switch option.style {
-                        case .primary: return .primary
-                        case .secondary: return .secondary
-                        case .destructive: return .destructive
-                        }
-                    }()
-                    PipiActionButton(
-                        option.label,
-                        systemImage: option.style == .primary ? "checkmark.circle.fill" : (option.style == .destructive ? "xmark.circle" : "arrow.triangle.2.circlepath"),
-                        tone: tone,
-                        density: .mobile,
-                        fullWidth: true
-                    ) {
+            // Clean two-button action bar for effortless thumb reach
+            HStack(spacing: PipiTokens.spacing8) {
+                ForEach(decision.options.prefix(2)) { option in
+                    let isPrimary = option.style == .primary || option.id == decision.recommendedOptionId
+                    Button {
                         Task {
                             await store.resolveDecision(decision.id, optionId: option.id)
-                            onHaptic(option.style == .primary ? .success : .medium)
+                            onHaptic(isPrimary ? .success : .medium)
                         }
+                    } label: {
+                        Text(option.label)
+                            .font(PipiTokens.fontSubheadline)
+                            .foregroundStyle(isPrimary ? PipiTokens.textInverse : PipiTokens.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(isPrimary ? PipiTokens.soulPrimary : PipiTokens.bgSurface, in: Capsule())
+                            .overlay(
+                                Capsule().stroke(isPrimary ? Color.clear : PipiTokens.borderSubtle, lineWidth: 1)
+                            )
                     }
+                    .buttonStyle(PipiPressButtonStyle(pressedScale: 0.96))
                 }
             }
         }
         .padding(PipiTokens.spacing20)
-        .background(PipiTokens.bgSurface)
+        .background(PipiTokens.bgCanvas, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: PipiTokens.radiusXL, style: .continuous)
-                .stroke(
-                    dragOffset.width > 40
-                        ? PipiTokens.stateSuccess
-                        : (dragOffset.width < -40 ? PipiTokens.stateError : PipiTokens.borderSubtle),
-                    lineWidth: abs(dragOffset.width) > 40 ? 2 : 1
-                )
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(borderColor, lineWidth: isApproving || isSkipping ? 1.5 : 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusXL, style: .continuous))
+        .shadow(color: isTop ? PipiTokens.sheetShadow : .clear, radius: 12, x: 0, y: 4)
     }
 }

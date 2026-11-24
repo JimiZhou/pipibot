@@ -203,7 +203,7 @@ public struct PipiBotsHubView: View {
         }
         .pipiHideScrollbars()
         .clipped()
-        .background(PipiTokens.bgCanvas)
+        .background(PipiTokens.bgSurface.opacity(0.55))
     }
 
     private func botCard(_ bot: PipiBotPersona) -> some View {
@@ -212,119 +212,124 @@ public struct PipiBotsHubView: View {
         let isHovered = hoveredBotId == bot.id
         let routineCount = store.routines.filter { $0.personaId == bot.id }.count
         let engineLabel = preferredEngineDisplayLabel(for: bot)
-        let shape = RoundedRectangle(cornerRadius: PipiTokens.radiusCardDesktop, style: .continuous)
 
-        return VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+        return VStack(alignment: .leading, spacing: 18) {
             Button {
-                selectedDetailBotId = bot.id
+                onOpenBotChat(bot)
             } label: {
-                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
-                    HStack(alignment: .top, spacing: PipiTokens.spacing12) {
-                        PipiBotPersonaGlyph(persona: bot, size: 42, isSelected: true)
+                HStack(alignment: .top, spacing: 14) {
+                    PipiBotPersonaGlyph(persona: bot, size: 44, isSelected: true)
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: PipiTokens.spacing8) {
-                                Text(bot.name(lang))
-                                    .font(PipiTokens.fontHeadline)
-                                    .foregroundStyle(PipiTokens.textPrimary)
-                                    .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            Text(bot.name(lang))
+                                .font(PipiTokens.fontHeadline)
+                                .tracking(PipiTokens.trackingHeadline)
+                                .foregroundStyle(PipiTokens.textPrimary)
+                                .lineLimit(1)
 
-                                Spacer(minLength: 4)
+                            Spacer(minLength: 4)
 
-                                statePill(state: state, accent: accent)
-                            }
-
-                            Text(bot.role(lang))
-                                .font(PipiTokens.fontCaption)
-                                .foregroundStyle(PipiTokens.textSecondary)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-                                .frame(minHeight: 38, alignment: .topLeading)
+                            statePill(state: state, accent: accent)
                         }
-                    }
 
-                    HStack(spacing: 6) {
-                        metadataPill(icon: "cpu", text: engineLabel)
-                        metadataPill(icon: bot.permissionTier.iconName, text: bot.permissionTier.label(lang))
-                        metadataPill(
-                            icon: "clock.arrow.circlepath",
-                            text: s.t("\(routineCount) 条例行任务", "\(routineCount) \(routineCount == 1 ? "routine" : "routines")")
-                        )
+                        Text(bot.role(lang))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .lineSpacing(3)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .frame(minHeight: 36, alignment: .topLeading)
                     }
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            Rectangle()
-                .fill(PipiTokens.borderSubtle)
-                .frame(height: 1)
-
             HStack(spacing: PipiTokens.spacing8) {
-                PipiActionButton(
-                    s.t("开始任务", "Start Task"),
-                    systemImage: "bubble.left.and.bubble.right",
-                    tone: .secondary,
-                    density: .desktopCompact
-                ) {
-                    onOpenBotChat(bot)
-                }
+                Text("\(engineLabel) · \(bot.permissionTier.label(lang)) · \(s.t("\(routineCount) 条例行", "\(routineCount) \(routineCount == 1 ? "routine" : "routines")"))")
+                    .font(PipiTokens.fontMicro.weight(.regular))
+                    .foregroundStyle(PipiTokens.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
-                PipiActionButton(
-                    s.routinesTitle,
-                    systemImage: "clock.arrow.circlepath",
-                    tone: .ghost,
-                    density: .desktopCompact
-                ) {
-                    selectedDetailBotId = bot.id
-                }
+                Spacer(minLength: 6)
 
-                Spacer(minLength: 4)
-
-                Menu {
+                HStack(spacing: 4) {
                     Button {
-                        onEditBot(bot)
+                        selectedDetailBotId = bot.id
                     } label: {
-                        Label(s.editBotTitle, systemImage: "pencil")
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 12.5, weight: .regular))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .background(isHovered ? PipiTokens.bgSurfaceHover : Color.clear, in: Circle())
                     }
+                    .buttonStyle(.plain)
+                    .help(s.routinesTitle)
+                    .accessibilityLabel(s.routinesTitle)
+                    .opacity(isHovered ? 1.0 : 0.55)
 
-                    Button {
-                        onCreateGroupChat(bot.id)
-                    } label: {
-                        Label(s.t("发起群聊", "Group Chat"), systemImage: "person.2")
-                    }
-
-                    if store.personas.count > 1 {
-                        Divider()
-                        Button(role: .destructive) {
-                            onDeleteBot(bot)
+                    Menu {
+                        Button {
+                            onOpenBotChat(bot)
                         } label: {
-                            Label(s.delete, systemImage: "trash")
+                            Label(s.t("开始任务", "Start task"), systemImage: "arrow.up.right")
                         }
+                        Button {
+                            selectedDetailBotId = bot.id
+                        } label: {
+                            Label(s.routinesTitle, systemImage: "clock.arrow.circlepath")
+                        }
+                        Button {
+                            onEditBot(bot)
+                        } label: {
+                            Label(s.editBotTitle, systemImage: "pencil")
+                        }
+                        Button {
+                            onCreateGroupChat(bot.id)
+                        } label: {
+                            Label(s.t("发起群聊", "Group Chat"), systemImage: "person.2")
+                        }
+                        if store.personas.count > 1 {
+                            Divider()
+                            Button(role: .destructive) {
+                                onDeleteBot(bot)
+                            } label: {
+                                Label(s.delete, systemImage: "trash")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .background(isHovered ? PipiTokens.bgSurfaceHover : Color.clear, in: Circle())
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(PipiTokens.textSecondary)
-                        .frame(width: PipiTokens.buttonHeightDesktop, height: PipiTokens.buttonHeightDesktop)
-                        .background(PipiTokens.buttonSecondaryBg, in: RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
-                                .stroke(PipiTokens.borderSubtle, lineWidth: 1)
-                        )
+                    .pipiPlainMenu()
+                    .fixedSize()
+                    .help(s.t("更多操作", "More actions"))
+                    .accessibilityLabel(s.t("更多操作", "More actions"))
+                    .opacity(isHovered ? 1.0 : 0.55)
+
+                    Button {
+                        onOpenBotChat(bot)
+                    } label: {
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(isHovered ? PipiTokens.textInverse : PipiTokens.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .background(isHovered ? PipiTokens.soulPrimary : PipiTokens.bgSurface, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(s.t("开始任务", "Start task"))
+                    .accessibilityLabel(s.t("开始任务", "Start task"))
                 }
-                .pipiPlainMenu()
-                .fixedSize()
-                .help(s.t("更多操作", "More actions"))
-                .accessibilityLabel(s.t("更多操作", "More actions"))
             }
         }
         .padding(PipiTokens.spacing20)
-        .background(isHovered ? PipiTokens.bgSurface : PipiTokens.bgElevated, in: shape)
-        .overlay(
-            shape.stroke(isHovered ? PipiTokens.borderStrong : PipiTokens.borderSubtle, lineWidth: 1)
-        )
-        .clipShape(shape)
+        .pipiAppleCard(cornerRadius: 16, elevated: true)
+        .scaleEffect(isHovered ? 1.006 : 1.0)
         .animation(PipiMotion.adaptive(PipiMotion.snappy, reduceMotion: reduceMotion), value: isHovered)
         .onHover { hovering in
             hoveredBotId = hovering ? bot.id : (hoveredBotId == bot.id ? nil : hoveredBotId)
@@ -337,15 +342,12 @@ public struct PipiBotsHubView: View {
         case .idle:
             HStack(spacing: 5) {
                 Circle()
-                    .fill(PipiTokens.textMuted.opacity(0.6))
-                    .frame(width: 6, height: 6)
+                    .fill(PipiTokens.textMuted.opacity(0.55))
+                    .frame(width: 5.5, height: 5.5)
                 Text(s.t("待命", "Ready"))
-                    .font(PipiTokens.fontMicro)
+                    .font(PipiTokens.fontMicro.weight(.regular))
                     .foregroundStyle(PipiTokens.textMuted)
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(PipiTokens.bgInset, in: Capsule())
 
         case .working:
             HStack(spacing: 5) {
@@ -354,35 +356,26 @@ public struct PipiBotsHubView: View {
                     .font(PipiTokens.fontMicro)
                     .foregroundStyle(PipiTokens.textPrimary)
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(PipiTokens.bgSurfaceHover, in: Capsule())
 
         case .needsYou:
             HStack(spacing: 5) {
                 Circle()
                     .fill(PipiTokens.stateWarning)
-                    .frame(width: 6, height: 6)
+                    .frame(width: 5.5, height: 5.5)
                 Text(s.needsYouLabel)
                     .font(PipiTokens.fontMicro)
                     .foregroundStyle(PipiTokens.stateWarning)
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(PipiTokens.stateWarningBg, in: Capsule())
 
         case .collaborating:
             HStack(spacing: 5) {
-                Image(systemName: "link")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(PipiTokens.soulSecondary)
+                Circle()
+                    .fill(PipiTokens.soulSecondary)
+                    .frame(width: 5.5, height: 5.5)
                 Text(s.t("协作中", "Collab"))
                     .font(PipiTokens.fontMicro)
                     .foregroundStyle(PipiTokens.soulSecondary)
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(PipiTokens.stateInfoBg, in: Capsule())
         }
     }
 
@@ -548,7 +541,6 @@ public struct PipiBotDetailSheet: View {
                         Text(s.permissionTierTitle)
                             .font(PipiTokens.fontMicro)
                             .foregroundStyle(PipiTokens.textMuted)
-                            .textCase(.uppercase)
 
                         VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
                             PipiSegmentedControl(
@@ -583,7 +575,6 @@ public struct PipiBotDetailSheet: View {
                             Text(s.routinesTitle)
                                 .font(PipiTokens.fontMicro)
                                 .foregroundStyle(PipiTokens.textMuted)
-                                .textCase(.uppercase)
                             Spacer()
                             PipiGhostIconButton(
                                 systemImage: showAddRoutine ? "minus" : "plus",
@@ -628,7 +619,6 @@ public struct PipiBotDetailSheet: View {
                         Text(s.activityTitle)
                             .font(PipiTokens.fontMicro)
                             .foregroundStyle(PipiTokens.textMuted)
-                            .textCase(.uppercase)
 
                         if botRunRecords.isEmpty {
                             Text(s.activityEmpty)

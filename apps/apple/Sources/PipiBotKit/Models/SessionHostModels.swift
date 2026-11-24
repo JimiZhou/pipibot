@@ -1468,6 +1468,323 @@ public enum PipiWriteAheadJournalStatus: String, Codable, CaseIterable, Sendable
     }
 }
 
+// MARK: - 12. Phase 2 Canonical Board Coordination Contracts (Channel -> Thread -> Task)
+
+public enum PipiBoardThreadKind: String, Codable, CaseIterable, Sendable, Equatable, Identifiable {
+    case discussion
+    case task
+    case review
+    case incident
+
+    public var id: String { rawValue }
+
+    public func label(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .discussion: return lang == .zhHans ? "讨论" : "Discussion"
+        case .task: return lang == .zhHans ? "任务" : "Task"
+        case .review: return lang == .zhHans ? "审查" : "Review"
+        case .incident: return lang == .zhHans ? "告警" : "Incident"
+        }
+    }
+}
+
+public enum PipiBoardTaskStatus: String, Codable, CaseIterable, Sendable, Equatable, Identifiable {
+    case open
+    case blocked
+    case claimed
+    case needsYou = "needs_you"
+    case done
+    case cancelled
+
+    public var id: String { rawValue }
+
+    public func label(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .open: return lang == .zhHans ? "待认领" : "Open"
+        case .blocked: return lang == .zhHans ? "等待依赖" : "Blocked"
+        case .claimed: return lang == .zhHans ? "进行中" : "Claimed"
+        case .needsYou: return lang == .zhHans ? "待你确认" : "Needs you"
+        case .done: return lang == .zhHans ? "已完成" : "Done"
+        case .cancelled: return lang == .zhHans ? "已取消" : "Cancelled"
+        }
+    }
+}
+
+public enum PipiBoardActorKind: String, Codable, CaseIterable, Sendable, Equatable {
+    case human
+    case bot
+    case harness
+    case system
+}
+
+public enum PipiBoardEventKind: String, Codable, CaseIterable, Sendable, Equatable {
+    case channelCreated = "channel_created"
+    case threadCreated = "thread_created"
+    case messagePosted = "message_posted"
+    case taskClaimed = "task_claimed"
+    case leaseRenewed = "lease_renewed"
+    case claimLost = "claim_lost"
+    case taskUnblocked = "task_unblocked"
+    case taskNeedsYou = "task_needs_you"
+    case taskCompleted = "task_completed"
+    case followupScheduled = "followup_scheduled"
+    case followupTriggered = "followup_triggered"
+}
+
+public enum PipiBoardTaskPriority: String, Codable, CaseIterable, Sendable, Equatable {
+    case urgent
+    case high
+    case normal
+    case low
+
+    public var sortRank: Int {
+        switch self {
+        case .urgent: return 0
+        case .high: return 1
+        case .normal: return 2
+        case .low: return 3
+        }
+    }
+}
+
+public struct PipiBoardActorRef: Codable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var kind: PipiBoardActorKind
+    public var harness: String?
+    public var nodeId: String?
+
+    public init(
+        id: String,
+        name: String,
+        kind: PipiBoardActorKind,
+        harness: String? = nil,
+        nodeId: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.harness = harness
+        self.nodeId = nodeId
+    }
+}
+
+public struct PipiBoardChannel: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public var slug: String
+    public var title: String
+    public var description: String?
+    public let createdAt: String
+    public var updatedAt: String
+
+    public init(
+        id: String = "ch_\(UUID().uuidString.prefix(8).lowercased())",
+        slug: String,
+        title: String,
+        description: String? = nil,
+        createdAt: String = ISO8601DateFormatter().string(from: Date()),
+        updatedAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.id = id
+        self.slug = slug
+        self.title = title
+        self.description = description
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct PipiBoardMessage: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let threadId: String
+    public var author: PipiBoardActorRef
+    public var body: String
+    public var artifactRef: String?
+    public var metadata: [String: String]?
+    public let createdAt: String
+
+    public init(
+        id: String = "bmsg_\(UUID().uuidString.prefix(8).lowercased())",
+        threadId: String,
+        author: PipiBoardActorRef,
+        body: String,
+        artifactRef: String? = nil,
+        metadata: [String: String]? = nil,
+        createdAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.id = id
+        self.threadId = threadId
+        self.author = author
+        self.body = body
+        self.artifactRef = artifactRef
+        self.metadata = metadata
+        self.createdAt = createdAt
+    }
+}
+
+public struct PipiBoardTaskClaim: Codable, Equatable, Sendable {
+    public var actor: PipiBoardActorRef
+    public var leaseToken: String
+    public let claimedAt: String
+    public var expiresAt: String
+    public var renewCount: Int
+    public var note: String?
+
+    public init(
+        actor: PipiBoardActorRef,
+        leaseToken: String = "lease_\(UUID().uuidString.prefix(12).lowercased())",
+        claimedAt: String = ISO8601DateFormatter().string(from: Date()),
+        expiresAt: String,
+        renewCount: Int = 0,
+        note: String? = nil
+    ) {
+        self.actor = actor
+        self.leaseToken = leaseToken
+        self.claimedAt = claimedAt
+        self.expiresAt = expiresAt
+        self.renewCount = renewCount
+        self.note = note
+    }
+}
+
+public struct PipiBoardScheduledFollowUp: Codable, Identifiable, Equatable, Sendable {
+    public enum Status: String, Codable, Sendable, Equatable {
+        case pending
+        case triggered
+        case cancelled
+    }
+
+    public let id: String
+    public let threadId: String
+    public var actor: PipiBoardActorRef
+    public var prompt: String
+    public var dueAt: String
+    public var status: Status
+    public let createdAt: String
+    public var triggeredAt: String?
+
+    public init(
+        id: String = "bfup_\(UUID().uuidString.prefix(8).lowercased())",
+        threadId: String,
+        actor: PipiBoardActorRef,
+        prompt: String,
+        dueAt: String,
+        status: Status = .pending,
+        createdAt: String = ISO8601DateFormatter().string(from: Date()),
+        triggeredAt: String? = nil
+    ) {
+        self.id = id
+        self.threadId = threadId
+        self.actor = actor
+        self.prompt = prompt
+        self.dueAt = dueAt
+        self.status = status
+        self.createdAt = createdAt
+        self.triggeredAt = triggeredAt
+    }
+}
+
+public struct PipiBoardThread: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public var channelSlug: String
+    public var kind: PipiBoardThreadKind
+    public var title: String
+    public var status: PipiBoardTaskStatus
+    public var priority: PipiBoardTaskPriority
+    public var labels: [String]
+    public var blockedBy: [String]
+    public var claim: PipiBoardTaskClaim?
+    public var claimLostCount: Int
+    public var maxClaimRetries: Int
+    public var messages: [PipiBoardMessage]
+    public var followUps: [PipiBoardScheduledFollowUp]
+    public var deliverableRef: String?
+    public var linkedConversationId: String?
+    public var linkedWorktreeId: String?
+    public var linkedDecisionId: String?
+    public var createdBy: PipiBoardActorRef
+    public let createdAt: String
+    public var updatedAt: String
+    public var completedAt: String?
+
+    public init(
+        id: String = "bth_\(UUID().uuidString.prefix(8).lowercased())",
+        channelSlug: String = "inbox",
+        kind: PipiBoardThreadKind = .task,
+        title: String,
+        status: PipiBoardTaskStatus = .open,
+        priority: PipiBoardTaskPriority = .normal,
+        labels: [String] = [],
+        blockedBy: [String] = [],
+        claim: PipiBoardTaskClaim? = nil,
+        claimLostCount: Int = 0,
+        maxClaimRetries: Int = 3,
+        messages: [PipiBoardMessage] = [],
+        followUps: [PipiBoardScheduledFollowUp] = [],
+        deliverableRef: String? = nil,
+        linkedConversationId: String? = nil,
+        linkedWorktreeId: String? = nil,
+        linkedDecisionId: String? = nil,
+        createdBy: PipiBoardActorRef,
+        createdAt: String = ISO8601DateFormatter().string(from: Date()),
+        updatedAt: String = ISO8601DateFormatter().string(from: Date()),
+        completedAt: String? = nil
+    ) {
+        self.id = id
+        self.channelSlug = channelSlug
+        self.kind = kind
+        self.title = title
+        self.status = status
+        self.priority = priority
+        self.labels = labels
+        self.blockedBy = blockedBy
+        self.claim = claim
+        self.claimLostCount = claimLostCount
+        self.maxClaimRetries = maxClaimRetries
+        self.messages = messages
+        self.followUps = followUps
+        self.deliverableRef = deliverableRef
+        self.linkedConversationId = linkedConversationId
+        self.linkedWorktreeId = linkedWorktreeId
+        self.linkedDecisionId = linkedDecisionId
+        self.createdBy = createdBy
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.completedAt = completedAt
+    }
+}
+
+public struct PipiBoardActivityEvent: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public var kind: PipiBoardEventKind
+    public var channelSlug: String
+    public var threadId: String?
+    public var actor: PipiBoardActorRef
+    public var summary: String
+    public var detail: [String: String]?
+    public let createdAt: String
+
+    public init(
+        id: String = "bev_\(UUID().uuidString.prefix(8).lowercased())",
+        kind: PipiBoardEventKind,
+        channelSlug: String,
+        threadId: String? = nil,
+        actor: PipiBoardActorRef,
+        summary: String,
+        detail: [String: String]? = nil,
+        createdAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.id = id
+        self.kind = kind
+        self.channelSlug = channelSlug
+        self.threadId = threadId
+        self.actor = actor
+        self.summary = summary
+        self.detail = detail
+        self.createdAt = createdAt
+    }
+}
+
 
 
 

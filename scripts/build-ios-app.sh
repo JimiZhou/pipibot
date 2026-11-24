@@ -105,7 +105,7 @@ cat > "$APP_BUNDLE/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.13.0</string>
+  <string>0.13.3</string>
   <key>CFBundleVersion</key>
   <string>13</string>
   <key>CFBundleSupportedPlatforms</key>

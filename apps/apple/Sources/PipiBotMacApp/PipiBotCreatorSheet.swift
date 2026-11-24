@@ -172,9 +172,9 @@ public struct PipiBotCreatorSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
                     HStack(spacing: 10) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(PipiTokens.soulPrimary)
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(s.t("蛋宝 · 目标优先自动化蓝图设计器", "Eggbot · Goal-First Automation Designer"))
                                 .font(PipiTokens.fontHeadline)
@@ -409,11 +409,9 @@ public struct PipiBotCreatorSheet: View {
 
     private var templateGalleryPane: some View {
         VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
-            Text(s.t("角色模板", "Persona Templates"))
+            Text(s.t("角色模板", "Persona templates"))
                 .font(PipiTokens.fontMicro)
-                .tracking(PipiTokens.trackingMicro)
                 .foregroundStyle(PipiTokens.textMuted)
-                .textCase(.uppercase)
                 .padding(.horizontal, PipiTokens.spacing16)
                 .padding(.top, PipiTokens.spacing16)
 
@@ -898,7 +896,7 @@ public struct PipiBotCreatorSheet: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
                     ForEach(PipiBuiltinSkillsRegistry.allPacks) { skill in
                         let isOn = assignedSkillSlugs.contains(skill.slug)
-                        capabilityChip(title: skill.title(lang), icon: "sparkles", isSelected: isOn) {
+                        capabilityChip(title: skill.title(lang), icon: "cube", isSelected: isOn) {
                             if isOn {
                                 assignedSkillSlugs.remove(skill.slug)
                             } else {

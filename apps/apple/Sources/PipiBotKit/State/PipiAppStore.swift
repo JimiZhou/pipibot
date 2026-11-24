@@ -494,6 +494,11 @@ public final class PipiAppStore {
     public var computerUseYieldReason: String? = nil
     public var computerUseBarPresented: Bool = false
 
+    // Phase 2: Vercel Board-Inspired Coordination State (Channels -> Threads -> Tasks & Leases)
+    public var boardChannels: [PipiBoardChannel] = PipiBoardEngine.defaultChannels()
+    public var boardThreads: [PipiBoardThread] = []
+    public var boardEvents: [PipiBoardActivityEvent] = []
+
     // Inspector, Shell & Host Seam State
     public var isInspectorPresented: Bool = false
     public var selectedInspectorTab: PipiInspectorTab = .context
@@ -1184,7 +1189,10 @@ public final class PipiAppStore {
             wechatTypingIndicatorEnabled: wechatILinkManager.typingIndicatorEnabled,
             wechatPrimaryBotId: wechatILinkManager.primaryBotId,
             wechatRoutingModeRaw: wechatILinkManager.routingMode.rawValue,
-            wechatGroupMemberBotIds: wechatILinkManager.groupMemberBotIds
+            wechatGroupMemberBotIds: wechatILinkManager.groupMemberBotIds,
+            boardChannels: boardChannels,
+            boardThreads: Array(boardThreads.prefix(200)),
+            boardEvents: Array(boardEvents.suffix(200))
         )
     }
 
@@ -1502,6 +1510,15 @@ public final class PipiAppStore {
         }
         if let wxMembers = saved.wechatGroupMemberBotIds {
             self.wechatILinkManager.groupMemberBotIds = wxMembers
+        }
+        if let savedBoardChannels = saved.boardChannels, !savedBoardChannels.isEmpty {
+            self.boardChannels = savedBoardChannels
+        }
+        if let savedBoardThreads = saved.boardThreads {
+            self.boardThreads = savedBoardThreads
+        }
+        if let savedBoardEvents = saved.boardEvents {
+            self.boardEvents = savedBoardEvents
         }
 
         if needsDirtySeedPurge || didMigratePlaintextKeys || didMigratePipiPersona {
@@ -4114,16 +4131,17 @@ public final class PipiAppStore {
         // Jarvis Companion Persona & Native Capabilities
         sections.append(
             """
-            [PiPiBot Jarvis 个人管家模式 · 轻松活泼伙伴风]
-            你是主人这台 Mac 上真正能干活的贴身个人管家（就像钢铁侠里的 Jarvis，但说话像微信好友一样轻松活泼、自然带表情、不打官腔）。
+            [PiPiBot Jarvis 个人管家模式 · 自主闭环执行]
+            你是主人这台设备（Mac / iPhone）及所管理远程节点上真正能干活的贴身个人管家（像 Jarvis 一样果断靠谱，说话自然清晰、不打官腔）。
             核心行为准则：
-            1. 主动动手，绝不推脱：你拥有完整的原生工具箱（list_directory / read_file / search_files / write_file / edit_file / run_shell / get_system_status / web_search / fetch_webpage / capture_screenshot / record_screen / synthesize_voice / send_local_file / render_visual_card / generate_image / delegate_cli_agent / read_calendar_and_reminders / create_routine_or_reminder / read_mail_or_sms / send_mail_or_sms / show_control_menu / list_or_switch_bot / create_bot / switch_session_or_project / configure_group_mode / update_settings / check_updates）。
-            2. 严禁说出“我只是纯文本对话模型”“我无法访问本地文件/磁盘”“我不能发语音/图片/附件”“我这里没有菜单”这类推脱话术！
-            3. 用户提到本地目录或项目（如“桌面上的 Projects/FSD”）：立刻调用 list_directory + read_file 亲自翻看源码和 README，直接总结核心架构与用途；不需要把命令贴给用户自己跑。
-            4. 用户要语音（如“发条语音给我”）：立刻调用 synthesize_voice 合成语音附件发给用户，同时配一句轻松文字。
-            5. 用户要图片/截图/文件/附件：立刻调用 capture_screenshot、render_visual_card、generate_image 或 send_local_file 真实发给用户。
-            6. 用户要看菜单、建 Bot、切 Bot/会话/项目、开群聊、改配置、查更新、设提醒或早报：直接调用对应管家控制工具落地生效。
-            7. 遇到任何工具或外部 CLI 报错，自己换方案兜底解决，最后用友好口吻汇报结果，绝对不要把原始 stderr 报错堆栈直接甩给用户！
+            1. 端到端闭环，干到位再交付（最高优先级）：只要任务在当前权限范围内，必须一口气推进到**真正完成并验证通过**（实测命令退出码 `exit=0`、测试通过、目标文件/服务可用）再回复主人。**严禁**干到一半发“进度汇报 / 快出锅了 / 离成功就差一行 / 还没跑通要不要我继续改”把球踢回给主人！
+            2. 合并命令提速，拒绝碎步空转：排查或修复本机/远程节点问题时，优先把多项探测或「修复 + 验证」合并在**一次** compound shell 命令（如 `&&`、分号或多行脚本）中完成；需要同时读多个文件或查多个节点时，在同一轮并发发出多个只读工具调用。绝不要把 `ls`、`cat`、`which`、`chmod` 拆成五六个单独回合白白耗时间。
+            3. 仅在真正硬阻塞时才停下询问：只有触发系统安全确认（高危删除/外发/工作区外写入）、缺少主人私密凭据或明确业务抉择、或连续换 2-3 种方案仍无法突破的外部硬故障时，才暂停请示；其余一律自主判断、试错、兜底并完成。
+            4. 主动动手，绝不推脱：你拥有完整的原生工具箱（list_directory / read_file / search_files / write_file / edit_file / run_shell / run_script / get_system_status / device_vision_ocr / device_clipboard / device_npu_status / web_search / fetch_webpage / browser_browse / browser_open / browser_act / browser_snapshot / capture_screenshot / record_screen / synthesize_voice / send_local_file / render_visual_card / generate_image / delegate_cli_agent / remote_nodes_list / remote_node_inspect / remote_node_exec / remote_node_run_harness / read_calendar_and_reminders / create_routine_or_reminder / read_mail_or_sms / send_mail_or_sms / show_control_menu / list_or_switch_bot / create_bot / switch_session_or_project / configure_group_mode / update_settings / check_updates）。严禁说出“我只是纯文本对话模型”“我无法访问本地文件/磁盘”“我打不开动态网页”这类推脱话术！
+            5. 内置沙箱由你后台静默调用：遇到数值计算、日期换算、JSON/CSV 解析、正则清洗或工作区文件批处理，主动调用 `run_script(code)`（内置 Apple JavaScriptCore 沙箱，支持 `fs` 工作区读写）或 `run_shell(command)`（Mac 走原生 zsh，iPhone 走内置 POSIX 沙箱并在需要 python3/git/swift/npm 时自动通过 E2EE 中继到在线 Mac/Linux 节点）。沙箱是你的后台执行引擎，绝对不要让用户自己去敲命令，直接把算好的结果交付给用户。
+            6. 真实浏览器 CUA 优先：用户发来 X/Twitter 链接、长帖/文章、动态网页、仪表盘或要求打开网页交互查信息时，**优先调用 `browser_browse(url, goal)`**（独立多模态浏览器子代理，自带真实 Chromium/WebKit 渲染、滚屏、点击展开与视觉截屏读图）或 `browser_open` + `browser_act`；不要用纯 HTTP `fetch_webpage` 硬拉动态 SPA 导致内容缺失。
+            7. 用户提到本地目录或项目（如“桌面上的 Projects/FSD”）：立刻调用 list_directory + read_file 亲自查看源码和 README，直接给出结论，不要把命令贴给用户自己跑。
+            8. 用户要语音/图片/截图/文件/管家操作：直接调用对应原生工具真实交付或落地生效；遇到工具或外部 CLI 报错，自主换方案兜底并验证成功后再交付最终结果，不要把原始 stderr 堆栈甩给用户。
             当前默认工作区：\(workspaceDirectory)
             """
         )
@@ -9307,7 +9325,8 @@ public final class PipiAppStore {
     }
 
     /// Native multi-step Jarvis ReAct / Function-Calling loop with lively step-by-step narration,
-    /// workspace-wide auto-execution, Guard confirmation for high-risk actions, and artifact collection.
+    /// workspace-wide auto-execution, concurrent read-only batching, premature-stop auto-continuation,
+    /// Guard confirmation for high-risk actions, and artifact collection.
     public func runJarvisAgentLoop(
         config: PipiLLMProviderConfig,
         systemPrompt: String,
@@ -9318,7 +9337,7 @@ public final class PipiAppStore {
         runId: String,
         placeholderMessageId: String,
         onDelta: (@Sendable (String) -> Void)?,
-        maxSteps: Int = 8
+        maxSteps: Int = PipiAgentToolbox.ContinuationGuard.defaultMaxSteps
     ) async throws -> PipiInferenceResult {
         var wireMessages = PipiInferenceEngine.buildInitialAgentWireMessages(
             systemPrompt: systemPrompt,
@@ -9335,6 +9354,10 @@ public final class PipiAppStore {
         var sentInitialAck = false
         var finalText = ""
         var finalLabel = "\(config.name) · \(config.modelId)"
+        var autoContinueCount = 0
+        var lastCallSignature: String? = nil
+        var consecutiveRepeatCount = 0
+        var budgetHintInjected = false
 
         let dynamicMCPTools = ecosystemManager.dynamicMCPTools(forPersonaId: persona.id, hostId: persona.hostId)
         let combinedTools = PipiAgentToolbox.allTools + dynamicMCPTools
@@ -9342,9 +9365,10 @@ public final class PipiAppStore {
         for stepIdx in 1...maxSteps {
             if Task.isCancelled { throw CancellationError() }
 
+            let compactedWire = PipiVisionContextCompactor.compact(messages: wireMessages, maxRetainedImages: 2)
             let stepResult = try await PipiInferenceEngine.invokeLLMWithTools(
                 config: config,
-                messages: wireMessages,
+                messages: compactedWire,
                 tools: combinedTools
             )
             finalLabel = stepResult.engineLabel
@@ -9360,8 +9384,25 @@ public final class PipiAppStore {
                 fallbackCompletionText: stepResult.text
             )
 
-            // No tool calls -> final answer ready!
+            // No tool calls -> check whether the model stopped prematurely mid-task before finishing
             if stepResult.toolCalls.isEmpty {
+                if stepIdx < maxSteps,
+                   PipiAgentToolbox.ContinuationGuard.shouldAutoContinue(
+                       replyText: stepResult.text,
+                       executedStepCount: collectedSteps.count,
+                       autoContinueCount: autoContinueCount
+                   ) {
+                    autoContinueCount += 1
+                    wireMessages.append(.assistant(text: stepResult.text, toolCalls: []))
+                    wireMessages.append(.user(text: PipiAgentToolbox.ContinuationGuard.continuationNudgePrompt(), images: []))
+                    let nudgeStatus = lang == .zhHans ? "检测到任务还差最后一步，继续自动完成并验证…" : "Detected unfinished final step, continuing automatically…"
+                    if var runState = activeRuns[conversationId], runState.runId == runId {
+                        runState.statusText = nudgeStatus
+                        activeRuns[conversationId] = runState
+                    }
+                    continue
+                }
+
                 finalText = stepResult.text
                 if !finalText.isEmpty {
                     onDelta?(finalText)
@@ -9385,64 +9426,145 @@ public final class PipiAppStore {
             wireMessages.append(.assistant(text: stepResult.text, toolCalls: stepResult.toolCalls))
 
             var pausedForApprovalMessage: String? = nil
+            var repeatedToolNameToNudge: String? = nil
 
-            for tc in stepResult.toolCalls {
-                if Task.isCancelled { throw CancellationError() }
+            let canRunInParallel = stepResult.toolCalls.count > 1
+                && stepResult.toolCalls.allSatisfy { PipiAgentToolbox.ContinuationGuard.isReadOnlyParallelizableTool($0.name) }
 
-                let narration = PipiLivelyProgressNarrator.narrateToolStep(tc, stepIndex: stepIdx, lang: lang)
+            if canRunInParallel {
+                let batchNarration = lang == .zhHans
+                    ? "并行执行 \(stepResult.toolCalls.count) 项只读查询…"
+                    : "Running \(stepResult.toolCalls.count) read-only checks in parallel…"
                 if var runState = activeRuns[conversationId], runState.runId == runId {
-                    runState.statusText = narration
+                    runState.statusText = batchNarration
                     activeRuns[conversationId] = runState
                 }
                 if let progressCallback {
-                    await progressCallback(narration)
+                    await progressCallback(batchNarration)
                 }
 
-                let stepId = "jarvis_\(stepIdx)_\(UUID().uuidString.prefix(5).lowercased())"
-                let startedAt = Date()
-                var stepEvent = PipiStepEvent(
-                    id: stepId,
-                    verbPhrase: narration,
-                    detail: tc.argumentsJSON.count > 160 ? String(tc.argumentsJSON.prefix(160)) + "…" : tc.argumentsJSON,
-                    toolName: tc.name,
-                    status: .running
-                )
-                collectedSteps.append(stepEvent)
-
-                let execRes = await PipiAgentToolbox.execute(
-                    toolCall: tc,
-                    workspaceDirectory: workDir,
-                    llmConfig: config,
-                    deliverablesDirectory: deliverablesDir,
-                    callbacks: callbacks,
-                    skipRiskCheck: false
-                )
-                let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-                stepEvent.status = execRes.isError ? .failed : .succeeded
-                stepEvent.durationMs = elapsedMs
-                if let sIdx = collectedSteps.firstIndex(where: { $0.id == stepId }) {
-                    collectedSteps[sIdx] = stepEvent
+                let toolCalls = stepResult.toolCalls
+                let batchResults: [(Int, PipiLLMToolCall, PipiAgentToolExecutionResult, Int)] = await withTaskGroup(
+                    of: (Int, PipiLLMToolCall, PipiAgentToolExecutionResult, Int).self
+                ) { group in
+                    for (idx, tc) in toolCalls.enumerated() {
+                        group.addTask {
+                            let startedAt = Date()
+                            let res = await PipiAgentToolbox.execute(
+                                toolCall: tc,
+                                workspaceDirectory: workDir,
+                                llmConfig: config,
+                                deliverablesDirectory: deliverablesDir,
+                                callbacks: callbacks,
+                                skipRiskCheck: false
+                            )
+                            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+                            return (idx, tc, res, elapsedMs)
+                        }
+                    }
+                    var ordered: [(Int, PipiLLMToolCall, PipiAgentToolExecutionResult, Int)] = []
+                    for await item in group {
+                        ordered.append(item)
+                    }
+                    return ordered.sorted { $0.0 < $1.0 }
                 }
 
-                if let risk = execRes.needsApproval, !risk.isHardDenied {
-                    emitToolApprovalCard(
-                        conversationId: conversationId,
-                        messageId: placeholderMessageId,
-                        toolCall: tc,
-                        workDir: workDir,
-                        risk: risk
+                for (_, tc, execRes, elapsedMs) in batchResults {
+                    let narration = PipiLivelyProgressNarrator.narrateToolStep(tc, stepIndex: stepIdx, lang: lang)
+                    let stepId = "jarvis_\(stepIdx)_\(UUID().uuidString.prefix(5).lowercased())"
+                    collectedSteps.append(
+                        PipiStepEvent(
+                            id: stepId,
+                            verbPhrase: narration,
+                            detail: tc.argumentsJSON.count > 160 ? String(tc.argumentsJSON.prefix(160)) + "…" : tc.argumentsJSON,
+                            toolName: tc.name,
+                            status: execRes.isError ? .failed : .succeeded,
+                            durationMs: elapsedMs
+                        )
                     )
-                    pausedForApprovalMessage = "🛡️ 这一步涉及「\(risk.summary)」，\(risk.reason)\n\n我先帮你暂停在这里，等你确认后再动手～"
-                    break
-                }
-
-                if !execRes.artifacts.isEmpty {
-                    for art in execRes.artifacts where !collectedArtifacts.contains(where: { $0.filePath == art.filePath }) {
-                        collectedArtifacts.append(art)
+                    if !execRes.artifacts.isEmpty {
+                        for art in execRes.artifacts where !collectedArtifacts.contains(where: { $0.filePath == art.filePath }) {
+                            collectedArtifacts.append(art)
+                        }
+                    }
+                    wireMessages.append(.toolResult(callId: tc.id, toolName: tc.name, content: execRes.output))
+                    if !execRes.visionImages.isEmpty {
+                        wireMessages.append(.user(text: "[Live browser viewport screenshot from \(tc.name)]", images: execRes.visionImages))
                     }
                 }
+            } else {
+                for tc in stepResult.toolCalls {
+                    if Task.isCancelled { throw CancellationError() }
 
-                wireMessages.append(.toolResult(callId: tc.id, toolName: tc.name, content: execRes.output))
+                    let sig = "\(tc.name)::\(tc.argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines))"
+                    if sig == lastCallSignature {
+                        consecutiveRepeatCount += 1
+                    } else {
+                        lastCallSignature = sig
+                        consecutiveRepeatCount = 1
+                    }
+                    if consecutiveRepeatCount >= 3 {
+                        repeatedToolNameToNudge = tc.name
+                    }
+
+                    let narration = PipiLivelyProgressNarrator.narrateToolStep(tc, stepIndex: stepIdx, lang: lang)
+                    if var runState = activeRuns[conversationId], runState.runId == runId {
+                        runState.statusText = narration
+                        activeRuns[conversationId] = runState
+                    }
+                    if let progressCallback {
+                        await progressCallback(narration)
+                    }
+
+                    let stepId = "jarvis_\(stepIdx)_\(UUID().uuidString.prefix(5).lowercased())"
+                    let startedAt = Date()
+                    var stepEvent = PipiStepEvent(
+                        id: stepId,
+                        verbPhrase: narration,
+                        detail: tc.argumentsJSON.count > 160 ? String(tc.argumentsJSON.prefix(160)) + "…" : tc.argumentsJSON,
+                        toolName: tc.name,
+                        status: .running
+                    )
+                    collectedSteps.append(stepEvent)
+
+                    let execRes = await PipiAgentToolbox.execute(
+                        toolCall: tc,
+                        workspaceDirectory: workDir,
+                        llmConfig: config,
+                        deliverablesDirectory: deliverablesDir,
+                        callbacks: callbacks,
+                        skipRiskCheck: false
+                    )
+                    let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+                    stepEvent.status = execRes.isError ? .failed : .succeeded
+                    stepEvent.durationMs = elapsedMs
+                    if let sIdx = collectedSteps.firstIndex(where: { $0.id == stepId }) {
+                        collectedSteps[sIdx] = stepEvent
+                    }
+
+                    if let risk = execRes.needsApproval, !risk.isHardDenied {
+                        emitToolApprovalCard(
+                            conversationId: conversationId,
+                            messageId: placeholderMessageId,
+                            toolCall: tc,
+                            workDir: workDir,
+                            risk: risk
+                        )
+                        pausedForApprovalMessage = "🛡️ 这一步涉及「\(risk.summary)」，\(risk.reason)\n\n我先帮你暂停在这里，等你确认后再动手～"
+                        break
+                    }
+
+                    if !execRes.artifacts.isEmpty {
+                        for art in execRes.artifacts where !collectedArtifacts.contains(where: { $0.filePath == art.filePath }) {
+                            collectedArtifacts.append(art)
+                        }
+                    }
+
+                    wireMessages.append(.toolResult(callId: tc.id, toolName: tc.name, content: execRes.output))
+                    if !execRes.visionImages.isEmpty {
+                        wireMessages.append(.user(text: "[Live browser viewport screenshot from \(tc.name)]", images: execRes.visionImages))
+                    }
+                }
             }
 
             if let pausedMsg = pausedForApprovalMessage {
@@ -9451,9 +9573,20 @@ public final class PipiAppStore {
                 break
             }
 
-            // If we hit maxSteps without a final text turn, ask the model for a crisp wrap-up summary
+            if let repeatedTool = repeatedToolNameToNudge, stepIdx < maxSteps {
+                wireMessages.append(.user(text: PipiAgentToolbox.ContinuationGuard.repeatedCallPivotHint(toolName: repeatedTool), images: []))
+                consecutiveRepeatCount = 0
+            }
+
+            let remaining = maxSteps - stepIdx
+            if !budgetHintInjected, remaining == 2 {
+                budgetHintInjected = true
+                wireMessages.append(.user(text: PipiAgentToolbox.ContinuationGuard.remainingBudgetHint(remainingSteps: remaining), images: []))
+            }
+
+            // If we truly exhausted all maxSteps without a final text turn, ask for an honest structured status
             if stepIdx == maxSteps {
-                wireMessages.append(.user(text: "请根据上面已拿到的全部工具结果，用轻松活泼、清晰明了的中文直接向主人汇报结论吧。", images: []))
+                wireMessages.append(.user(text: "已达到单轮最大工具步数（\(maxSteps) 步）。请用简洁清晰的中文向主人说明：1) 已完成并验证的部分；2) 当前真正卡住的具体阻塞点（如有）；3) 接下来唯一需要执行的命令或决策。不要说空话。", images: []))
                 let wrapUp = try await PipiInferenceEngine.invokeLLMWithTools(
                     config: config,
                     messages: wireMessages,

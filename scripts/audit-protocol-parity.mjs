@@ -123,6 +123,10 @@ const ENUM_PARITY_MAP = [
   { schemaDef: 'ComputerUseLaneKind', tsConst: 'COMPUTER_USE_LANE_KINDS', swiftEnum: 'PipiComputerUseLaneKind' },
   { schemaDef: 'ComputerUseLaneState', tsConst: 'COMPUTER_USE_LANE_STATES', swiftEnum: 'PipiComputerUseLaneState' },
   { schemaDef: 'WriteAheadJournalStatus', tsConst: 'WRITE_AHEAD_JOURNAL_STATUSES', swiftEnum: 'PipiWriteAheadJournalStatus' },
+  { schemaDef: 'BoardThreadKind', tsConst: 'BOARD_THREAD_KINDS', swiftEnum: 'PipiBoardThreadKind' },
+  { schemaDef: 'BoardTaskStatus', tsConst: 'BOARD_TASK_STATUSES', swiftEnum: 'PipiBoardTaskStatus' },
+  { schemaDef: 'BoardActorKind', tsConst: 'BOARD_ACTOR_KINDS', swiftEnum: 'PipiBoardActorKind' },
+  { schemaDef: 'BoardEventKind', tsConst: 'BOARD_EVENT_KINDS', swiftEnum: 'PipiBoardEventKind' },
 ];
 
 console.log('=== PiPiBot Cross-Platform Protocol Parity & Attribution Audit ===');

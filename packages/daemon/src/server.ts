@@ -19,6 +19,11 @@ import { fileURLToPath } from 'node:url';
 import type {
   AvatarExpression9,
   AvatarState53,
+  BoardActorKind,
+  BoardActorRef,
+  BoardTaskPriority,
+  BoardTaskStatus,
+  BoardThreadKind,
   ByokProviderConfig,
   EvolutionSummary,
   FleetNodeTelemetry,
@@ -29,6 +34,7 @@ import type {
   OutcomeDomain,
   OutcomeStatus,
 } from '../../protocol/src/index.ts';
+import { PipiBoardEngine } from '../../core/src/board-engine.ts';
 import {
   ACTIVITY_PULSE_INTERVAL_MS,
   AtomicTranscriptStore,
@@ -177,6 +183,7 @@ export class PipiResidentServer {
   readonly mcpBridge: RoutedMcpBridge;
   readonly harnessRouter: PipiHarnessRouter;
   readonly localFallbackRouter: PipiHarnessRouter;
+  readonly boardEngine: PipiBoardEngine;
   readonly outcomeEngine: PipiOutcomeEngine;
   readonly cueSensor: PipiCueSensor;
   readonly fleetManager: PipiFleetManager;
@@ -279,6 +286,7 @@ export class PipiResidentServer {
       drivers: createSimulatedFallbackDrivers(),
     });
 
+    this.boardEngine = new PipiBoardEngine({ dataDir: this.dataDir });
     this.outcomeEngine = new PipiOutcomeEngine({ seedDefaults: options.seedDefaults !== false });
     this.cueSensor = new PipiCueSensor({ memory: this.memoryEngine, workspacePath: this.workspacePath });
     this.fleetManager = new PipiFleetManager({ memory: this.memoryEngine, seedFleet: options.seedFleet !== false });
@@ -289,6 +297,15 @@ export class PipiResidentServer {
     this.proofHarness = new DaemonProofAndHarnessEngine();
     this.credentialBroker = new PipiCredentialBrokerServer();
     this.e2eeIdentity = generateE2EEIdentity();
+
+    this.boardEngine.onEvent((evt) => {
+      if (evt.kind === 'task_needs_you') {
+        this.setAvatarState('needs-you');
+      } else if (evt.kind === 'task_completed') {
+        this.setAvatarState('evolution-proud');
+      }
+      this.broadcastSse('board.event', evt);
+    });
 
     this.outcomeEngine.onEvent((evt) => {
       if (evt.type === 'decision.needs_you') {
@@ -1481,9 +1498,304 @@ export class PipiResidentServer {
           })),
           sentinelIssues: this.sentinelIssues,
           triggers: this.eventTriggers.listRoutines().map((r) => ({ id: r.id, title: r.title, enabled: r.enabled })),
+          board: this.boardEngine.snapshot(),
           usageSummary: { todayTokens: 0, todayCostUSD: 0 },
         });
         return;
+      }
+
+      // -------------------------------------------------------------------
+      // Phase 2: Vercel Board-Inspired Multi-Agent Coordination API
+      // -------------------------------------------------------------------
+      if (method === 'GET' && pathname === '/api/v1/board') {
+        const channelSlug = reqUrl.searchParams.get('channel') ?? undefined;
+        const status = (reqUrl.searchParams.get('status') ?? undefined) as BoardTaskStatus | undefined;
+        const label = reqUrl.searchParams.get('label') ?? undefined;
+        this.sendJson(res, 200, this.boardEngine.snapshot({ channelSlug, status, label }));
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/api/v1/board/inspect') {
+        const channelSlug = reqUrl.searchParams.get('channel') ?? undefined;
+        const limitRaw = Number(reqUrl.searchParams.get('limit') ?? '40');
+        this.sendJson(
+          res,
+          200,
+          this.boardEngine.inspect({
+            channelSlug,
+            limit: Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 40,
+          }),
+        );
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/board/channels') {
+        const body = await this.readJsonBody<{ slug?: string; title?: string; description?: string; actor?: BoardActorRef }>(req);
+        if (!body.slug?.trim()) {
+          this.sendJson(res, 400, { error: 'slug is required' });
+          return;
+        }
+        const channel = this.boardEngine.ensureChannel(body.slug, body.title, body.description, body.actor);
+        this.sendJson(res, 201, { channel });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/api/v1/board/threads') {
+        const channelSlug = reqUrl.searchParams.get('channel') ?? undefined;
+        const status = (reqUrl.searchParams.get('status') ?? undefined) as BoardTaskStatus | undefined;
+        const kind = (reqUrl.searchParams.get('kind') ?? undefined) as BoardThreadKind | undefined;
+        const label = reqUrl.searchParams.get('label') ?? undefined;
+        const claimedByActorId = reqUrl.searchParams.get('claimedBy') ?? undefined;
+        this.sendJson(res, 200, {
+          threads: this.boardEngine.listThreads({ channelSlug, status, kind, label, claimedByActorId }),
+        });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/board/threads') {
+        const body = await this.readJsonBody<{
+          channelSlug?: string;
+          title?: string;
+          body?: string;
+          kind?: BoardThreadKind;
+          priority?: BoardTaskPriority;
+          labels?: string[];
+          blockedBy?: string[];
+          maxClaimRetries?: number;
+          author?: Partial<BoardActorRef>;
+          linkedConversationId?: string;
+          linkedWorktreeId?: string;
+        }>(req);
+        if (!body.title?.trim()) {
+          this.sendJson(res, 400, { error: 'title is required' });
+          return;
+        }
+        const author: BoardActorRef = {
+          id: body.author?.id?.trim() || 'human:owner',
+          name: body.author?.name?.trim() || 'Owner',
+          kind: (body.author?.kind as BoardActorKind | undefined) ?? 'human',
+          harness: body.author?.harness,
+          nodeId: body.author?.nodeId,
+        };
+        const thread = this.boardEngine.createThread({
+          channelSlug: body.channelSlug,
+          title: body.title,
+          body: body.body,
+          kind: body.kind,
+          priority: body.priority,
+          labels: body.labels,
+          blockedBy: body.blockedBy,
+          maxClaimRetries: body.maxClaimRetries,
+          author,
+          linkedConversationId: body.linkedConversationId,
+          linkedWorktreeId: body.linkedWorktreeId,
+        });
+        this.sendJson(res, 201, { thread });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/board/claim-next') {
+        const body = await this.readJsonBody<{
+          actor?: Partial<BoardActorRef>;
+          channelSlug?: string;
+          label?: string;
+          leaseMs?: number;
+          note?: string;
+        }>(req);
+        const actor: BoardActorRef = {
+          id: body.actor?.id?.trim() || 'agent:anonymous',
+          name: body.actor?.name?.trim() || body.actor?.id?.trim() || 'Agent',
+          kind: (body.actor?.kind as BoardActorKind | undefined) ?? 'harness',
+          harness: body.actor?.harness,
+          nodeId: body.actor?.nodeId,
+        };
+        const result = this.boardEngine.claimNextTask({
+          actor,
+          channelSlug: body.channelSlug,
+          label: body.label,
+          leaseMs: body.leaseMs,
+          note: body.note,
+        });
+        this.sendJson(res, result.ok ? 200 : 404, result);
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/board/sweep') {
+        const expired = this.boardEngine.sweepExpiredLeases();
+        const dueFollowUps = this.boardEngine.collectDueFollowUps();
+        this.sendJson(res, 200, { expiredCount: expired.length, expired, dueFollowUps });
+        return;
+      }
+
+      const boardThreadMatch = pathname.match(/^\/api\/v1\/board\/threads\/([^/]+)(?:\/(messages|claim|renew|release|needs-you|complete|followups))?$/);
+      if (boardThreadMatch) {
+        const threadId = decodeURIComponent(boardThreadMatch[1] ?? '');
+        const action = boardThreadMatch[2];
+
+        if (method === 'GET' && !action) {
+          const thread = this.boardEngine.getThread(threadId);
+          if (!thread) {
+            this.sendJson(res, 404, { error: `Thread not found: ${threadId}` });
+            return;
+          }
+          this.sendJson(res, 200, { thread });
+          return;
+        }
+
+        if (method === 'POST' && action === 'messages') {
+          const body = await this.readJsonBody<{
+            author?: Partial<BoardActorRef>;
+            body?: string;
+            artifactRef?: string;
+            metadata?: Record<string, string>;
+          }>(req);
+          if (!body.body?.trim()) {
+            this.sendJson(res, 400, { error: 'body is required' });
+            return;
+          }
+          const author: BoardActorRef = {
+            id: body.author?.id?.trim() || 'human:owner',
+            name: body.author?.name?.trim() || 'Owner',
+            kind: (body.author?.kind as BoardActorKind | undefined) ?? 'human',
+            harness: body.author?.harness,
+            nodeId: body.author?.nodeId,
+          };
+          const message = this.boardEngine.postMessage(threadId, {
+            author,
+            body: body.body,
+            artifactRef: body.artifactRef,
+            metadata: body.metadata,
+          });
+          if (!message) {
+            this.sendJson(res, 404, { error: `Thread not found: ${threadId}` });
+            return;
+          }
+          this.sendJson(res, 201, { message });
+          return;
+        }
+
+        if (method === 'POST' && action === 'claim') {
+          const body = await this.readJsonBody<{ actor?: Partial<BoardActorRef>; leaseMs?: number; note?: string }>(req);
+          const actor: BoardActorRef = {
+            id: body.actor?.id?.trim() || 'agent:anonymous',
+            name: body.actor?.name?.trim() || body.actor?.id?.trim() || 'Agent',
+            kind: (body.actor?.kind as BoardActorKind | undefined) ?? 'harness',
+            harness: body.actor?.harness,
+            nodeId: body.actor?.nodeId,
+          };
+          const result = this.boardEngine.claimTask(threadId, { actor, leaseMs: body.leaseMs, note: body.note });
+          const status = result.ok ? 200 : result.reason === 'not_found' ? 404 : 409;
+          this.sendJson(res, status, result);
+          return;
+        }
+
+        if (method === 'POST' && action === 'renew') {
+          const body = await this.readJsonBody<{ actorId?: string; leaseToken?: string; leaseMs?: number }>(req);
+          if (!body.actorId || !body.leaseToken) {
+            this.sendJson(res, 400, { error: 'actorId and leaseToken are required' });
+            return;
+          }
+          const result = this.boardEngine.renewLease(threadId, {
+            actorId: body.actorId,
+            leaseToken: body.leaseToken,
+            leaseMs: body.leaseMs,
+          });
+          const status = result.ok ? 200 : result.reason === 'not_found' ? 404 : 409;
+          this.sendJson(res, status, result);
+          return;
+        }
+
+        if (method === 'POST' && action === 'release') {
+          const body = await this.readJsonBody<{ actorId?: string; leaseToken?: string; force?: boolean; reason?: string }>(req);
+          const result = this.boardEngine.releaseClaim(threadId, {
+            actorId: body.actorId ?? '',
+            leaseToken: body.leaseToken,
+            force: body.force,
+            reason: body.reason,
+          });
+          const status = result.ok ? 200 : result.reason === 'not_found' ? 404 : 409;
+          this.sendJson(res, status, result);
+          return;
+        }
+
+        if (method === 'POST' && action === 'needs-you') {
+          const body = await this.readJsonBody<{
+            actor?: Partial<BoardActorRef>;
+            summary?: string;
+            decisionId?: string;
+            artifactRef?: string;
+          }>(req);
+          const actor: BoardActorRef = {
+            id: body.actor?.id?.trim() || 'agent:anonymous',
+            name: body.actor?.name?.trim() || 'Agent',
+            kind: (body.actor?.kind as BoardActorKind | undefined) ?? 'harness',
+          };
+          const thread = this.boardEngine.requestNeedsYou(threadId, {
+            actor,
+            summary: body.summary?.trim() || 'Human confirmation requested.',
+            decisionId: body.decisionId,
+            artifactRef: body.artifactRef,
+          });
+          if (!thread) {
+            this.sendJson(res, 404, { error: `Thread not found: ${threadId}` });
+            return;
+          }
+          this.sendJson(res, 200, { thread });
+          return;
+        }
+
+        if (method === 'POST' && action === 'complete') {
+          const body = await this.readJsonBody<{
+            actor?: Partial<BoardActorRef>;
+            summary?: string;
+            deliverableRef?: string;
+            leaseToken?: string;
+          }>(req);
+          const actor: BoardActorRef = {
+            id: body.actor?.id?.trim() || 'agent:anonymous',
+            name: body.actor?.name?.trim() || 'Agent',
+            kind: (body.actor?.kind as BoardActorKind | undefined) ?? 'harness',
+          };
+          const result = this.boardEngine.completeTask(threadId, {
+            actor,
+            summary: body.summary,
+            deliverableRef: body.deliverableRef,
+            leaseToken: body.leaseToken,
+          });
+          const status = result.ok ? 200 : result.reason === 'not_found' ? 404 : 409;
+          this.sendJson(res, status, result);
+          return;
+        }
+
+        if (method === 'POST' && action === 'followups') {
+          const body = await this.readJsonBody<{
+            actor?: Partial<BoardActorRef>;
+            prompt?: string;
+            dueAt?: string;
+            inMs?: number;
+          }>(req);
+          if (!body.prompt?.trim()) {
+            this.sendJson(res, 400, { error: 'prompt is required' });
+            return;
+          }
+          const actor: BoardActorRef = {
+            id: body.actor?.id?.trim() || 'agent:anonymous',
+            name: body.actor?.name?.trim() || 'Agent',
+            kind: (body.actor?.kind as BoardActorKind | undefined) ?? 'harness',
+          };
+          const followUp = this.boardEngine.scheduleFollowUp(threadId, {
+            actor,
+            prompt: body.prompt,
+            dueAt: body.dueAt,
+            inMs: body.inMs,
+          });
+          if (!followUp) {
+            this.sendJson(res, 404, { error: `Thread not found: ${threadId}` });
+            return;
+          }
+          this.sendJson(res, 201, { followUp });
+          return;
+        }
       }
 
       if (method === 'GET' && (pathname === '/mobile' || /^\/c\/[a-zA-Z0-9_-]{4,64}$/.test(pathname))) {

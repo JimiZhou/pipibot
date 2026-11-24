@@ -2,16 +2,19 @@ import SwiftUI
 import PipiBotKit
 #if os(macOS)
 import AppKit
-import CoreImage.CIFilterBuiltins
 #endif
 
 public struct PipiMissionBoardView: View {
     @Bindable public var store: PipiAppStore
+    public var initialFocusNeedsYou: Bool
+    public var onNewTask: (() -> Void)?
     public var onOpenArchitect: () -> Void
     public var onOpenConversation: (String) -> Void
 
     private enum MissionTab: String, CaseIterable, Identifiable {
         case board
+        case needsYou
+        case inspect
         case diffReview
         case triggersEvolution
         case marketplace
@@ -22,6 +25,8 @@ public struct PipiMissionBoardView: View {
         var iconName: String {
             switch self {
             case .board: return "rectangle.3.group"
+            case .needsYou: return "bell"
+            case .inspect: return "waveform.path.ecg"
             case .diffReview: return "checkmark.shield"
             case .triggersEvolution: return "bolt.badge.automatic"
             case .marketplace: return "square.grid.2x2"
@@ -32,7 +37,9 @@ public struct PipiMissionBoardView: View {
         func title(_ s: PipiStrings) -> String {
             switch self {
             case .board: return s.t("看板", "Board")
-            case .diffReview: return s.t("变更审查", "Review")
+            case .needsYou: return s.t("待确认", "Needs you")
+            case .inspect: return s.t("活动流", "Activity")
+            case .diffReview: return s.t("审查", "Review")
             case .triggersEvolution: return s.t("自动化", "Automation")
             case .marketplace: return s.t("市场", "Market")
             case .usage: return s.t("用量", "Usage")
@@ -41,6 +48,17 @@ public struct PipiMissionBoardView: View {
     }
 
     @State private var selectedTab: MissionTab = .board
+    @State private var selectedChannelFilter: String? = nil
+    @State private var selectedBoardThreadId: String? = nil
+    @State private var showNewBoardTaskSheet: Bool = false
+    @State private var newTaskChannel: String = "inbox"
+    @State private var newTaskTitle: String = ""
+    @State private var newTaskBody: String = ""
+    @State private var newTaskPriority: PipiBoardTaskPriority = .normal
+    @State private var newTaskBlockedById: String = ""
+    @State private var threadReplyDraft: String = ""
+    @State private var threadDeliverableDraft: String = ""
+    @State private var threadFollowUpDraft: String = ""
     @State private var selectedWorktreeId: String? = nil
     @State private var reviewFeedbackText: String = ""
     @State private var mergeStrategy: PipiWorktreeMergeStrategy = .squash
@@ -62,10 +80,14 @@ public struct PipiMissionBoardView: View {
 
     public init(
         store: PipiAppStore,
+        initialFocusNeedsYou: Bool = false,
+        onNewTask: (() -> Void)? = nil,
         onOpenArchitect: @escaping () -> Void = {},
         onOpenConversation: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
+        self.initialFocusNeedsYou = initialFocusNeedsYou
+        self.onNewTask = onNewTask
         self.onOpenArchitect = onOpenArchitect
         self.onOpenConversation = onOpenConversation
     }
@@ -78,6 +100,10 @@ public struct PipiMissionBoardView: View {
                 switch selectedTab {
                 case .board:
                     boardStage
+                case .needsYou:
+                    PipiNeedsYouInboxView(store: store, onOpenSession: onOpenConversation)
+                case .inspect:
+                    liveInspectStage
                 case .diffReview:
                     diffReviewStage
                 case .triggersEvolution:
@@ -92,40 +118,97 @@ public struct PipiMissionBoardView: View {
         }
         .background(PipiTokens.bgCanvas)
         .onAppear {
+            if initialFocusNeedsYou {
+                selectedTab = .needsYou
+            }
             if selectedWorktreeId == nil {
                 selectedWorktreeId = store.worktreeSessions.first?.id
             }
             if newTriggerPersonaId.isEmpty {
                 newTriggerPersonaId = store.personas.first?.id ?? ""
             }
+            _ = store.sweepExpiredBoardLeases()
+            _ = store.collectDueBoardFollowUps()
+        }
+        .onChange(of: initialFocusNeedsYou) { _, focus in
+            if focus {
+                selectedTab = .needsYou
+            }
         }
         .sheet(isPresented: $showNewTriggerSheet) {
             newEventTriggerSheet
+        }
+        .sheet(isPresented: $showNewBoardTaskSheet) {
+            newBoardTaskSheet
+        }
+        .sheet(isPresented: Binding(
+            get: { selectedBoardThreadId != nil },
+            set: { if !$0 { selectedBoardThreadId = nil } }
+        )) {
+            if let tid = selectedBoardThreadId,
+               let thread = store.boardThreads.first(where: { $0.id == tid }) {
+                boardThreadDetailSheet(thread: thread)
+            }
         }
     }
 
     // MARK: - Top Header
 
+    private var filteredBoardThreads: [PipiBoardThread] {
+        guard let slug = selectedChannelFilter else { return store.boardThreads }
+        return store.boardThreads.filter { $0.channelSlug == slug }
+    }
+
+    private var openBoardThreads: [PipiBoardThread] {
+        filteredBoardThreads
+            .filter { $0.status == .open || $0.status == .blocked }
+            .sorted { lhs, rhs in
+                if lhs.status != rhs.status { return lhs.status == .open }
+                if lhs.priority.sortRank != rhs.priority.sortRank { return lhs.priority.sortRank < rhs.priority.sortRank }
+                return lhs.updatedAt > rhs.updatedAt
+            }
+    }
+
+    private var claimedBoardThreads: [PipiBoardThread] {
+        filteredBoardThreads
+            .filter { $0.status == .claimed }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var needsYouBoardThreads: [PipiBoardThread] {
+        filteredBoardThreads
+            .filter { $0.status == .needsYou }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var doneBoardThreads: [PipiBoardThread] {
+        filteredBoardThreads
+            .filter { $0.status == .done }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
     private var activeTaskCount: Int {
-        store.activeGroupLanes.count + store.activeRuns.count
+        store.activeGroupLanes.count + store.activeRuns.count + claimedBoardThreads.count
     }
 
     private var pendingReviewCount: Int {
-        store.worktreeSessions.filter { $0.status == .readyForReview || $0.status == .changesRequested }.count
+        needsYouBoardThreads.count
+            + store.worktreeSessions.filter { $0.status == .readyForReview || $0.status == .changesRequested }.count
             + store.blueprintEvolutionProposals.filter { $0.status == .pending }.count
     }
 
     private var completedTaskCount: Int {
-        store.runRecords.count + store.worktreeSessions.filter { $0.status == .merged }.count
+        doneBoardThreads.count + store.runRecords.count + store.worktreeSessions.filter { $0.status == .merged }.count
     }
 
     private var headerSubtitle: String {
-        if activeTaskCount == 0 && pendingReviewCount == 0 {
+        let openCount = openBoardThreads.count
+        if activeTaskCount == 0 && pendingReviewCount == 0 && openCount == 0 {
             return s.t("全部运行平稳 · 今日 $\(String(format: "%.2f", store.usageSummary.todayCostUSD))", "All clear · Today $\(String(format: "%.2f", store.usageSummary.todayCostUSD))")
         }
         return s.t(
-            "\(activeTaskCount) 项进行中 · \(pendingReviewCount) 项待确认 · 今日 $\(String(format: "%.2f", store.usageSummary.todayCostUSD))",
-            "\(activeTaskCount) active · \(pendingReviewCount) to review · $\(String(format: "%.2f", store.usageSummary.todayCostUSD))"
+            "\(openCount) 待认领 · \(activeTaskCount) 进行中 · \(pendingReviewCount) 待确认 · $\(String(format: "%.2f", store.usageSummary.todayCostUSD))",
+            "\(openCount) open · \(activeTaskCount) active · \(pendingReviewCount) review · $\(String(format: "%.2f", store.usageSummary.todayCostUSD))"
         )
     }
 
@@ -140,27 +223,24 @@ public struct PipiMissionBoardView: View {
 
             Spacer(minLength: PipiTokens.spacing12)
 
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(activeTaskCount > 0 ? PipiTokens.soulPrimary : PipiTokens.stateSuccess)
-                    .frame(width: 6, height: 6)
-                Text(headerSubtitle)
-                    .font(PipiTokens.fontCaption)
-                    .foregroundStyle(PipiTokens.textSecondary)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(PipiTokens.bgSurface, in: Capsule())
-            .overlay(Capsule().strokeBorder(PipiTokens.borderSubtle, lineWidth: 1))
+            Text(headerSubtitle)
+                .font(PipiTokens.fontCaption)
+                .foregroundStyle(PipiTokens.textMuted)
+                .monospacedDigit()
+                .lineLimit(1)
 
             PipiActionButton(
-                s.t("设计新助手", "New Assistant"),
-                systemImage: "sparkles",
+                s.t("新任务", "New task"),
+                systemImage: "plus",
                 tone: .primary,
                 density: .desktopCompact
             ) {
-                onOpenArchitect()
+                newTaskChannel = selectedChannelFilter ?? "inbox"
+                newTaskTitle = ""
+                newTaskBody = ""
+                newTaskPriority = .normal
+                newTaskBlockedById = ""
+                showNewBoardTaskSheet = true
             }
         }
         .padding(.horizontal, PipiTokens.spacing24)
@@ -171,6 +251,12 @@ public struct PipiMissionBoardView: View {
     private func tabLabelWithBadge(_ tab: MissionTab) -> String {
         let base = tab.title(s)
         switch tab {
+        case .needsYou:
+            let pending = store.totalNeedsYouCount + store.boardNeedsYouThreads.count
+            return pending > 0 ? "\(base) \(pending)" : base
+        case .inspect:
+            let leases = store.boardThreads.filter { $0.status == .claimed }.count
+            return leases > 0 ? "\(base) \(leases)" : base
         case .diffReview:
             let pending = store.worktreeSessions.filter { $0.status == .readyForReview }.count
             return pending > 0 ? "\(base) \(pending)" : base
@@ -188,7 +274,161 @@ public struct PipiMissionBoardView: View {
         }
     }
 
-    // MARK: - Tab 1: Redesigned Mission Board
+    private var ownerBoardActor: PipiBoardActorRef {
+        PipiBoardActorRef(id: "human:owner", name: s.t("我", "Owner"), kind: .human)
+    }
+
+    private var activePersonaBoardActor: PipiBoardActorRef {
+        let p = store.activePersona
+        return PipiBoardActorRef(id: "bot:\(p.id)", name: p.name(lang), kind: .bot, harness: p.preferredModelId)
+    }
+
+    private func priorityLabel(_ priority: PipiBoardTaskPriority) -> String {
+        switch priority {
+        case .urgent: return s.t("紧急", "Urgent")
+        case .high: return s.t("高优", "High")
+        case .normal: return s.t("普通", "Normal")
+        case .low: return s.t("低优", "Low")
+        }
+    }
+
+    private func statusLabel(_ status: PipiBoardTaskStatus) -> String {
+        switch status {
+        case .open: return s.t("待认领", "Open")
+        case .claimed: return s.t("已认领", "Claimed")
+        case .blocked: return s.t("已阻塞", "Blocked")
+        case .needsYou: return s.t("待确认", "Needs you")
+        case .done: return s.t("已完成", "Done")
+        case .cancelled: return s.t("已取消", "Cancelled")
+        }
+    }
+
+    private func statusTint(_ status: PipiBoardTaskStatus) -> Color {
+        switch status {
+        case .open: return PipiTokens.textSecondary
+        case .claimed: return PipiTokens.soulPrimary
+        case .blocked: return PipiTokens.stateWarning
+        case .needsYou: return PipiTokens.stateWarning
+        case .done: return PipiTokens.stateSuccess
+        case .cancelled: return PipiTokens.textMuted
+        }
+    }
+
+    private func leaseRemainingText(_ claim: PipiBoardTaskClaim?) -> String {
+        guard let claim, let exp = PipiBoardEngine.parseISO(claim.expiresAt) else {
+            return s.t("有效租约", "Active lease")
+        }
+        let secs = Int(exp.timeIntervalSinceNow)
+        if secs <= 0 {
+            return s.t("租约已过期", "Lease expired")
+        }
+        let mins = max(1, (secs + 59) / 60)
+        return s.t("租约剩余 \(mins)m", "\(mins)m left")
+    }
+
+    private func shortTime(_ iso: String) -> String {
+        guard let date = PipiBoardEngine.parseISO(iso) else { return iso }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:mm"
+        return fmt.string(from: date)
+    }
+
+    // MARK: - Tab 1: Live Board (Channel Filter + 4 Open Columns, Zero Nested Cards)
+
+    private var channelFilterBar: some View {
+        HStack(spacing: PipiTokens.spacing8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    channelChip(slug: nil, label: s.t("全部频道", "All channels"), count: store.boardThreads.count)
+                    ForEach(store.boardChannels) { ch in
+                        let cnt = store.boardThreads.filter { $0.channelSlug == ch.slug }.count
+                        channelChip(slug: ch.slug, label: "#\(ch.slug)", count: cnt)
+                    }
+                }
+            }
+
+            Spacer(minLength: PipiTokens.spacing12)
+
+            if openBoardThreads.contains(where: { $0.status == .open }) {
+                Button {
+                    let res = store.claimNextBoardTask(
+                        actor: activePersonaBoardActor,
+                        channelSlug: selectedChannelFilter
+                    )
+                    if res.ok, let th = res.thread {
+                        store.noticeBanner = s.t("已由 \(activePersonaBoardActor.name) 认领「\(th.title)」", "\(activePersonaBoardActor.name) claimed \"\(th.title)\"")
+                    }
+                } label: {
+                    Text(s.t("认领下一项", "Claim next"))
+                        .font(PipiTokens.fontCaption.weight(.medium))
+                        .foregroundStyle(PipiTokens.textPrimary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(PipiTokens.bgElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            if !claimedBoardThreads.isEmpty {
+                Button {
+                    let expired = store.sweepExpiredBoardLeases()
+                    let due = store.collectDueBoardFollowUps()
+                    store.noticeBanner = s.t(
+                        "已巡检租约：释放 \(expired.count) 项过期，触发 \(due.count) 条跟进",
+                        "Swept leases: \(expired.count) expired, \(due.count) follow-ups due"
+                    )
+                } label: {
+                    Text(s.t("巡检租约", "Sweep leases"))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(PipiTokens.bgCanvas)
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func channelChip(slug: String?, label: String, count: Int) -> some View {
+        let isSelected = (selectedChannelFilter == slug)
+        return Button {
+            withAnimation(PipiMotion.press) {
+                selectedChannelFilter = slug
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(label)
+                    .font(PipiTokens.fontCaption.weight(isSelected ? .medium : .regular))
+                    .foregroundStyle(isSelected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(PipiTokens.fontMonoSmall)
+                        .monospacedDigit()
+                        .foregroundStyle(PipiTokens.textMuted)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(isSelected ? PipiTokens.bgElevated : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                    .strokeBorder(isSelected ? PipiTokens.borderSubtle : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
 
     private var boardStage: some View {
         let pendingWorktrees = store.worktreeSessions.filter { $0.status == .readyForReview || $0.status == .changesRequested }
@@ -196,25 +436,72 @@ public struct PipiMissionBoardView: View {
         let mergedWorktrees = store.worktreeSessions.filter { $0.status == .merged }
 
         return ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
-                // Sleek unified status strip (replaces bulky hollow KPI boxes)
-                boardMetricsStrip
+            VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+                channelFilterBar
 
-                // Clean 3-column Apple / Linear Kanban
                 HStack(alignment: .top, spacing: PipiTokens.spacing16) {
+                    // Column 1: Open & Blocked
                     missionColumn(
-                        title: s.t("进行中", "In Progress"),
+                        title: s.t("待认领", "Open"),
+                        count: openBoardThreads.count,
+                        dotTint: PipiTokens.textSecondary
+                    ) {
+                        ForEach(openBoardThreads) { thread in
+                            let unresolvedCount = PipiBoardEngine.unresolvedBlockers(for: thread.blockedBy, in: store.boardThreads).count
+                            let sub = unresolvedCount > 0
+                                ? s.t("#\(thread.channelSlug) · 等待 \(unresolvedCount) 项前置任务", "#\(thread.channelSlug) · Waiting on \(unresolvedCount) blocker(s)")
+                                : "#\(thread.channelSlug) · \(priorityLabel(thread.priority))"
+                            Button {
+                                selectedBoardThreadId = thread.id
+                            } label: {
+                                missionCard(
+                                    title: thread.title,
+                                    subtitle: sub,
+                                    owner: thread.createdBy.name,
+                                    badge: statusLabel(thread.status),
+                                    badgeTint: statusTint(thread.status),
+                                    showChevron: true
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if openBoardThreads.isEmpty {
+                            emptyColumnPlaceholder(
+                                text: s.t("当前频道暂无待认领任务", "No open tasks in this channel")
+                            )
+                        }
+                    }
+
+                    // Column 2: Claimed + Live Runs
+                    missionColumn(
+                        title: s.t("进行中", "In progress"),
                         count: activeTaskCount,
                         dotTint: PipiTokens.soulPrimary
                     ) {
+                        ForEach(claimedBoardThreads) { thread in
+                            let holder = thread.claim?.actor.name ?? activePersonaBoardActor.name
+                            let leaseNote = leaseRemainingText(thread.claim)
+                            Button {
+                                selectedBoardThreadId = thread.id
+                            } label: {
+                                missionCard(
+                                    title: thread.title,
+                                    subtitle: "#\(thread.channelSlug) · \(leaseNote)",
+                                    owner: holder,
+                                    badge: s.t("已认领", "Claimed"),
+                                    badgeTint: PipiTokens.soulPrimary,
+                                    showChevron: true
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                         ForEach(store.activeGroupLanes) { lane in
                             missionCard(
                                 title: lane.statusText.isEmpty ? lane.personaName : lane.statusText,
                                 subtitle: lane.hostLabel,
                                 owner: lane.personaName,
                                 badge: s.t("协作中", "Active"),
-                                badgeTint: PipiTokens.soulPrimary,
-                                icon: "bolt.fill"
+                                badgeTint: PipiTokens.soulPrimary
                             )
                         }
                         let runningSessions = Array(store.activeRuns.values)
@@ -222,26 +509,41 @@ public struct PipiMissionBoardView: View {
                             let botName = store.personas.first(where: { $0.id == run.personaId })?.name(lang) ?? s.appName
                             missionCard(
                                 title: run.statusText.isEmpty ? s.t("正在执行任务…", "Running task…") : run.statusText,
-                                subtitle: run.isLocalAgent ? s.t("本机代码代理", "Local Agent") : s.t("后台对话任务", "Background Run"),
+                                subtitle: run.isLocalAgent ? s.t("本机代码代理", "Local agent") : s.t("后台对话任务", "Background run"),
                                 owner: botName,
                                 badge: s.t("执行中", "Running"),
-                                badgeTint: PipiTokens.soulPrimary,
-                                icon: "sparkles"
+                                badgeTint: PipiTokens.soulPrimary
                             )
                         }
                         if activeTaskCount == 0 {
                             emptyColumnPlaceholder(
-                                icon: "circle.dotted",
                                 text: s.t("暂无进行中的任务", "Nothing running right now")
                             )
                         }
                     }
 
+                    // Column 3: Needs You
                     missionColumn(
-                        title: s.t("待你确认", "Needs Review"),
+                        title: s.t("待你确认", "Needs you"),
                         count: pendingReviewCount,
                         dotTint: PipiTokens.stateWarning
                     ) {
+                        ForEach(needsYouBoardThreads) { thread in
+                            let lastNote = thread.messages.last?.body ?? "#\(thread.channelSlug)"
+                            Button {
+                                selectedBoardThreadId = thread.id
+                            } label: {
+                                missionCard(
+                                    title: thread.title,
+                                    subtitle: "#\(thread.channelSlug) · \(lastNote)",
+                                    owner: thread.messages.last?.author.name ?? thread.createdBy.name,
+                                    badge: s.t("待拍板", "Decision"),
+                                    badgeTint: PipiTokens.stateWarning,
+                                    showChevron: true
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                         ForEach(pendingWorktrees) { wt in
                             Button {
                                 selectedWorktreeId = wt.id
@@ -253,7 +555,6 @@ public struct PipiMissionBoardView: View {
                                     owner: wt.botName,
                                     badge: wt.status.label(lang),
                                     badgeTint: PipiTokens.stateWarning,
-                                    icon: "arrow.triangle.branch",
                                     showChevron: true
                                 )
                             }
@@ -268,27 +569,44 @@ public struct PipiMissionBoardView: View {
                                     subtitle: s.t("\(prop.diffs.count) 处待确认改动", "\(prop.diffs.count) changes proposed"),
                                     owner: prop.botName,
                                     badge: s.t("优化建议", "Proposal"),
-                                    badgeTint: PipiTokens.stateSuccess,
-                                    icon: "wand.and.stars",
+                                    badgeTint: PipiTokens.stateWarning,
                                     showChevron: true
                                 )
                             }
                             .buttonStyle(.plain)
                         }
-                        if pendingWorktrees.isEmpty && pendingProposals.isEmpty {
+                        if pendingReviewCount == 0 {
                             emptyColumnPlaceholder(
-                                icon: "checkmark.circle",
                                 text: s.t("所有待办都已确认完毕", "Everything is reviewed")
                             )
                         }
                     }
 
+                    // Column 4: Completed
                     missionColumn(
-                        title: s.t("已完成", "Completed"),
+                        title: s.t("已完成", "Done"),
                         count: completedTaskCount,
                         dotTint: PipiTokens.stateSuccess
                     ) {
-                        ForEach(store.runRecords.prefix(6)) { rec in
+                        ForEach(doneBoardThreads.prefix(6)) { thread in
+                            let sub = thread.deliverableRef?.isEmpty == false
+                                ? "#\(thread.channelSlug) · \(thread.deliverableRef!)"
+                                : "#\(thread.channelSlug) · \(shortTime(thread.updatedAt))"
+                            Button {
+                                selectedBoardThreadId = thread.id
+                            } label: {
+                                missionCard(
+                                    title: thread.title,
+                                    subtitle: sub,
+                                    owner: thread.messages.last?.author.name ?? thread.createdBy.name,
+                                    badge: s.t("已完成", "Done"),
+                                    badgeTint: PipiTokens.stateSuccess,
+                                    showChevron: true
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        ForEach(store.runRecords.prefix(5)) { rec in
                             Button {
                                 onOpenConversation(rec.conversationId)
                             } label: {
@@ -298,35 +616,29 @@ public struct PipiMissionBoardView: View {
                                     owner: rec.engineLabel,
                                     badge: rec.status == .succeeded ? s.t("已完成", "Done") : s.t("需关注", "Issue"),
                                     badgeTint: rec.status == .succeeded ? PipiTokens.stateSuccess : PipiTokens.stateError,
-                                    icon: rec.status == .succeeded ? "checkmark" : "exclamationmark.triangle",
                                     showChevron: true
                                 )
                             }
                             .buttonStyle(.plain)
                         }
-                        ForEach(mergedWorktrees.prefix(4)) { wt in
+                        ForEach(mergedWorktrees.prefix(3)) { wt in
                             missionCard(
                                 title: wt.taskTitle,
-                                subtitle: wt.diffSummary.isEmpty ? wt.branchName : wt.diffSummary,
+                                subtitle: wt.diffSummary.isEmpty ? wt.branchName : "\(wt.branchName) · \(wt.diffSummary)",
                                 owner: wt.botName,
                                 badge: s.t("已合入", "Merged"),
-                                badgeTint: PipiTokens.stateSuccess,
-                                icon: "checkmark.seal"
+                                badgeTint: PipiTokens.stateSuccess
                             )
                         }
-                        if store.runRecords.isEmpty && mergedWorktrees.isEmpty {
+                        if completedTaskCount == 0 {
                             emptyColumnPlaceholder(
-                                icon: "tray",
                                 text: s.t("完成的任务会汇总在这里", "Completed work appears here")
                             )
                         }
                     }
                 }
-
-                // Clean Apple-Settings-style Utility Dock (Security & Health; Mobile Pairing lives in Settings -> Remote Access)
-                sentinelAndSandboxCard
             }
-            .frame(maxWidth: 1080, alignment: .leading)
+            .frame(maxWidth: 1180, alignment: .leading)
             .padding(.horizontal, PipiTokens.spacing24)
             .padding(.vertical, PipiTokens.spacing20)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -334,62 +646,558 @@ public struct PipiMissionBoardView: View {
         .background(PipiTokens.bgCanvas)
     }
 
-    private var boardMetricsStrip: some View {
-        HStack(spacing: 0) {
-            compactMetricItem(
-                label: s.t("进行中", "In Progress"),
-                value: "\(activeTaskCount)",
-                dotTint: PipiTokens.soulPrimary
-            )
-            metricDivider
-            compactMetricItem(
-                label: s.t("待确认", "Needs Review"),
-                value: "\(pendingReviewCount)",
-                dotTint: PipiTokens.stateWarning
-            )
-            metricDivider
-            compactMetricItem(
-                label: s.t("已完成", "Completed"),
-                value: "\(completedTaskCount)",
-                dotTint: PipiTokens.stateSuccess
-            )
-            metricDivider
-            compactMetricItem(
-                label: s.t("今日估算", "Today"),
-                value: "$\(String(format: "%.2f", store.usageSummary.todayCostUSD))",
-                dotTint: PipiTokens.textMuted
-            )
+    // MARK: - Tab 3: Live Inspect (Active Leases, Pending Follow-Ups & Event Stream)
+
+    private var liveInspectStage: some View {
+        let activeLeases = store.boardThreads.filter { $0.status == .claimed && $0.claim != nil }
+        let pendingFollowUps = store.boardThreads.flatMap { th in
+            th.followUps.filter { $0.status == .pending }.map { (th, $0) }
         }
-        .padding(.vertical, 12)
-        .background(PipiTokens.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous)
-                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-        )
+        let recentEvents = Array(store.boardEvents.reversed().prefix(40))
+
+        return ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
+                HStack(spacing: PipiTokens.spacing12) {
+                    Text(s.t("实时协作状态", "Live coordination"))
+                        .font(PipiTokens.fontHeadline)
+                        .foregroundStyle(PipiTokens.textPrimary)
+
+                    Text(s.t(
+                        "\(activeLeases.count) 个活跃租约 · \(pendingFollowUps.count) 条定时跟进 · \(store.boardEvents.count) 条事件",
+                        "\(activeLeases.count) active leases · \(pendingFollowUps.count) follow-ups · \(store.boardEvents.count) events"
+                    ))
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textMuted)
+                    .monospacedDigit()
+
+                    Spacer()
+
+                    PipiActionButton(
+                        s.t("巡检租约与跟进", "Sweep now"),
+                        systemImage: "arrow.clockwise",
+                        tone: .secondary,
+                        density: .desktopCompact
+                    ) {
+                        let expired = store.sweepExpiredBoardLeases()
+                        let due = store.collectDueBoardFollowUps()
+                        store.noticeBanner = s.t(
+                            "巡检完成：释放 \(expired.count) 项过期租约，触发 \(due.count) 条跟进",
+                            "Swept \(expired.count) expired lease(s) and \(due.count) due follow-up(s)"
+                        )
+                    }
+                }
+
+                if !activeLeases.isEmpty {
+                    VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                        Text(s.t("活跃认领租约", "Active leases"))
+                            .font(PipiTokens.fontSubheadline)
+                            .foregroundStyle(PipiTokens.textPrimary)
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(activeLeases.enumerated()), id: \.element.id) { idx, thread in
+                                if idx > 0 {
+                                    Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                                }
+                                HStack(spacing: PipiTokens.spacing12) {
+                                    Circle()
+                                        .fill(PipiTokens.soulPrimary)
+                                        .frame(width: 6, height: 6)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(thread.title)
+                                            .font(PipiTokens.fontSubheadline)
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                            .lineLimit(1)
+                                        Text("#\(thread.channelSlug) · \(thread.claim?.actor.name ?? "") · \(leaseRemainingText(thread.claim))")
+                                            .font(PipiTokens.fontCaption)
+                                            .foregroundStyle(PipiTokens.textSecondary)
+                                            .monospacedDigit()
+                                    }
+                                    Spacer()
+                                    if let claim = thread.claim {
+                                        Button(s.t("续租 +15m", "Renew")) {
+                                            _ = store.renewBoardLease(
+                                                threadId: thread.id,
+                                                actorId: claim.actor.id,
+                                                leaseToken: claim.leaseToken,
+                                                leaseSeconds: 900
+                                            )
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .font(PipiTokens.fontCaption.weight(.medium))
+                                        .foregroundStyle(PipiTokens.soulPrimary)
+
+                                        Button(s.t("完成", "Complete")) {
+                                            _ = store.completeBoardTask(
+                                                threadId: thread.id,
+                                                actor: claim.actor,
+                                                summary: s.t("已在实时活动流中确认完成。", "Completed from Live Inspect."),
+                                                leaseToken: claim.leaseToken
+                                            )
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .font(PipiTokens.fontCaption.weight(.medium))
+                                        .foregroundStyle(PipiTokens.stateSuccess)
+                                    }
+                                }
+                                .padding(.horizontal, PipiTokens.spacing12)
+                                .padding(.vertical, 10)
+                            }
+                        }
+                        .background(PipiTokens.bgElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusCardDesktop, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusCardDesktop, style: .continuous)
+                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                        )
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                    Text(s.t("实时事件流", "Activity stream"))
+                        .font(PipiTokens.fontSubheadline)
+                        .foregroundStyle(PipiTokens.textPrimary)
+
+                    if recentEvents.isEmpty {
+                        emptyColumnPlaceholder(
+                            text: s.t("创建任务、认领、续租或完成任务后，实时事件流会按时间顺序记录在这里。", "Board events (claims, leases, unblocks, follow-ups) appear here live.")
+                        )
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(recentEvents.enumerated()), id: \.element.id) { idx, ev in
+                                if idx > 0 {
+                                    Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+                                }
+                                Button {
+                                    if let tid = ev.threadId,
+                                       store.boardThreads.contains(where: { $0.id == tid }) {
+                                        selectedBoardThreadId = tid
+                                    }
+                                } label: {
+                                    HStack(spacing: PipiTokens.spacing12) {
+                                        Text(shortTime(ev.createdAt))
+                                            .font(PipiTokens.fontMonoSmall)
+                                            .monospacedDigit()
+                                            .foregroundStyle(PipiTokens.textMuted)
+                                            .frame(width: 44, alignment: .leading)
+                                        Circle()
+                                            .fill(eventDotTint(ev.kind))
+                                            .frame(width: 6, height: 6)
+                                        Text("#\(ev.channelSlug)")
+                                            .font(PipiTokens.fontMonoSmall)
+                                            .foregroundStyle(PipiTokens.textSecondary)
+                                            .frame(width: 72, alignment: .leading)
+                                            .lineLimit(1)
+                                        Text(ev.summary)
+                                            .font(PipiTokens.fontCaption)
+                                            .foregroundStyle(PipiTokens.textPrimary)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        if ev.threadId != nil {
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundStyle(PipiTokens.textMuted)
+                                        }
+                                    }
+                                    .padding(.horizontal, PipiTokens.spacing12)
+                                    .padding(.vertical, 9)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .background(PipiTokens.bgElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusCardDesktop, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PipiTokens.radiusCardDesktop, style: .continuous)
+                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                        )
+                    }
+                }
+            }
+            .frame(maxWidth: 980, alignment: .leading)
+            .padding(.horizontal, PipiTokens.spacing24)
+            .padding(.vertical, PipiTokens.spacing20)
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .background(PipiTokens.bgCanvas)
     }
 
-    private func compactMetricItem(label: String, value: String, dotTint: Color) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(dotTint)
-                .frame(width: 7, height: 7)
-            Text(label)
-                .font(PipiTokens.fontCaption)
-                .foregroundStyle(PipiTokens.textSecondary)
-            Spacer(minLength: 8)
-            Text(value)
-                .font(PipiTokens.fontHeadline.monospacedDigit())
-                .foregroundStyle(PipiTokens.textPrimary)
+    private func eventDotTint(_ kind: PipiBoardEventKind) -> Color {
+        switch kind {
+        case .taskCompleted, .taskUnblocked:
+            return PipiTokens.stateSuccess
+        case .taskClaimed, .leaseRenewed:
+            return PipiTokens.soulPrimary
+        case .claimLost, .taskNeedsYou:
+            return PipiTokens.stateWarning
+        default:
+            return PipiTokens.textMuted
         }
-        .padding(.horizontal, PipiTokens.spacing16)
-        .frame(maxWidth: .infinity)
     }
 
-    private var metricDivider: some View {
-        Rectangle()
-            .fill(PipiTokens.borderSubtle)
-            .frame(width: 1, height: 22)
+    // MARK: - Board Sheets (New Task & Thread Detail)
+
+    private var newBoardTaskSheet: some View {
+        let openCandidates = store.boardThreads.filter { $0.status != .done && $0.status != .cancelled }
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+            HStack {
+                Text(s.t("新建看板任务", "New board task"))
+                    .font(PipiTokens.fontHeadline)
+                    .foregroundStyle(PipiTokens.textPrimary)
+                Spacer()
+                Button {
+                    showNewBoardTaskSheet = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: PipiTokens.spacing12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(s.t("频道", "Channel"))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Picker("", selection: $newTaskChannel) {
+                        ForEach(store.boardChannels) { ch in
+                            Text("#\(ch.slug)").tag(ch.slug)
+                        }
+                    }
+                    .labelsHidden()
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(s.t("优先级", "Priority"))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Picker("", selection: $newTaskPriority) {
+                        Text(s.t("紧急", "Urgent")).tag(PipiBoardTaskPriority.urgent)
+                        Text(s.t("高优", "High")).tag(PipiBoardTaskPriority.high)
+                        Text(s.t("普通", "Normal")).tag(PipiBoardTaskPriority.normal)
+                        Text(s.t("低优", "Low")).tag(PipiBoardTaskPriority.low)
+                    }
+                    .labelsHidden()
+                }
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(s.t("任务标题", "Title"))
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+                TextField(s.t("例如：修复云节点 omp 路径并验证 exit=0", "e.g. Fix remote omp entrypoint and verify exit=0"), text: $newTaskTitle)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(s.t("背景与验收标准", "Context & acceptance criteria"))
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+                TextEditor(text: $newTaskBody)
+                    .font(PipiTokens.fontBody)
+                    .frame(height: 96)
+                    .padding(6)
+                    .background(PipiTokens.bgElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                            .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                    )
+            }
+
+            if !openCandidates.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(s.t("前置依赖（可选）", "Blocked by (optional)"))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                    Picker("", selection: $newTaskBlockedById) {
+                        Text(s.t("无依赖，立即可认领", "No blocker — open immediately")).tag("")
+                        ForEach(openCandidates) { th in
+                            Text("#\(th.channelSlug) · \(th.title)").tag(th.id)
+                        }
+                    }
+                    .labelsHidden()
+                }
+            }
+
+            HStack {
+                if let onNewTask {
+                    Button(s.t("改为发起新对话", "Start chat instead")) {
+                        showNewBoardTaskSheet = false
+                        onNewTask()
+                    }
+                    .buttonStyle(.borderless)
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+                }
+                Spacer()
+                PipiActionButton(s.t("取消", "Cancel"), tone: .secondary, density: .desktopCompact) {
+                    showNewBoardTaskSheet = false
+                }
+                PipiActionButton(
+                    s.t("发布到看板", "Post to board"),
+                    tone: .primary,
+                    density: .desktopCompact
+                ) {
+                    let blockers = newTaskBlockedById.isEmpty ? [] : [newTaskBlockedById]
+                    let created = store.createBoardThread(
+                        channelSlug: newTaskChannel,
+                        title: newTaskTitle,
+                        body: newTaskBody,
+                        kind: .task,
+                        priority: newTaskPriority,
+                        blockedBy: blockers,
+                        author: ownerBoardActor
+                    )
+                    showNewBoardTaskSheet = false
+                    selectedBoardThreadId = created.id
+                }
+                .disabled(newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(PipiTokens.spacing20)
+        .frame(width: 500)
+        .background(PipiTokens.bgCanvas)
+    }
+
+    private func boardThreadDetailSheet(thread: PipiBoardThread) -> some View {
+        let unresolvedIds = PipiBoardEngine.unresolvedBlockers(for: thread.blockedBy, in: store.boardThreads)
+        return VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
+            HStack(alignment: .top, spacing: PipiTokens.spacing12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text("#\(thread.channelSlug)")
+                            .font(PipiTokens.fontMonoSmall)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Circle()
+                            .fill(statusTint(thread.status))
+                            .frame(width: 6, height: 6)
+                        Text(statusLabel(thread.status))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Text("·")
+                            .foregroundStyle(PipiTokens.textMuted)
+                        Text(priorityLabel(thread.priority))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    Text(thread.title)
+                        .font(PipiTokens.fontTitle)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                }
+                Spacer()
+                Button {
+                    selectedBoardThreadId = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Contextual Coordination Action Bar
+            HStack(spacing: PipiTokens.spacing8) {
+                if thread.status == .open {
+                    PipiActionButton(s.t("认领任务", "Claim task"), tone: .primary, density: .desktopCompact) {
+                        _ = store.claimBoardTask(threadId: thread.id, actor: activePersonaBoardActor)
+                    }
+                    PipiActionButton(s.t("直接完成", "Complete"), tone: .secondary, density: .desktopCompact) {
+                        _ = store.completeBoardTask(
+                            threadId: thread.id,
+                            actor: ownerBoardActor,
+                            summary: s.t("已由主人确认完成。", "Marked complete by owner."),
+                            deliverableRef: threadDeliverableDraft.isEmpty ? nil : threadDeliverableDraft
+                        )
+                    }
+                } else if thread.status == .claimed, let claim = thread.claim {
+                    Text("\(claim.actor.name) · \(leaseRemainingText(claim))")
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.soulPrimary)
+                        .monospacedDigit()
+                    Spacer()
+                    PipiActionButton(s.t("续租 +15m", "Renew"), tone: .secondary, density: .desktopCompact) {
+                        _ = store.renewBoardLease(threadId: thread.id, actorId: claim.actor.id, leaseToken: claim.leaseToken, leaseSeconds: 900)
+                    }
+                    PipiActionButton(s.t("释放", "Release"), tone: .secondary, density: .desktopCompact) {
+                        _ = store.releaseBoardClaim(threadId: thread.id, actor: ownerBoardActor)
+                    }
+                    PipiActionButton(s.t("转待确认", "Needs you"), tone: .secondary, density: .desktopCompact) {
+                        _ = store.requestBoardNeedsYou(threadId: thread.id, actor: claim.actor, reason: s.t("需要主人进一步拍板确认。", "Waiting for owner review."))
+                    }
+                    PipiActionButton(s.t("标记完成", "Complete"), tone: .primary, density: .desktopCompact) {
+                        _ = store.completeBoardTask(
+                            threadId: thread.id,
+                            actor: claim.actor,
+                            summary: s.t("任务已验收完成。", "Task completed."),
+                            deliverableRef: threadDeliverableDraft.isEmpty ? nil : threadDeliverableDraft,
+                            leaseToken: claim.leaseToken
+                        )
+                    }
+                } else if thread.status == .needsYou {
+                    PipiActionButton(s.t("重新开放", "Reopen"), tone: .secondary, density: .desktopCompact) {
+                        _ = store.releaseBoardClaim(threadId: thread.id, actor: ownerBoardActor, reason: s.t("主人已确认，重新放回待认领队列。", "Approved by owner and reopened."))
+                    }
+                    PipiActionButton(s.t("确认完成", "Complete"), tone: .primary, density: .desktopCompact) {
+                        _ = store.completeBoardTask(
+                            threadId: thread.id,
+                            actor: ownerBoardActor,
+                            summary: s.t("主人已确认验收通过。", "Approved and completed by owner.")
+                        )
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+
+            if !unresolvedIds.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(s.t("前置阻塞依赖", "Blocked by"))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.stateWarning)
+                    ForEach(unresolvedIds, id: \.self) { bid in
+                        let blocker = store.boardThreads.first(where: { $0.id == bid })
+                        Button {
+                            selectedBoardThreadId = bid
+                        } label: {
+                            HStack(spacing: 6) {
+                                Circle().fill(PipiTokens.stateWarning).frame(width: 5, height: 5)
+                                Text(blocker?.title ?? bid)
+                                    .font(PipiTokens.fontCaption)
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                Spacer()
+                                Text(s.t("查看", "Open"))
+                                    .font(PipiTokens.fontMicro)
+                                    .foregroundStyle(PipiTokens.textMuted)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(PipiTokens.bgElevated)
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                    .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            // Follow-ups strip
+            HStack(spacing: 8) {
+                TextField(s.t("定时跟进提醒（如：15 分钟后检查构建）", "Follow-up prompt (e.g. check CI in 15m)"), text: $threadFollowUpDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(PipiTokens.fontCaption)
+                PipiActionButton(
+                    s.t("+15m 跟进", "+15m Follow-up"),
+                    tone: .secondary,
+                    density: .desktopCompact
+                ) {
+                    _ = store.scheduleBoardFollowUp(
+                        threadId: thread.id,
+                        actor: activePersonaBoardActor,
+                        prompt: threadFollowUpDraft,
+                        inSeconds: 900
+                    )
+                    threadFollowUpDraft = ""
+                }
+                .disabled(threadFollowUpDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if !thread.followUps.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(thread.followUps.suffix(3)) { fup in
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock")
+                                .font(.system(size: 10))
+                                .foregroundStyle(PipiTokens.textMuted)
+                            Text("\(shortTime(fup.dueAt)) · \(fup.prompt)")
+                                .font(PipiTokens.fontCaption)
+                                .foregroundStyle(PipiTokens.textSecondary)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(fup.status == .pending ? s.t("待触发", "Pending") : s.t("已触发", "Triggered"))
+                                .font(PipiTokens.fontMicro)
+                                .foregroundStyle(PipiTokens.textMuted)
+                        }
+                    }
+                }
+            }
+
+            Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
+
+            // Message Timeline
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if thread.messages.isEmpty {
+                        Text(s.t("暂无讨论记录。可以在下方直接留言或补充上下文。", "No messages yet. Post context or updates below."))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textMuted)
+                            .padding(.vertical, 12)
+                    } else {
+                        ForEach(thread.messages) { msg in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text(msg.author.name)
+                                        .font(PipiTokens.fontCaption.weight(.medium))
+                                        .foregroundStyle(PipiTokens.textPrimary)
+                                    Text(shortTime(msg.createdAt))
+                                        .font(PipiTokens.fontMonoSmall)
+                                        .monospacedDigit()
+                                        .foregroundStyle(PipiTokens.textMuted)
+                                    if let ref = msg.artifactRef, !ref.isEmpty {
+                                        Text("· \(ref)")
+                                            .font(PipiTokens.fontMonoSmall)
+                                            .foregroundStyle(PipiTokens.soulPrimary)
+                                    }
+                                }
+                                Text(msg.body)
+                                    .font(PipiTokens.fontBody)
+                                    .foregroundStyle(PipiTokens.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(PipiTokens.bgElevated)
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                                    .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                    }
+                }
+            }
+            .frame(minHeight: 170, maxHeight: 260)
+
+            // Flat Reply Composer
+            HStack(spacing: 8) {
+                TextField(s.t("在此任务线程留言…", "Reply to this thread…"), text: $threadReplyDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        submitThreadReply(threadId: thread.id)
+                    }
+                PipiActionButton(
+                    s.t("发送", "Post"),
+                    tone: .primary,
+                    density: .desktopCompact
+                ) {
+                    submitThreadReply(threadId: thread.id)
+                }
+                .disabled(threadReplyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(PipiTokens.spacing20)
+        .frame(width: 580)
+        .background(PipiTokens.bgCanvas)
+    }
+
+    private func submitThreadReply(threadId: String) {
+        let trimmed = threadReplyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        _ = store.postBoardMessage(threadId: threadId, author: ownerBoardActor, body: trimmed)
+        threadReplyDraft = ""
     }
 
     private func formatDuration(_ ms: Int) -> String {
@@ -398,338 +1206,36 @@ public struct PipiMissionBoardView: View {
         return String(format: "%.1fs", Double(ms) / 1000.0)
     }
 
-    private var universalRemotePairingCard: some View {
-        let relayState = store.e2eeRelayClient.state
-        let isConnected = (relayState == .connected)
-        let hasPairingLink = store.lastUniversalPairingURL != nil
-        let devices = store.listPairedDevices().filter { !$0.revoked }
-
-        return VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
-            HStack(spacing: 8) {
-                Image(systemName: "iphone.radiowaves.left.and.right")
-                    .font(PipiTokens.fontSubheadline)
-                    .foregroundStyle(PipiTokens.textPrimary)
-                Text(s.t("手机端连接", "Mobile Pairing"))
-                    .font(PipiTokens.fontSubheadline.weight(.semibold))
-                    .foregroundStyle(PipiTokens.textPrimary)
-                Spacer()
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(isConnected ? PipiTokens.stateSuccess : (hasPairingLink ? PipiTokens.soulPrimary : PipiTokens.textMuted))
-                        .frame(width: 6, height: 6)
-                    Text(
-                        isConnected
-                            ? s.t("已在线", "Online")
-                            : (hasPairingLink ? s.t("待扫码", "Ready") : s.t("未开启", "Off"))
-                    )
-                    .font(PipiTokens.fontMicro.weight(.medium))
-                    .foregroundStyle(isConnected ? PipiTokens.stateSuccess : PipiTokens.textSecondary)
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(PipiTokens.bgSurface)
-                .clipShape(Capsule())
-            }
-
-            HStack(alignment: .center, spacing: PipiTokens.spacing16) {
-                if let urlStr = store.lastUniversalPairingURL {
-                    #if os(macOS)
-                    if let qrImage = generateQRImage(from: urlStr) {
-                        Image(nsImage: qrImage)
-                            .interpolation(.none)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 84, height: 84)
-                            .padding(8)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
-                                    .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-                            )
-                    }
-                    #endif
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(s.t("手机扫码即可连接这台电脑，对话与审批全程端到端加密。", "Scan from your phone to connect with end-to-end encryption."))
-                        .font(PipiTokens.fontCaption)
-                        .foregroundStyle(PipiTokens.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if store.lastUniversalPairingURL != nil {
-                        HStack(spacing: 6) {
-                            Image(systemName: "lock.fill")
-                                .font(PipiTokens.fontMicro)
-                                .foregroundStyle(PipiTokens.stateSuccess)
-                            Text("pipibot.jimizhou.com")
-                                .font(PipiTokens.fontMonoSmall)
-                                .foregroundStyle(PipiTokens.textPrimary)
-                            Text("·")
-                                .foregroundStyle(PipiTokens.textMuted)
-                            Text(s.t("\(devices.count) 台已配对", "\(devices.count) paired"))
-                                .font(PipiTokens.fontMicro)
-                                .foregroundStyle(PipiTokens.textSecondary)
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(PipiTokens.bgSurface)
-                        .clipShape(Capsule())
-                    }
-
-                    HStack(spacing: 8) {
-                        PipiActionButton(
-                            isConnected ? s.t("刷新配对码", "Refresh QR") : s.t("开启连接", "Connect"),
-                            systemImage: "qrcode",
-                            tone: .primary,
-                            density: .desktopCompact
-                        ) {
-                            _ = store.startUniversalE2EERelay()
-                        }
-
-                        if let urlStr = store.lastUniversalPairingURL {
-                            PipiActionButton(
-                                s.t("复制链接", "Copy Link"),
-                                systemImage: "doc.on.doc",
-                                tone: .secondary,
-                                density: .desktopCompact
-                            ) {
-                                #if os(macOS)
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(urlStr, forType: .string)
-                                #endif
-                                store.noticeBanner = s.t("已复制手机配对链接", "Copied pairing link")
-                            }
-                        }
-
-                        if isConnected {
-                            PipiActionButton(
-                                s.t("断开", "Stop"),
-                                tone: .secondary,
-                                density: .desktopCompact
-                            ) {
-                                store.stopUniversalE2EERelay()
-                            }
-                        }
-                    }
-                }
-            }
-
-            if !devices.isEmpty {
-                VStack(spacing: 0) {
-                    Rectangle().fill(PipiTokens.borderSubtle).frame(height: 1)
-                        .padding(.bottom, 8)
-                    ForEach(devices.prefix(3)) { dev in
-                        HStack {
-                            Image(systemName: "iphone")
-                                .font(PipiTokens.fontCaption)
-                                .foregroundStyle(PipiTokens.textSecondary)
-                            Text(dev.label)
-                                .font(PipiTokens.fontCaption.weight(.medium))
-                                .foregroundStyle(PipiTokens.textPrimary)
-                            Spacer()
-                            Button(s.t("移除", "Revoke")) {
-                                _ = store.revokePairedDevice(id: dev.id)
-                            }
-                            .buttonStyle(.borderless)
-                            .font(PipiTokens.fontMicro.weight(.medium))
-                            .foregroundStyle(PipiTokens.stateError)
-                        }
-                        .padding(.vertical, 3)
-                    }
-                }
-            }
-        }
-        .padding(PipiTokens.spacing16)
-        .frame(maxWidth: .infinity, minHeight: 198, alignment: .topLeading)
-        .background(PipiTokens.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusXL, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PipiTokens.radiusXL, style: .continuous)
-                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-        )
-    }
-
-    private var sentinelAndSandboxCard: some View {
-        let box = store.lastBoxSelfCheck
-        let allHealthy = (box?.allPassed ?? true) && store.sentinelIssues.isEmpty
-
-        return VStack(alignment: .leading, spacing: PipiTokens.spacing16) {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.shield")
-                    .font(PipiTokens.fontSubheadline)
-                    .foregroundStyle(PipiTokens.textPrimary)
-                Text(s.t("安全与运行状态", "Security & Health"))
-                    .font(PipiTokens.fontSubheadline.weight(.semibold))
-                    .foregroundStyle(PipiTokens.textPrimary)
-                Spacer()
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(allHealthy ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
-                        .frame(width: 6, height: 6)
-                    Text(allHealthy ? s.t("运行正常", "Healthy") : s.t("需关注", "Attention"))
-                        .font(PipiTokens.fontMicro.weight(.medium))
-                        .foregroundStyle(allHealthy ? PipiTokens.stateSuccess : PipiTokens.stateWarning)
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(PipiTokens.bgSurface)
-                .clipShape(Capsule())
-            }
-
-            VStack(spacing: 0) {
-                HStack(spacing: PipiTokens.spacing12) {
-                    Image(systemName: "lock.shield.fill")
-                        .font(PipiTokens.fontSubheadline)
-                        .foregroundStyle(PipiTokens.stateSuccess)
-                        .frame(width: 28, height: 28)
-                        .background(PipiTokens.stateSuccess.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(s.t("本地沙箱保护", "Local Sandbox"))
-                            .font(PipiTokens.fontCaption.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textPrimary)
-                        Text(
-                            box.map { s.t("已通过 \($0.passedCount)/\($0.checks.count) 项隔离校验 · 密钥托管已启用", "Passed \($0.passedCount)/\($0.checks.count) checks · Key isolation on") }
-                                ?? s.t("默认隔离工作目录并托管 API 密钥", "Workspace isolated · Key broker active")
-                        )
-                        .font(PipiTokens.fontMicro)
-                        .foregroundStyle(PipiTokens.textSecondary)
-                    }
-                    Spacer(minLength: 8)
-                    PipiActionButton(
-                        s.t("自检", "Verify"),
-                        tone: .secondary,
-                        density: .desktopCompact
-                    ) {
-                        let check = store.runBotBoxSelfCheck()
-                        store.noticeBanner = s.t("安全沙箱自检通过 \(check.passedCount)/\(check.checks.count)", "Sandbox check passed \(check.passedCount)/\(check.checks.count)")
-                    }
-                }
-                .padding(.vertical, 10)
-
-                Rectangle()
-                    .fill(PipiTokens.borderSubtle)
-                    .frame(height: 1)
-
-                HStack(spacing: PipiTokens.spacing12) {
-                    Image(systemName: "waveform.path.ecg")
-                        .font(PipiTokens.fontSubheadline)
-                        .foregroundStyle(PipiTokens.soulPrimary)
-                        .frame(width: 28, height: 28)
-                        .background(PipiTokens.soulPrimary.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(s.t("后台健康巡检", "Background Health"))
-                            .font(PipiTokens.fontCaption.weight(.semibold))
-                            .foregroundStyle(PipiTokens.textPrimary)
-                        Text(
-                            store.sentinelIssues.isEmpty
-                                ? s.t("无卡死任务或重复报错，自动监测中", "No stalled queues or repeated errors")
-                                : s.t("发现 \(store.sentinelIssues.count) 项待处理异常", "\(store.sentinelIssues.count) issues detected")
-                        )
-                        .font(PipiTokens.fontMicro)
-                        .foregroundStyle(PipiTokens.textSecondary)
-                    }
-                    Spacer(minLength: 8)
-                    PipiActionButton(
-                        s.t("巡检", "Scan"),
-                        tone: .secondary,
-                        density: .desktopCompact
-                    ) {
-                        let rep = store.runSentinelHealthScan()
-                        store.noticeBanner = s.t("健康巡检完成：\(rep.issues.count) 项异常", "Health scan finished: \(rep.issues.count) issues")
-                    }
-                }
-                .padding(.vertical, 10)
-            }
-            .padding(.horizontal, PipiTokens.spacing12)
-            .background(PipiTokens.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
-
-            if !store.sentinelIssues.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(store.sentinelIssues.prefix(3)) { issue in
-                        HStack {
-                            Text("\(issue.normalizedTitle) (\(issue.count)×)")
-                                .font(PipiTokens.fontCaption)
-                                .foregroundStyle(PipiTokens.textPrimary)
-                                .lineLimit(1)
-                            Spacer()
-                            Text(issue.severity.rawValue.uppercased())
-                                .font(PipiTokens.fontMicro.weight(.semibold))
-                                .foregroundStyle(issue.severity == .high ? PipiTokens.stateError : PipiTokens.stateWarning)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(PipiTokens.spacing16)
-        .frame(maxWidth: .infinity, minHeight: 198, alignment: .topLeading)
-        .background(PipiTokens.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusXL, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PipiTokens.radiusXL, style: .continuous)
-                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-        )
-    }
-
-    #if os(macOS)
-    private func generateQRImage(from text: String) -> NSImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.setValue(Data(text.utf8), forKey: "inputMessage")
-        filter.setValue("M", forKey: "inputCorrectionLevel")
-        guard let output = filter.outputImage else { return nil }
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: 6, y: 6))
-        let rep = NSCIImageRep(ciImage: scaled)
-        let img = NSImage(size: rep.size)
-        img.addRepresentation(rep)
-        return img
-    }
-    #endif
-
     private func missionColumn<Content: View>(
         title: String,
         count: Int,
         dotTint: Color,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 7) {
                 Circle()
                     .fill(dotTint)
-                    .frame(width: 7, height: 7)
+                    .frame(width: 6, height: 6)
                 Text(title)
-                    .font(PipiTokens.fontSubheadline.weight(.semibold))
+                    .font(PipiTokens.fontSubheadline.weight(.medium))
                     .foregroundStyle(PipiTokens.textPrimary)
-                Spacer()
                 Text("\(count)")
-                    .font(PipiTokens.fontMicro.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(PipiTokens.textSecondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(PipiTokens.bgElevated)
-                    .clipShape(Capsule())
-                    .overlay(
-                        Capsule().strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-                    )
+                    .font(PipiTokens.fontMonoSmall)
+                    .monospacedDigit()
+                    .foregroundStyle(PipiTokens.textMuted)
+                Spacer()
             }
-            .padding(.horizontal, 2)
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
 
-            VStack(spacing: PipiTokens.spacing12) {
+            VStack(spacing: 10) {
                 content()
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 344, alignment: .topLeading)
-        .padding(PipiTokens.spacing12)
-        .background(PipiTokens.bgSurface.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusXL, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PipiTokens.radiusXL, style: .continuous)
-                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-        )
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(PipiTokens.bgSurface.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func missionCard(
@@ -738,86 +1244,59 @@ public struct PipiMissionBoardView: View {
         owner: String,
         badge: String,
         badgeTint: Color,
-        icon: String,
         showChevron: Bool = false
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: icon)
-                    .font(PipiTokens.fontCaption.weight(.semibold))
-                    .foregroundStyle(badgeTint)
-                    .frame(width: 24, height: 24)
-                    .background(badgeTint.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(PipiTokens.fontSubheadline)
+                    .foregroundStyle(PipiTokens.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(PipiTokens.fontSubheadline.weight(.semibold))
-                        .foregroundStyle(PipiTokens.textPrimary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-
+                if !subtitle.isEmpty {
                     Text(subtitle)
                         .font(PipiTokens.fontCaption)
                         .foregroundStyle(PipiTokens.textSecondary)
                         .lineLimit(1)
                 }
-
-                Spacer(minLength: 4)
             }
 
             HStack(spacing: 6) {
                 Text(owner)
-                    .font(PipiTokens.fontMicro.weight(.medium))
-                    .foregroundStyle(PipiTokens.textSecondary)
+                    .font(PipiTokens.fontMicro.weight(.regular))
+                    .foregroundStyle(PipiTokens.textMuted)
                     .lineLimit(1)
 
-                Spacer()
+                Spacer(minLength: 4)
 
-                Text(badge)
-                    .font(PipiTokens.fontMicro.weight(.semibold))
-                    .foregroundStyle(badgeTint)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(badgeTint.opacity(0.11))
-                    .clipShape(Capsule())
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(badgeTint)
+                        .frame(width: 5.5, height: 5.5)
+                    Text(badge)
+                        .font(PipiTokens.fontMicro.weight(.regular))
+                        .foregroundStyle(PipiTokens.textSecondary)
+                }
 
                 if showChevron {
                     Image(systemName: "chevron.right")
-                        .font(PipiTokens.fontMicro.weight(.semibold))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(PipiTokens.textMuted)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(PipiTokens.spacing12)
-        .background(PipiTokens.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous)
-                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-        )
+        .padding(14)
+        .pipiAppleCard(cornerRadius: 12, elevated: true)
     }
 
-    private func emptyColumnPlaceholder(icon: String, text: String) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(PipiTokens.fontHeadline)
-                .foregroundStyle(PipiTokens.textMuted)
-            Text(text)
-                .font(PipiTokens.fontCaption)
-                .foregroundStyle(PipiTokens.textMuted)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
-        .padding(.horizontal, PipiTokens.spacing12)
-        .background(PipiTokens.bgCanvas.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PipiTokens.radiusLG, style: .continuous)
-                .strokeBorder(PipiTokens.borderSubtle, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-        )
+    private func emptyColumnPlaceholder(text: String) -> some View {
+        Text(text)
+            .font(PipiTokens.fontCaption)
+            .foregroundStyle(PipiTokens.textMuted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 16)
     }
 
     // MARK: - Tab 2: Git Worktree Diff Review & Send-Back Closure
@@ -1371,7 +1850,7 @@ public struct PipiMissionBoardView: View {
 
                     if store.blueprintEvolutionProposals.isEmpty {
                         HStack(spacing: PipiTokens.spacing12) {
-                            Image(systemName: "sparkles")
+                            Image(systemName: "arrow.triangle.2.circlepath")
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundStyle(PipiTokens.textMuted)
                             Text(s.t("当前没有待确认的优化建议，助手运行状态良好。", "No pending suggestions right now."))
@@ -1386,11 +1865,11 @@ public struct PipiMissionBoardView: View {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack {
                                     Text("\(prop.botName) · \(prop.goalSummary)")
-                                        .font(PipiTokens.fontSubheadline.weight(.semibold))
+                                        .font(PipiTokens.fontSubheadline)
                                         .foregroundStyle(PipiTokens.textPrimary)
                                     Spacer()
-                                    Text(prop.status.rawValue.uppercased())
-                                        .font(PipiTokens.fontMicro.weight(.semibold))
+                                    Text(prop.status.rawValue.capitalized)
+                                        .font(PipiTokens.fontMicro)
                                         .foregroundStyle(prop.status == .pending ? PipiTokens.stateWarning : PipiTokens.stateSuccess)
                                 }
                                 Text(prop.rationale)

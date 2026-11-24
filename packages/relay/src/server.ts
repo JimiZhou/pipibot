@@ -13,6 +13,7 @@
  *   frame size cap (512KB), heartbeat idle reaper, and optional invite keys (`PIPIBOT_RELAY_INVITE_KEYS`).
  */
 
+import { createHash, randomUUID } from 'node:crypto';
 import dgram, { type Socket as UdpSocket } from 'node:dgram';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -21,6 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { PipiAuthService, type AuthServiceOptions, type DevicePlatformKind, type OAuthProviderKind } from './auth.ts';
+import { PIPIBOT_EDGE_CLI_VERSION, renderAdaptiveInstallScript, renderPosixEdgeAgent, renderPythonLiteAgent } from './edge-bundle.ts';
 import { renderBrandDownloadHTML, renderBrandFeaturesHTML, renderBrandLandingHTML } from './landing-page.ts';
 import { renderLoginAndDevicesHTML } from './login-page.ts';
 import { renderUniversalIconSVG, renderUniversalManifest, renderUniversalPWAHTML } from './pwa-bundle.ts';
@@ -65,10 +67,35 @@ interface ConnMeta {
   lastSeenAt: number;
 }
 
+interface EdgeTask {
+  id: string;
+  command: string;
+  timeoutMs: number;
+  cwd?: string;
+  resolve: (res: { ok: boolean; exitCode: number; stdout: string; stderr: string }) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface EdgeNodeState {
+  hostId: string;
+  userId: string;
+  hostName: string;
+  arch: string;
+  memMB: number;
+  uptimeSeconds: number;
+  workspacePath: string;
+  mode: 'lite' | 'edge';
+  lastSeenAt: number;
+  queue: EdgeTask[];
+  inflight: Map<string, EdgeTask>;
+  waiter?: (task: EdgeTask | null) => void;
+}
+
 export class PipiE2EERelayServer {
   private readonly options: Required<Omit<RelayServerOptions, 'auth'>>;
   private readonly auth: PipiAuthService;
   private readonly rooms = new Map<string, HostRoom>();
+  private readonly edgeNodes = new Map<string, EdgeNodeState>();
   private readonly conns = new Map<string, ConnMeta>();
   private readonly ipConnCount = new Map<string, number>();
   private readonly inviteKeySet: Set<string>;
@@ -85,7 +112,7 @@ export class PipiE2EERelayServer {
       stunUdpPort: options?.stunUdpPort ?? 0,
       maxConnectionsPerIp: options?.maxConnectionsPerIp ?? 24,
       maxClientsPerHost: options?.maxClientsPerHost ?? 12,
-      maxMessagesPerMinutePerConn: options?.maxMessagesPerMinutePerConn ?? 240,
+      maxMessagesPerMinutePerConn: options?.maxMessagesPerMinutePerConn ?? 3000,
       maxFrameBytes: options?.maxFrameBytes ?? 512 * 1024,
       inviteKeys: options?.inviteKeys ?? [],
       idleTimeoutMs: options?.idleTimeoutMs ?? 120_000,
@@ -100,9 +127,15 @@ export class PipiE2EERelayServer {
 
   private getOnlineHostIds(): Set<string> {
     const online = new Set<string>();
+    const now = Date.now();
     for (const room of this.rooms.values()) {
       if (room.hostSocket && room.hostSocket.readyState === 'open') {
         online.add(room.hostId);
+      }
+    }
+    for (const edge of this.edgeNodes.values()) {
+      if (now - edge.lastSeenAt < 45_000) {
+        online.add(edge.hostId);
       }
     }
     return online;
@@ -203,6 +236,12 @@ export class PipiE2EERelayServer {
     for (const meta of this.conns.values()) {
       meta.ws.close(1001, 'Relay shutting down');
     }
+    for (const edge of this.edgeNodes.values()) {
+      if (edge.waiter) edge.waiter(null);
+      for (const t of edge.queue) clearTimeout(t.timer);
+      for (const t of edge.inflight.values()) clearTimeout(t.timer);
+    }
+    this.edgeNodes.clear();
     this.conns.clear();
     this.rooms.clear();
     this.ipConnCount.clear();
@@ -459,78 +498,272 @@ export class PipiE2EERelayServer {
       return;
     }
 
+    // --- Embedded / Low-Resource Edge Device Bridge (Python3 Lite & POSIX Shell Edge) ---
+    if (path === '/api/edge/heartbeat' && method === 'POST') {
+      const user = this.auth.authenticateToken(this.extractSessionToken(req));
+      if (!user) {
+        this.sendJson(res, 401, { ok: false, error: 'unauthenticated' });
+        return;
+      }
+      const body = await this.readJsonBody(req);
+      const hostId = String(body.hostId ?? '').trim();
+      if (!hostId) {
+        this.sendJson(res, 400, { ok: false, error: 'missing_host_id' });
+        return;
+      }
+      let edge = this.edgeNodes.get(hostId);
+      if (!edge) {
+        edge = {
+          hostId,
+          userId: user.id,
+          hostName: String(body.hostName ?? hostId),
+          arch: String(body.arch ?? 'unknown'),
+          memMB: Number(body.memMB) || 0,
+          uptimeSeconds: Number(body.uptimeSeconds) || 0,
+          workspacePath: String(body.workspacePath ?? '/'),
+          mode: body.mode === 'edge' ? 'edge' : 'lite',
+          lastSeenAt: Date.now(),
+          queue: [],
+          inflight: new Map(),
+        };
+        this.edgeNodes.set(hostId, edge);
+      } else if (edge.userId !== user.id) {
+        this.sendJson(res, 403, { ok: false, error: 'forbidden' });
+        return;
+      }
+      edge.lastSeenAt = Date.now();
+      if (typeof body.hostName === 'string' && body.hostName) edge.hostName = body.hostName;
+      if (typeof body.arch === 'string' && body.arch) edge.arch = body.arch;
+      if (typeof body.memMB === 'number') edge.memMB = body.memMB;
+      if (typeof body.uptimeSeconds === 'number') edge.uptimeSeconds = body.uptimeSeconds;
+      if (typeof body.workspacePath === 'string' && body.workspacePath) edge.workspacePath = body.workspacePath;
+      this.auth.touchDeviceByHostId(user.id, hostId);
+
+      // Immediate dequeue if a command is already waiting
+      const nextTask = edge.queue.shift();
+      if (nextTask) {
+        edge.inflight.set(nextTask.id, nextTask);
+        this.sendJson(res, 200, {
+          ok: true,
+          task: { id: nextTask.id, command: nextTask.command, timeoutMs: nextTask.timeoutMs, cwd: nextTask.cwd },
+        });
+        return;
+      }
+
+      // Long-poll up to 20s waiting for a command
+      const awaited = await new Promise<EdgeTask | null>((resolvePromise) => {
+        const timer = setTimeout(() => {
+          if (edge!.waiter === onTask) edge!.waiter = undefined;
+          resolvePromise(null);
+        }, 20_000);
+        const onTask = (t: EdgeTask | null) => {
+          clearTimeout(timer);
+          edge!.waiter = undefined;
+          resolvePromise(t);
+        };
+        if (edge!.waiter) edge!.waiter(null);
+        edge!.waiter = onTask;
+      });
+
+      edge.lastSeenAt = Date.now();
+      if (awaited) {
+        edge.inflight.set(awaited.id, awaited);
+        this.sendJson(res, 200, {
+          ok: true,
+          task: { id: awaited.id, command: awaited.command, timeoutMs: awaited.timeoutMs, cwd: awaited.cwd },
+        });
+      } else {
+        this.sendJson(res, 200, { ok: true, task: null });
+      }
+      return;
+    }
+
+    if (path === '/api/edge/result' && method === 'POST') {
+      const user = this.auth.authenticateToken(this.extractSessionToken(req));
+      if (!user) {
+        this.sendJson(res, 401, { ok: false, error: 'unauthenticated' });
+        return;
+      }
+      const body = await this.readJsonBody(req);
+      const hostId = String(body.hostId ?? '').trim();
+      const taskId = String(body.taskId ?? '').trim();
+      const edge = this.edgeNodes.get(hostId);
+      if (!edge || edge.userId !== user.id) {
+        this.sendJson(res, 404, { ok: false, error: 'edge_node_not_found' });
+        return;
+      }
+      edge.lastSeenAt = Date.now();
+      const task = edge.inflight.get(taskId);
+      if (task) {
+        edge.inflight.delete(taskId);
+        clearTimeout(task.timer);
+        task.resolve({
+          ok: Number(body.exitCode ?? 0) === 0,
+          exitCode: Number(body.exitCode ?? 0),
+          stdout: String(body.stdout ?? ''),
+          stderr: String(body.stderr ?? ''),
+        });
+      }
+      this.sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (path === '/api/edge/snapshot' && method === 'GET') {
+      const user = this.auth.authenticateToken(this.extractSessionToken(req));
+      if (!user) {
+        this.sendJson(res, 401, { ok: false, error: 'unauthenticated' });
+        return;
+      }
+      const hostId = (url.searchParams.get('hostId') ?? '').trim();
+      const edge = this.edgeNodes.get(hostId);
+      if (!edge || edge.userId !== user.id) {
+        this.sendJson(res, 200, {
+          hostName: hostId,
+          platform: 'linux',
+          workspacePath: '/',
+          harnesses: [],
+          sessions: [],
+          edgeMode: true,
+          online: false,
+        });
+        return;
+      }
+      this.sendJson(res, 200, {
+        hostName: edge.hostName,
+        platform: `linux (${edge.arch} · ${edge.mode})`,
+        arch: edge.arch,
+        memMB: edge.memMB,
+        uptimeSeconds: edge.uptimeSeconds,
+        workspacePath: edge.workspacePath,
+        harnesses: [],
+        sessions: [
+          {
+            id: `edge_shell_${hostId}`,
+            harnessId: 'shell',
+            agent: `Edge Shell (${edge.arch} · ${edge.memMB ? edge.memMB + 'MB' : edge.mode})`,
+            mode: 'cli',
+            model: '',
+            cwd: edge.workspacePath,
+            status: Date.now() - edge.lastSeenAt < 45_000 ? 'running' : 'exited',
+            exitCode: null,
+            outputLines: [],
+          },
+        ],
+        edgeMode: true,
+        online: Date.now() - edge.lastSeenAt < 45_000,
+      });
+      return;
+    }
+
+    if (path === '/api/edge/exec' && method === 'POST') {
+      const user = this.auth.authenticateToken(this.extractSessionToken(req));
+      if (!user) {
+        this.sendJson(res, 401, { ok: false, error: 'unauthenticated' });
+        return;
+      }
+      const body = await this.readJsonBody(req);
+      const hostId = String(body.hostId ?? '').trim();
+      const command = String(body.command ?? '').trim();
+      if (!hostId || !command) {
+        this.sendJson(res, 400, { ok: false, error: 'missing_host_or_command' });
+        return;
+      }
+      const edge = this.edgeNodes.get(hostId);
+      if (!edge || edge.userId !== user.id || Date.now() - edge.lastSeenAt >= 45_000) {
+        this.sendJson(res, 503, { ok: false, error: 'edge_node_offline' });
+        return;
+      }
+      const timeoutMs = Math.max(2000, Math.min(30_000, Number(body.timeoutMs) || 20_000));
+      const result = await new Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>((resolvePromise) => {
+        const taskId = `et_${randomUUID().slice(0, 8)}`;
+        const timer = setTimeout(() => {
+          edge.inflight.delete(taskId);
+          const qIdx = edge.queue.findIndex((t) => t.id === taskId);
+          if (qIdx >= 0) edge.queue.splice(qIdx, 1);
+          resolvePromise({ ok: false, exitCode: 124, stdout: '', stderr: '嵌入式节点执行超时' });
+        }, timeoutMs + 4000);
+        const task: EdgeTask = {
+          id: taskId,
+          command,
+          timeoutMs,
+          cwd: typeof body.cwd === 'string' ? body.cwd : undefined,
+          resolve: resolvePromise,
+          timer,
+        };
+        if (edge.waiter) {
+          edge.waiter(task);
+        } else {
+          edge.queue.push(task);
+        }
+      });
+      this.sendJson(res, 200, result);
+      return;
+    }
+
+    if (path === '/cli/version.json') {
+      const origin = this.resolveRequestOrigin(req) || 'https://pipibot.jimizhou.com';
+      const sha = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
+      const nodeCandidates = [
+        join(dirname(fileURLToPath(import.meta.url)), '../cli/pipibot.ts'),
+        join(dirname(fileURLToPath(import.meta.url)), '../../daemon/src/relay-agent-host.ts'),
+      ];
+      const nodeFound = nodeCandidates.find((p) => existsSync(p));
+      const nodeSrc = nodeFound ? readFileSync(nodeFound, 'utf8') : '';
+      const liteSrc = renderPythonLiteAgent(origin);
+      const edgeSrc = renderPosixEdgeAgent(origin);
+      const versionMatch = nodeSrc.match(/PIPIBOT_CLI_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      const cliVersion = versionMatch?.[1] || PIPIBOT_EDGE_CLI_VERSION;
+      this.sendJson(res, 200, {
+        version: cliVersion,
+        updatedAt: new Date().toISOString(),
+        artifacts: {
+          node: nodeSrc
+            ? { url: `${origin}/cli/pipibot.ts`, sha256: sha(nodeSrc), bytes: Buffer.byteLength(nodeSrc, 'utf8') }
+            : null,
+          lite: { url: `${origin}/cli/pipibot-lite.py`, sha256: sha(liteSrc), bytes: Buffer.byteLength(liteSrc, 'utf8') },
+          edge: { url: `${origin}/cli/pipibot-edge.sh`, sha256: sha(edgeSrc), bytes: Buffer.byteLength(edgeSrc, 'utf8') },
+        },
+      });
+      return;
+    }
+
     if (path === '/install.sh') {
-      const origin = this.publicOrigin || 'https://pipibot.jimizhou.com';
-      const script = `#!/usr/bin/env bash
-set -euo pipefail
-
-ORIGIN="\${PIPIBOT_RELAY_ORIGIN:-${origin}}"
-INSTALL_DIR="\${HOME}/.pipibot/bin"
-TARGET_TS="\${INSTALL_DIR}/pipibot.ts"
-
-echo "==> 正在安装 PiPiBot CLI（零依赖独立版）..."
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "❌ 未检测到 Node.js。请先安装 Node.js >= 22.6：" >&2
-  echo "   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs" >&2
-  exit 1
-fi
-
-NODE_MAJOR="\$(node -p 'process.versions.node.split(".")[0]')"
-if [ "\${NODE_MAJOR}" -lt 22 ]; then
-  echo "❌ 当前 Node.js 版本过低 (\$(node -v))，需要 >= 22.6。" >&2
-  exit 1
-fi
-
-mkdir -p "\${INSTALL_DIR}"
-curl -fsSL "\${ORIGIN}/cli/pipibot.ts" -o "\${TARGET_TS}"
-
-if [ -w "/usr/local/bin" ]; then
-  BIN_PATH="/usr/local/bin/pipibot"
-  cat > "\${BIN_PATH}" <<EOF
-#!/usr/bin/env bash
-export NODE_USE_ENV_PROXY=1
-exec node --dns-result-order=ipv4first --experimental-strip-types --no-warnings "\${TARGET_TS}" "\\\$@"
-EOF
-  chmod +x "\${BIN_PATH}"
-elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-  BIN_PATH="/usr/local/bin/pipibot"
-  sudo tee "\${BIN_PATH}" >/dev/null <<EOF
-#!/usr/bin/env bash
-export NODE_USE_ENV_PROXY=1
-exec node --dns-result-order=ipv4first --experimental-strip-types --no-warnings "\${TARGET_TS}" "\\\$@"
-EOF
-  sudo chmod +x "\${BIN_PATH}"
-else
-  mkdir -p "\${HOME}/.local/bin"
-  BIN_PATH="\${HOME}/.local/bin/pipibot"
-  cat > "\${BIN_PATH}" <<EOF
-#!/usr/bin/env bash
-export NODE_USE_ENV_PROXY=1
-exec node --dns-result-order=ipv4first --experimental-strip-types --no-warnings "\${TARGET_TS}" "\\\$@"
-EOF
-  chmod +x "\${BIN_PATH}"
-  for rc in "\${HOME}/.bashrc" "\${HOME}/.zshrc"; do
-    if [ -f "\$rc" ] && ! grep -q '\.local/bin' "\$rc" 2>/dev/null; then
-      echo 'export PATH="\$HOME/.local/bin:\$PATH"' >> "\$rc"
-    fi
-  done
-fi
-
-echo "✅ PiPiBot CLI 已安装到 \${BIN_PATH}"
-if ! command -v pipibot >/dev/null 2>&1; then
-  echo "💡 请先执行：export PATH=\\"\${HOME}/.local/bin:\\\$PATH\\""
-fi
-echo ""
-echo "下一步：运行以下命令完成登录并以后台 systemd 常驻接入（自动上报本机 Agent Harness）："
-echo "  pipibot login && pipibot up -d"
-echo ""
-`;
+      const origin = this.resolveRequestOrigin(req) || 'https://pipibot.jimizhou.com';
+      const script = renderAdaptiveInstallScript(origin);
       res.writeHead(200, {
         'Content-Type': 'text/x-shellscript; charset=utf-8',
         'Cache-Control': 'no-store',
+        'X-PipiBot-CLI-Version': PIPIBOT_EDGE_CLI_VERSION,
       });
       res.end(script);
+      return;
+    }
+
+    if (path === '/cli/pipibot-lite.py') {
+      const origin = this.resolveRequestOrigin(req) || 'https://pipibot.jimizhou.com';
+      const body = renderPythonLiteAgent(origin);
+      const digest = createHash('sha256').update(body, 'utf8').digest('hex');
+      res.writeHead(200, {
+        'Content-Type': 'text/x-python; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-PipiBot-CLI-Version': PIPIBOT_EDGE_CLI_VERSION,
+        'X-PipiBot-CLI-SHA256': digest,
+      });
+      res.end(body);
+      return;
+    }
+
+    if (path === '/cli/pipibot-edge.sh') {
+      const origin = this.resolveRequestOrigin(req) || 'https://pipibot.jimizhou.com';
+      const body = renderPosixEdgeAgent(origin);
+      const digest = createHash('sha256').update(body, 'utf8').digest('hex');
+      res.writeHead(200, {
+        'Content-Type': 'text/x-shellscript; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-PipiBot-CLI-Version': PIPIBOT_EDGE_CLI_VERSION,
+        'X-PipiBot-CLI-SHA256': digest,
+      });
+      res.end(body);
       return;
     }
 
@@ -544,11 +777,16 @@ echo ""
         this.sendJson(res, 404, { error: 'cli_bundle_not_found' });
         return;
       }
+      const body = readFileSync(found, 'utf8');
+      const digest = createHash('sha256').update(body, 'utf8').digest('hex');
+      const versionMatch = body.match(/PIPIBOT_CLI_VERSION\s*=\s*['"]([^'"]+)['"]/);
       res.writeHead(200, {
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-store',
+        'X-PipiBot-CLI-Version': versionMatch?.[1] || PIPIBOT_EDGE_CLI_VERSION,
+        'X-PipiBot-CLI-SHA256': digest,
       });
-      res.end(readFileSync(found, 'utf8'));
+      res.end(body);
       return;
     }
 

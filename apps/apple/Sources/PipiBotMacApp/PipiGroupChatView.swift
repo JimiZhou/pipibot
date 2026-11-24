@@ -178,10 +178,10 @@ public struct PipiGroupChatView: View {
                         } label: {
                             HStack(spacing: 5) {
                                 Text("#")
-                                    .font(PipiTokens.fontCaption.weight(.bold))
+                                    .font(PipiTokens.fontCaption.weight(.medium))
                                     .foregroundStyle(isSelected ? PipiTokens.textPrimary : PipiTokens.textMuted)
                                 Text(topic.localizedTitle(lang))
-                                    .font(PipiTokens.fontCaption.weight(isSelected ? .semibold : .medium))
+                                    .font(PipiTokens.fontCaption.weight(isSelected ? .medium : .regular))
                                     .foregroundStyle(isSelected ? PipiTokens.textPrimary : PipiTokens.textSecondary)
                                     .lineLimit(1)
                                 if topicCount > 0 {
@@ -580,22 +580,18 @@ public struct PipiGroupChatView: View {
         switch msg.senderKind {
         case .user:
             HStack {
-                Spacer(minLength: 60)
+                Spacer(minLength: 64)
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(msg.content)
                         .font(PipiTokens.fontBody)
-                        .foregroundStyle(PipiTokens.textPrimary)
+                        .foregroundStyle(PipiTokens.userBubbleFg)
                         .lineSpacing(5)
                         .textSelection(.enabled)
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 11)
                         .background(
                             PipiTokens.userBubbleBg,
-                            in: RoundedRectangle(cornerRadius: PipiTokens.radiusComposer, style: .continuous)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: PipiTokens.radiusComposer, style: .continuous)
-                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                         )
                         .contextMenu {
                             Button(s.t("复制", "Copy")) { copyToClipboard(msg.content, messageId: msg.id) }
@@ -625,9 +621,8 @@ public struct PipiGroupChatView: View {
                     // Sender Header
                     HStack(spacing: PipiTokens.spacing8) {
                         Text(botName)
-                            .font(PipiTokens.fontCaption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(botColor)
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
 
                         if let roleTag = msg.roleTag, !roleTag.isEmpty {
                             Text(roleTag)
@@ -699,6 +694,7 @@ public struct PipiGroupChatView: View {
                                         .padding(4)
                                 }
                                 .buttonStyle(.plain)
+                                .opacity(isMsgHovered || copiedMessageId == msg.id ? 1.0 : 0.0)
                                 .accessibilityLabel(s.t("复制回复", "Copy message"))
                             }
                         }
@@ -741,16 +737,7 @@ public struct PipiGroupChatView: View {
                             accent: botColor,
                             isStreaming: isStreaming
                         )
-                        .padding(.horizontal, PipiTokens.spacing12)
-                        .padding(.vertical, PipiTokens.spacing12)
-                        .background(
-                            PipiTokens.bgSurface,
-                            in: RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
-                                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
-                        )
+                        .padding(.vertical, 2)
                         .contextMenu {
                             Button(s.t("复制", "Copy")) { copyToClipboard(msg.content, messageId: msg.id) }
                             Button(s.t("存为交付物", "Save as Deliverable")) {
@@ -790,19 +777,18 @@ public struct PipiGroupChatView: View {
     private func composerArea(group: PipiGroupChat, members: [PipiBotPersona], isRunning: Bool) -> some View {
         let shouldShowMentions = isShowingMentionMenu || draftText.hasSuffix("@")
         let canSend = !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let shape = RoundedRectangle(cornerRadius: PipiTokens.radiusComposer, style: .continuous)
 
         VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
             if shouldShowMentions {
                 mentionAutocompleteStrip(members: members)
             }
 
-            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+            VStack(alignment: .leading, spacing: 6) {
                 PipiAutoGrowingComposerEditor(
                     text: $draftText,
                     placeholder: s.t("输入协作目标，或用 @成员名 指定智能体…", "Describe goal, or type @Name to mention an agent…"),
-                    minHeight: 44,
-                    maxHeight: 220,
+                    minHeight: 34,
+                    maxHeight: 200,
                     focusRequestToken: composerFocusToken,
                     onFocusChanged: { focused in
                         isNativeComposerFocused = focused
@@ -839,10 +825,10 @@ public struct PipiGroupChatView: View {
                             store.stopGroupChat(group.id)
                         } label: {
                             Image(systemName: "stop.fill")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(PipiTokens.textInverse)
                                 .frame(width: 32, height: 32)
-                                .background(PipiTokens.stateError)
+                                .background(PipiTokens.soulPrimary)
                                 .clipShape(Circle())
                         }
                         .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
@@ -853,35 +839,23 @@ public struct PipiGroupChatView: View {
                             sendDraft(groupId: group.id)
                         } label: {
                             Image(systemName: "arrow.up")
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.system(size: 13.5, weight: .medium))
                                 .foregroundStyle(canSend ? PipiTokens.textInverse : PipiTokens.textMuted)
                                 .frame(width: 32, height: 32)
                                 .background(canSend ? PipiTokens.soulPrimary : PipiTokens.buttonGhostHoverBg)
                                 .clipShape(Circle())
                         }
-                        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.92))
+                        .buttonStyle(PipiPressButtonStyle(pressedScale: 0.97))
                         .disabled(!canSend)
                         .help(s.send)
                         .accessibilityLabel(s.t("发送群消息", "Send group message"))
                     }
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-            .padding(.bottom, 12)
-            .background(PipiTokens.composerSurface, in: shape)
-            .overlay(
-                shape.stroke(
-                    (isComposerFocused || isNativeComposerFocused) ? PipiTokens.composerBorderFocused : PipiTokens.composerBorder,
-                    lineWidth: 1
-                )
-            )
-            .clipShape(shape)
-            .shadow(
-                color: PipiTokens.composerShadow,
-                radius: (isComposerFocused || isNativeComposerFocused) ? 10 : 6,
-                y: (isComposerFocused || isNativeComposerFocused) ? 3 : 2
-            )
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+            .pipiLiquidGlassChrome(cornerRadius: 18)
         }
         .frame(maxWidth: 780)
         .padding(.horizontal, 36)

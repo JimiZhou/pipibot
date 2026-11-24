@@ -581,7 +581,7 @@ export function renderLoginAndDevicesHTML(): string {
                 <button class="btn sm" id="copyCliBtn" onclick="copyCliCmd()">复制命令</button>
               </div>
               <div class="cmd-box">
-                <span id="cliInstallCmd">curl -fsSL https://pipibot.jimizhou.com/install.sh | bash &amp;&amp; pipibot login &amp;&amp; pipibot up -d</span>
+                <span id="cliInstallCmd">curl -fsSL https://pipibot.jimizhou.com/install.sh | sh &amp;&amp; pipibot login &amp;&amp; pipibot up -d</span>
               </div>
               <div style="font-size:12px;color:var(--muted);line-height:1.55;">
                 Linux 下 <code>-d</code> 自动注册 <code>systemd</code> 常驻服务（开机自启 &amp; 异常自动拉起），可随时 <code>pipibot status</code> / <code>logs</code> / <code>down</code>。
@@ -822,7 +822,7 @@ export function renderLoginAndDevicesHTML(): string {
 
     async function copyCliCmd() {
       const el = document.getElementById('cliInstallCmd');
-      const cmd = (el && el.textContent ? el.textContent.trim() : '') || 'curl -fsSL https://pipibot.jimizhou.com/install.sh | bash && pipibot login && pipibot up';
+      const cmd = (el && el.textContent ? el.textContent.trim() : '') || 'curl -fsSL https://pipibot.jimizhou.com/install.sh | sh && pipibot login && pipibot up -d';
       try {
         await navigator.clipboard.writeText(cmd);
         const btn = document.getElementById('copyCliBtn');

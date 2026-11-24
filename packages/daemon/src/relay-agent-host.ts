@@ -13,8 +13,8 @@
 import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createECDH, createHash, createCipheriv, createDecipheriv, hkdfSync, randomBytes, randomUUID } from 'node:crypto';
 import { setDefaultResultOrder } from 'node:dns';
-import { chmodSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { arch, cpus, freemem, homedir, hostname, platform, totalmem, uptime } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { arch, cpus, freemem, homedir, hostname, platform, tmpdir, totalmem, uptime } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -70,6 +70,257 @@ async function resilientJsonFetch<T = Record<string, unknown>>(
 }
 
 export const DEFAULT_RELAY_ORIGIN = 'https://pipibot.jimizhou.com';
+export const PIPIBOT_CLI_VERSION = '0.13.3';
+
+/**
+ * Resilient plain-text HTTP GET helper with curl proxy fallback (used by CLI auto-upgrade).
+ */
+async function resilientTextFetch(url: string): Promise<{ ok: boolean; status: number; text: string }> {
+  try {
+    const resp = await fetch(url, { method: 'GET' });
+    const text = await resp.text();
+    return { ok: resp.ok, status: resp.status, text };
+  } catch (fetchErr) {
+    try {
+      const { stdout } = await execFileAsync('curl', ['-fsSL', url], { timeout: 25_000, maxBuffer: 8 * 1024 * 1024 });
+      return { ok: true, status: 200, text: stdout };
+    } catch (curlErr) {
+      const detail = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      const curlDetail = curlErr instanceof Error ? curlErr.message : String(curlErr);
+      throw new Error(`下载失败 (${url}): ${detail} | curl fallback: ${curlDetail}`);
+    }
+  }
+}
+
+export interface CliUpgradeResult {
+  ok: boolean;
+  updated: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  localSha256: string;
+  remoteSha256: string;
+  reason?: string;
+  restarted?: boolean;
+}
+
+function sha256Hex(content: string | Buffer): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function isInsideGitSourceCheckout(scriptPath: string): boolean {
+  const normalized = scriptPath.replace(/\\/g, '/');
+  return normalized.includes('/packages/daemon/src/relay-agent-host.ts') && existsSync(join(dirname(scriptPath), '../../../.git'));
+}
+
+export function isAutoUpgradeEnabled(): boolean {
+  const raw = (process.env.PIPIBOT_AUTO_UPGRADE ?? '1').trim().toLowerCase();
+  return !['0', 'false', 'no', 'off'].includes(raw);
+}
+
+/**
+ * Checks `${relayOrigin}/cli/version.json`, verifies SHA-256 & TypeScript syntax, and atomically
+ * replaces the installed PiPiBot CLI bundle (`~/.pipibot/bin/pipibot.ts`).
+ */
+export async function checkAndUpgradeCli(options?: {
+  relayOrigin?: string;
+  scriptPath?: string;
+  force?: boolean;
+  dryRun?: boolean;
+  restartDaemon?: boolean;
+}): Promise<CliUpgradeResult> {
+  const relayOrigin = (options?.relayOrigin ?? process.env.PIPIBOT_RELAY_ORIGIN ?? DEFAULT_RELAY_ORIGIN).replace(/\/+$/, '');
+  const scriptPath = options?.scriptPath ?? fileURLToPath(import.meta.url);
+  const force = Boolean(options?.force);
+  const dryRun = Boolean(options?.dryRun);
+
+  let localSha256 = '';
+  try {
+    if (existsSync(scriptPath)) {
+      localSha256 = sha256Hex(readFileSync(scriptPath));
+    }
+  } catch {
+    localSha256 = '';
+  }
+
+  if (!force && !dryRun && isInsideGitSourceCheckout(scriptPath)) {
+    return {
+      ok: true,
+      updated: false,
+      currentVersion: PIPIBOT_CLI_VERSION,
+      latestVersion: PIPIBOT_CLI_VERSION,
+      localSha256,
+      remoteSha256: localSha256,
+      reason: 'git_source_checkout_protected',
+    };
+  }
+
+  const manifestResp = await resilientJsonFetch<{
+    version?: string;
+    artifacts?: { node?: { url?: string; sha256?: string; bytes?: number } | null };
+  }>(`${relayOrigin}/cli/version.json`);
+
+  if (!manifestResp.ok || !manifestResp.data?.artifacts?.node) {
+    return {
+      ok: false,
+      updated: false,
+      currentVersion: PIPIBOT_CLI_VERSION,
+      latestVersion: PIPIBOT_CLI_VERSION,
+      localSha256,
+      remoteSha256: '',
+      reason: `manifest_unavailable_http_${manifestResp.status}`,
+    };
+  }
+
+  const latestVersion = String(manifestResp.data.version || PIPIBOT_CLI_VERSION);
+  const remoteSha256 = String(manifestResp.data.artifacts.node.sha256 || '');
+  const downloadUrl = String(manifestResp.data.artifacts.node.url || `${relayOrigin}/cli/pipibot.ts`);
+
+  if (remoteSha256 && localSha256 && remoteSha256 === localSha256 && !force) {
+    return {
+      ok: true,
+      updated: false,
+      currentVersion: PIPIBOT_CLI_VERSION,
+      latestVersion,
+      localSha256,
+      remoteSha256,
+      reason: 'already_up_to_date',
+    };
+  }
+
+  if (dryRun) {
+    return {
+      ok: true,
+      updated: false,
+      currentVersion: PIPIBOT_CLI_VERSION,
+      latestVersion,
+      localSha256,
+      remoteSha256,
+      reason: 'update_available',
+    };
+  }
+
+  const dl = await resilientTextFetch(downloadUrl);
+  if (!dl.ok || !dl.text.includes('PIPIBOT_CLI_VERSION')) {
+    return {
+      ok: false,
+      updated: false,
+      currentVersion: PIPIBOT_CLI_VERSION,
+      latestVersion,
+      localSha256,
+      remoteSha256,
+      reason: `download_invalid_http_${dl.status}`,
+    };
+  }
+
+  const actualSha = sha256Hex(dl.text);
+  if (remoteSha256 && actualSha !== remoteSha256) {
+    return {
+      ok: false,
+      updated: false,
+      currentVersion: PIPIBOT_CLI_VERSION,
+      latestVersion,
+      localSha256,
+      remoteSha256,
+      reason: `sha256_mismatch_expected_${remoteSha256.slice(0, 8)}_got_${actualSha.slice(0, 8)}`,
+    };
+  }
+
+  mkdirSync(dirname(scriptPath), { recursive: true });
+  // Must end with `.ts` so Node's `--experimental-strip-types --check` parses TypeScript syntax!
+  const tmpPath = join(dirname(scriptPath), `.pipibot-upgrade-${process.pid}-${Date.now()}.ts`);
+  try {
+    writeFileSync(tmpPath, dl.text, 'utf8');
+    // Verify TypeScript bundle parses cleanly before swapping into place
+    try {
+      await execFileAsync(process.execPath, ['--experimental-strip-types', '--no-warnings', '--check', tmpPath], {
+        timeout: 12_000,
+      });
+    } catch (syntaxErr) {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+      return {
+        ok: false,
+        updated: false,
+        currentVersion: PIPIBOT_CLI_VERSION,
+        latestVersion,
+        localSha256,
+        remoteSha256,
+        reason: `syntax_check_failed: ${syntaxErr instanceof Error ? syntaxErr.message : String(syntaxErr)}`,
+      };
+    }
+    try { chmodSync(tmpPath, 0o755); } catch { /* ignore */ }
+    renameSync(tmpPath, scriptPath);
+  } catch (err) {
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    return {
+      ok: false,
+      updated: false,
+      currentVersion: PIPIBOT_CLI_VERSION,
+      latestVersion,
+      localSha256,
+      remoteSha256,
+      reason: `atomic_swap_failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  let restarted = false;
+  if (options?.restartDaemon) {
+    restarted = triggerRunningDaemonRestart(scriptPath);
+  }
+
+  return {
+    ok: true,
+    updated: true,
+    currentVersion: PIPIBOT_CLI_VERSION,
+    latestVersion,
+    localSha256: actualSha,
+    remoteSha256: remoteSha256 || actualSha,
+    reason: 'upgraded',
+    restarted,
+  };
+}
+
+function triggerRunningDaemonRestart(scriptPath: string): boolean {
+  const scope = detectSystemdServiceScope();
+  if (scope) {
+    try {
+      const sysArgs = scope === 'user' ? ['--user', 'restart', SYSTEMD_SERVICE_NAME] : ['restart', SYSTEMD_SERVICE_NAME];
+      execFileSync('systemctl', sysArgs, { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const pid = readRunningDaemonPid();
+  if (pid && pid !== process.pid) {
+    try {
+      process.kill(pid, 'SIGTERM');
+      try { unlinkSync(daemonPidPath()); } catch { /* ignore */ }
+    } catch {
+      // ignore
+    }
+    try {
+      mkdirSync(dirname(daemonLogPath()), { recursive: true });
+      const logFd = openSync(daemonLogPath(), 'a');
+      const child = spawn(
+        process.execPath,
+        ['--dns-result-order=ipv4first', '--experimental-strip-types', '--no-warnings', scriptPath, 'up'],
+        {
+          detached: true,
+          stdio: ['ignore', logFd, logFd],
+          env: { ...process.env, NODE_USE_ENV_PROXY: '1' },
+        },
+      );
+      child.unref();
+      if (child.pid) {
+        writeFileSync(daemonPidPath(), `${child.pid}\n`, 'utf8');
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
 
 export interface SavedCliAuth {
   relayOrigin: string;
@@ -83,6 +334,7 @@ export interface SavedCliAuth {
 
 export interface ManagedAgentSession {
   id: string;
+  harnessId: string;
   agent: string;
   mode: 'acp' | 'tui' | 'cli';
   model: string;
@@ -92,7 +344,37 @@ export interface ManagedAgentSession {
   startedAt: string;
   exitCode: number | null;
   outputLines: string[];
+  rawBuffer: string;
+  streamSeq: number;
+  subscribers: Set<string>;
+  pendingStreamChunk: string;
+  flushTimer?: ReturnType<typeof setTimeout>;
   proc?: ChildProcess;
+}
+
+export interface RemoteBrowserTabInfo {
+  id: string;
+  title: string;
+  url: string;
+  webSocketDebuggerUrl?: string;
+}
+
+interface RemoteBrowserState {
+  running: boolean;
+  attachedExternal: boolean;
+  cdpPort: number;
+  width: number;
+  height: number;
+  url: string;
+  title: string;
+  targetId: string;
+  lastFrame: string;
+  lastFrameAt: number;
+  proc?: ChildProcess;
+  cdpWs?: WebSocket;
+  cdpSeq: number;
+  cdpPending: Map<number, { resolve: (val: Record<string, unknown>) => void; reject: (err: Error) => void }>;
+  subscribers: Set<string>;
 }
 
 export function cliAuthFilePath(): string {
@@ -495,8 +777,26 @@ export class PipiCliAgentRelayHost {
   private readonly chatMessages: Array<{ id: string; role: 'user' | 'assistant'; author?: string; content: string; createdAt: string }> = [];
   private readonly clientKeys = new Map<string, { key: Buffer; txSeq: number }>();
   private readonly verifiedPeerTokens = new Set<string>();
+  private readonly browser: RemoteBrowserState = {
+    running: false,
+    attachedExternal: false,
+    cdpPort: 9222,
+    width: 1280,
+    height: 800,
+    url: 'about:blank',
+    title: '',
+    targetId: '',
+    lastFrame: '',
+    lastFrameAt: 0,
+    cdpSeq: 0,
+    cdpPending: new Map(),
+    subscribers: new Set(),
+  };
   private ws: WebSocket | null = null;
   private stopped = false;
+  private autoUpgradeStartupTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoUpgradeIntervalTimer: ReturnType<typeof setInterval> | null = null;
+  private pendingUpgradeRestart = false;
 
   constructor(auth: SavedCliAuth, options?: { deviceName?: string; workspacePath?: string }) {
     this.auth = auth;
@@ -628,7 +928,21 @@ export class PipiCliAgentRelayHost {
     if (!trimmed.startsWith('{')) return trimmed;
     try {
       const obj = JSON.parse(trimmed) as Record<string, unknown>;
-      // Claude Code stream-json
+      // Claude Code stream-json & streaming deltas
+      if (obj.type === 'stream_event' && obj.event && typeof obj.event === 'object') {
+        const ev = obj.event as Record<string, unknown>;
+        if (ev.type === 'content_block_delta' && ev.delta && typeof ev.delta === 'object') {
+          const d = ev.delta as Record<string, unknown>;
+          if (typeof d.text === 'string' && d.text) return d.text;
+          if (typeof d.thinking === 'string' && d.thinking) return d.thinking;
+        }
+        return null;
+      }
+      if (obj.type === 'content_block_delta' && obj.delta && typeof obj.delta === 'object') {
+        const d = obj.delta as Record<string, unknown>;
+        if (typeof d.text === 'string' && d.text) return d.text;
+        return null;
+      }
       if (obj.type === 'assistant' && obj.message && typeof obj.message === 'object') {
         const content = (obj.message as Record<string, unknown>).content;
         if (Array.isArray(content)) {
@@ -656,11 +970,80 @@ export class PipiCliAgentRelayHost {
       // Generic ACP / Pi / OpenCode JSON events
       if (typeof obj.text === 'string' && obj.text.trim()) return obj.text.trim();
       if (typeof obj.content === 'string' && obj.content.trim()) return obj.content.trim();
-      if (typeof obj.delta === 'string' && obj.delta.trim()) return obj.delta.trim();
+      if (typeof obj.delta === 'string' && obj.delta) return obj.delta;
       if (obj.error) return `⚠️ ${typeof obj.error === 'string' ? obj.error : JSON.stringify(obj.error)}`;
       return null;
     } catch {
       return trimmed;
+    }
+  }
+
+  private static serializeSession(sess: ManagedAgentSession): Record<string, unknown> {
+    return {
+      id: sess.id,
+      harnessId: sess.harnessId,
+      agent: sess.agent,
+      mode: sess.mode,
+      model: sess.model,
+      cwd: sess.cwd,
+      status: sess.status,
+      ownerClientId: sess.ownerClientId,
+      startedAt: sess.startedAt,
+      exitCode: sess.exitCode,
+      outputLines: sess.outputLines.slice(-80),
+      streamSeq: sess.streamSeq,
+    };
+  }
+
+  private broadcastToSubscribers(subscribers: Set<string>, payload: unknown): void {
+    for (const subKey of [...subscribers]) {
+      if (!this.clientKeys.has(subKey)) {
+        subscribers.delete(subKey);
+        continue;
+      }
+      const sep = subKey.indexOf(':');
+      if (sep <= 0) continue;
+      const clientId = subKey.slice(0, sep);
+      const sid = subKey.slice(sep + 1);
+      this.sendEncryptedResponse(clientId, sid, payload);
+    }
+  }
+
+  private flushSessionStream(session: ManagedAgentSession): void {
+    if (session.flushTimer) {
+      clearTimeout(session.flushTimer);
+      session.flushTimer = undefined;
+    }
+    if (!session.pendingStreamChunk) return;
+    const chunk = session.pendingStreamChunk;
+    session.pendingStreamChunk = '';
+    session.streamSeq += 1;
+    const streamKind = session.mode === 'tui' ? 'pty' : session.mode === 'acp' ? 'acp' : 'stdout';
+    this.broadcastToSubscribers(session.subscribers, {
+      kind: 'agent_stream',
+      sessionId: session.id,
+      seq: session.streamSeq,
+      stream: streamKind,
+      chunk,
+      status: session.status,
+      exitCode: session.exitCode,
+    });
+  }
+
+  private queueSessionStream(session: ManagedAgentSession, chunk: string): void {
+    if (!chunk) return;
+    session.rawBuffer += chunk;
+    if (session.rawBuffer.length > 131072) {
+      session.rawBuffer = session.rawBuffer.slice(session.rawBuffer.length - 131072);
+    }
+    if (session.subscribers.size === 0) return;
+    session.pendingStreamChunk += chunk;
+    if (session.pendingStreamChunk.length >= 8192) {
+      this.flushSessionStream(session);
+      return;
+    }
+    if (!session.flushTimer) {
+      session.flushTimer = setTimeout(() => this.flushSessionStream(session), 35);
     }
   }
 
@@ -671,24 +1054,40 @@ export class PipiCliAgentRelayHost {
     cwdOverride?: string,
     modelOverride?: string,
     modeOverride?: string,
+    initialSubscriberKey?: string,
   ): ManagedAgentSession {
     const id = `agt_${randomUUID().slice(0, 8)}`;
     const normalized = agentId.trim().toLowerCase();
-    const found = this.detectedAgents.find(
-      (a) =>
-        a.id.toLowerCase() === normalized ||
-        a.name.toLowerCase() === normalized ||
-        (normalized === 'claude' && a.id === 'claude-code') ||
-        (normalized === 'openai codex' && a.id === 'codex'),
-    );
+    const isShell = normalized === 'shell' || normalized === 'sh' || normalized === 'bash' || normalized === 'zsh';
+    const found = isShell
+      ? null
+      : this.detectedAgents.find(
+          (a) =>
+            a.id.toLowerCase() === normalized ||
+            a.name.toLowerCase() === normalized ||
+            (normalized === 'claude' && a.id === 'claude-code') ||
+            (normalized === 'openai codex' && a.id === 'codex'),
+        );
     const targetCwd = this.resolveTargetPath(cwdOverride);
-    const selectedModel = (modelOverride ?? '').trim() || found?.defaultModel || '';
-    const rawMode = (modeOverride ?? 'cli').trim().toLowerCase();
-    const selectedMode: 'acp' | 'tui' | 'cli' = rawMode === 'acp' ? 'acp' : rawMode === 'tui' ? 'tui' : 'cli';
+    const selectedModel = isShell ? '' : ((modelOverride ?? '').trim() || found?.defaultModel || '');
+    const rawMode = (modeOverride ?? (isShell ? 'tui' : 'cli')).trim().toLowerCase();
+    const selectedMode: 'acp' | 'tui' | 'cli' = isShell
+      ? 'tui'
+      : rawMode === 'acp'
+        ? 'acp'
+        : rawMode === 'tui'
+          ? 'tui'
+          : 'cli';
     const modeTag = selectedMode === 'acp' ? 'ACP' : selectedMode === 'tui' ? 'TUI PTY' : 'CLI';
-    const label = `${found?.name ?? agentId}${selectedModel ? ` · ${selectedModel}` : ''} [${modeTag}]`;
+    const displayAgentName = isShell ? 'Interactive Shell' : (found?.name ?? agentId);
+    const label = `${displayAgentName}${selectedModel ? ` · ${selectedModel}` : ''} [${modeTag}]`;
+    const cleanPrompt = prompt.trim();
+    const headerLine = `[${new Date().toLocaleTimeString()}] 启动 ${label}${cleanPrompt ? `: ${cleanPrompt}` : ''}`;
+    const subscribers = new Set<string>();
+    if (initialSubscriberKey) subscribers.add(initialSubscriberKey);
     const session: ManagedAgentSession = {
       id,
+      harnessId: isShell ? 'shell' : (found?.id ?? agentId),
       agent: label,
       mode: selectedMode,
       model: selectedModel,
@@ -697,97 +1096,126 @@ export class PipiCliAgentRelayHost {
       ownerClientId,
       startedAt: new Date().toISOString(),
       exitCode: null,
-      outputLines: [`[${new Date().toLocaleTimeString()}] 启动 ${label}: ${prompt}`],
+      outputLines: [headerLine],
+      rawBuffer: selectedMode === 'tui' ? `\x1b[2m${headerLine}\x1b[0m\r\n` : `${headerLine}\n`,
+      streamSeq: 0,
+      subscribers,
+      pendingStreamChunk: '',
     };
     this.sessions.set(id, session);
 
-    if (found) {
-      let args: string[];
-      if (selectedMode === 'acp') {
-        // Structured ACP / JSON-stream protocol
-        if (found.id === 'claude-code') {
-          args = selectedModel
-            ? ['--output-format', 'stream-json', '--verbose', '--model', selectedModel, '-p', prompt]
-            : ['--output-format', 'stream-json', '--verbose', '-p', prompt];
-        } else if (found.id === 'codex') {
-          args = selectedModel ? ['exec', '--json', '-m', selectedModel, prompt] : ['exec', '--json', prompt];
-        } else if (found.id === 'pi' || found.id === 'omp') {
-          args = selectedModel ? ['--mode', 'json', '--model', selectedModel, '-p', prompt] : ['--mode', 'json', '-p', prompt];
-        } else if (found.id === 'opencode') {
-          args = selectedModel ? ['run', '--format', 'json', '-m', selectedModel, prompt] : ['run', '--format', 'json', prompt];
-        } else if (found.id === 'agy') {
-          args = selectedModel ? ['--model', selectedModel, prompt] : [prompt];
+    if (isShell || found) {
+      let binary = found?.binary ?? '';
+      let args: string[] = [];
+      if (isShell) {
+        binary = platform() === 'win32' ? 'cmd.exe' : (process.env.SHELL || '/bin/bash');
+        args = platform() === 'win32' ? [] : ['-i'];
+      } else if (found) {
+        if (selectedMode === 'acp') {
+          // Structured ACP / JSON-stream protocol
+          if (found.id === 'claude-code') {
+            args = selectedModel
+              ? ['--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', selectedModel, '-p', cleanPrompt]
+              : ['--output-format', 'stream-json', '--verbose', '--include-partial-messages', '-p', cleanPrompt];
+          } else if (found.id === 'codex') {
+            args = selectedModel ? ['exec', '--json', '-m', selectedModel, cleanPrompt] : ['exec', '--json', cleanPrompt];
+          } else if (found.id === 'pi' || found.id === 'omp') {
+            args = selectedModel ? ['--mode', 'json', '--model', selectedModel, '-p', cleanPrompt] : ['--mode', 'json', '-p', cleanPrompt];
+          } else if (found.id === 'opencode') {
+            args = selectedModel ? ['run', '--format', 'json', '-m', selectedModel, cleanPrompt] : ['run', '--format', 'json', cleanPrompt];
+          } else if (found.id === 'agy') {
+            args = selectedModel ? ['--model', selectedModel, '-p', cleanPrompt] : ['-p', cleanPrompt];
+          } else {
+            args = cleanPrompt ? [cleanPrompt] : [];
+          }
+        } else if (selectedMode === 'tui') {
+          // Interactive TUI invocation inside a real POSIX PTY (supports empty prompt for direct interactive TUI!)
+          if (found.id === 'claude-code') {
+            args = [...(selectedModel ? ['--model', selectedModel] : []), ...(cleanPrompt ? [cleanPrompt] : [])];
+          } else if (found.id === 'codex') {
+            args = [...(selectedModel ? ['-m', selectedModel] : []), ...(cleanPrompt ? [cleanPrompt] : [])];
+          } else if (found.id === 'pi' || found.id === 'omp') {
+            args = [...(selectedModel ? ['--model', selectedModel] : []), ...(cleanPrompt ? [cleanPrompt] : [])];
+          } else if (found.id === 'opencode') {
+            args = [...(selectedModel ? ['-m', selectedModel] : []), ...(cleanPrompt ? [cleanPrompt] : [])];
+          } else if (found.id === 'agy') {
+            args = [...(selectedModel ? ['--model', selectedModel] : []), ...(cleanPrompt ? ['-i', cleanPrompt] : [])];
+          } else {
+            args = cleanPrompt ? [cleanPrompt] : [];
+          }
         } else {
-          args = [prompt];
-        }
-      } else if (selectedMode === 'tui') {
-        // Interactive TUI invocation inside a real POSIX PTY
-        if (found.id === 'claude-code') {
-          args = selectedModel ? ['--model', selectedModel, prompt] : [prompt];
-        } else if (found.id === 'codex') {
-          args = selectedModel ? ['-m', selectedModel, prompt] : [prompt];
-        } else if (found.id === 'pi' || found.id === 'omp') {
-          args = selectedModel ? ['--model', selectedModel, prompt] : [prompt];
-        } else if (found.id === 'agy') {
-          args = selectedModel ? ['--model', selectedModel, prompt] : [prompt];
-        } else {
-          args = [prompt];
-        }
-      } else {
-        // Headless CLI mode (default for PiPiBot autonomous orchestration)
-        if (found.id === 'claude-code') {
-          args = selectedModel ? ['--model', selectedModel, '-p', prompt] : ['-p', prompt];
-        } else if (found.id === 'codex') {
-          args = selectedModel ? ['exec', '-m', selectedModel, prompt] : ['exec', prompt];
-        } else if (found.id === 'pi' || found.id === 'omp') {
-          args = selectedModel ? ['--model', selectedModel, '-p', prompt] : ['-p', prompt];
-        } else if (found.id === 'agy') {
-          args = selectedModel ? ['--model', selectedModel, prompt] : [prompt];
-        } else {
-          args = [prompt];
+          // Headless CLI mode (default for PiPiBot autonomous orchestration)
+          if (found.id === 'claude-code') {
+            args = selectedModel ? ['--model', selectedModel, '-p', cleanPrompt] : ['-p', cleanPrompt];
+          } else if (found.id === 'codex') {
+            args = selectedModel ? ['exec', '-m', selectedModel, cleanPrompt] : ['exec', cleanPrompt];
+          } else if (found.id === 'pi' || found.id === 'omp') {
+            args = selectedModel ? ['--model', selectedModel, '-p', cleanPrompt] : ['-p', cleanPrompt];
+          } else if (found.id === 'agy') {
+            args = selectedModel ? ['--model', selectedModel, '-p', cleanPrompt] : ['-p', cleanPrompt];
+          } else {
+            args = cleanPrompt ? [cleanPrompt] : [];
+          }
         }
       }
 
       let proc: ChildProcess;
       if (selectedMode === 'tui' && platform() !== 'win32') {
+        const ptyEnv = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', COLUMNS: '120', LINES: '36' };
         if (platform() === 'darwin') {
-          proc = spawn('script', ['-q', '/dev/null', found.binary, ...args], {
+          proc = spawn('script', ['-q', '/dev/null', binary, ...args], {
             cwd: targetCwd,
             stdio: ['pipe', 'pipe', 'pipe'],
-            env: { ...process.env, TERM: 'xterm-256color' },
+            env: ptyEnv,
           });
         } else {
-          const fullCmd = [found.binary, ...args].map((a) => PipiCliAgentRelayHost.shellQuote(a)).join(' ');
+          const fullCmd = [binary, ...args].map((a) => PipiCliAgentRelayHost.shellQuote(a)).join(' ');
           proc = spawn('script', ['-qefc', fullCmd, '/dev/null'], {
             cwd: targetCwd,
             stdio: ['pipe', 'pipe', 'pipe'],
-            env: { ...process.env, TERM: 'xterm-256color' },
+            env: ptyEnv,
           });
         }
       } else {
-        proc = spawn(found.binary, args, {
+        proc = spawn(binary, args, {
           cwd: targetCwd,
           stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env, FORCE_COLOR: '1' },
         });
       }
 
       session.proc = proc;
+      if (isShell && cleanPrompt && proc.stdin?.writable) {
+        setTimeout(() => {
+          if (proc.stdin?.writable) proc.stdin.write(`${cleanPrompt}\r`);
+        }, 120);
+      }
+
       let lineBuf = '';
       const append = (chunk: Buffer) => {
-        const raw = selectedMode === 'tui'
-          ? PipiCliAgentRelayHost.stripAnsi(chunk.toString('utf8'))
-          : chunk.toString('utf8');
+        const rawText = chunk.toString('utf8');
         if (selectedMode === 'acp') {
-          lineBuf += raw;
+          lineBuf += rawText;
           const parts = lineBuf.split(/\r?\n/);
           lineBuf = parts.pop() ?? '';
           for (const p of parts) {
             const parsed = PipiCliAgentRelayHost.parseStructuredAcpLine(p);
-            if (parsed) session.outputLines.push(parsed);
+            if (parsed) {
+              session.outputLines.push(parsed);
+              const needsNl = !parsed.endsWith('\n') && parsed.length > 24;
+              this.queueSessionStream(session, needsNl ? `${parsed}\n` : parsed);
+            }
           }
+        } else if (selectedMode === 'tui') {
+          // Preserve raw ANSI sequences for native terminal rendering!
+          this.queueSessionStream(session, rawText);
+          const stripped = PipiCliAgentRelayHost.stripAnsi(rawText);
+          const lines = stripped.split(/\r?\n/).filter((l) => l.trim().length > 0);
+          if (lines.length) session.outputLines.push(...lines);
         } else {
-          const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-          session.outputLines.push(...lines);
+          this.queueSessionStream(session, rawText);
+          const lines = rawText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+          if (lines.length) session.outputLines.push(...lines);
         }
         if (session.outputLines.length > 400) {
           session.outputLines.splice(0, session.outputLines.length - 400);
@@ -798,17 +1226,32 @@ export class PipiCliAgentRelayHost {
       proc.on('exit', (code) => {
         if (selectedMode === 'acp' && lineBuf.trim()) {
           const parsed = PipiCliAgentRelayHost.parseStructuredAcpLine(lineBuf);
-          if (parsed) session.outputLines.push(parsed);
+          if (parsed) {
+            session.outputLines.push(parsed);
+            this.queueSessionStream(session, `${parsed}\n`);
+          }
           lineBuf = '';
         }
+        this.flushSessionStream(session);
         session.status = 'exited';
         session.exitCode = code ?? 0;
         session.proc = undefined;
+        session.streamSeq += 1;
+        this.broadcastToSubscribers(session.subscribers, {
+          kind: 'agent_stream',
+          sessionId: session.id,
+          seq: session.streamSeq,
+          stream: 'status',
+          chunk: '',
+          status: 'exited',
+          exitCode: session.exitCode,
+        });
       });
     } else {
       session.status = 'exited';
       session.exitCode = 127;
       session.outputLines.push(`未在本机检测到 Agent：${agentId}`);
+      session.rawBuffer += `未在本机检测到 Agent：${agentId}\n`;
     }
     return session;
   }
@@ -885,11 +1328,21 @@ export class PipiCliAgentRelayHost {
       // Not a git repo or git unavailable
     }
 
+    let cliSha256 = '';
+    try {
+      cliSha256 = sha256Hex(readFileSync(fileURLToPath(import.meta.url))).slice(0, 12);
+    } catch {
+      // ignore
+    }
+
     return {
       deviceName: this.deviceName,
       hostname: hostname(),
       platform: platform(),
       arch: arch(),
+      cliVersion: PIPIBOT_CLI_VERSION,
+      cliSha256,
+      autoUpgradeEnabled: isAutoUpgradeEnabled(),
       uptimeSeconds: Math.floor(uptime()),
       cpuCount: cpus().length,
       totalMemoryMB: Math.round(totalmem() / (1024 * 1024)),
@@ -902,13 +1355,562 @@ export class PipiCliAgentRelayHost {
     };
   }
 
+  // MARK: - Remote Headless Browser CDP Screencast (Gemini Spark / Mariner-style Live Viewport)
+
+  private static detectChromeBinary(): string | null {
+    const envPath = (process.env.PIPIBOT_CHROME_PATH ?? process.env.CHROME_PATH ?? '').trim();
+    if (envPath && existsSync(envPath)) return envPath;
+
+    const candidates =
+      platform() === 'darwin'
+        ? [
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            '/Applications/Chromium.app/Contents/MacOS/Chromium',
+            '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+            '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+          ]
+        : [
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/snap/bin/chromium',
+            '/usr/bin/microsoft-edge',
+          ];
+
+    for (const p of candidates) {
+      if (existsSync(p)) return p;
+    }
+
+    // Check PATH via `which`
+    for (const bin of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
+      try {
+        const resolved = execFileSync(platform() === 'win32' ? 'where' : 'which', [bin], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 1500,
+        })
+          .trim()
+          .split(/\r?\n/)[0];
+        if (resolved && existsSync(resolved)) return resolved;
+      } catch {
+        // ignore
+      }
+    }
+
+    // Check Playwright-installed Chromium cache
+    const pwRoots = [
+      join(homedir(), '.cache', 'ms-playwright'),
+      join(homedir(), 'Library', 'Caches', 'ms-playwright'),
+    ];
+    for (const root of pwRoots) {
+      if (!existsSync(root)) continue;
+      try {
+        const dirs = readdirSync(root).filter((d) => d.startsWith('chromium-')).sort().reverse();
+        for (const d of dirs) {
+          const bins = [
+            join(root, d, 'chrome-linux', 'chrome'),
+            join(root, d, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
+            join(root, d, 'chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+          ];
+          for (const b of bins) {
+            if (existsSync(b)) return b;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return null;
+  }
+
+  private async fetchCdpTabs(port: number): Promise<RemoteBrowserTabInfo[]> {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 1500);
+      const res = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!res.ok) return [];
+      const arr = (await res.json()) as Array<Record<string, unknown>>;
+      return arr
+        .filter((t) => t.type === 'page' && typeof t.webSocketDebuggerUrl === 'string')
+        .map((t) => ({
+          id: String(t.id ?? ''),
+          title: String(t.title ?? ''),
+          url: String(t.url ?? ''),
+          webSocketDebuggerUrl: String(t.webSocketDebuggerUrl ?? ''),
+        }));
+    } catch {
+      return [];
+    }
+  }
+
+  private sendCdp(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const ws = this.browser.cdpWs;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('browser_cdp_not_connected'));
+    }
+    this.browser.cdpSeq += 1;
+    const id = this.browser.cdpSeq;
+    return new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => {
+        this.browser.cdpPending.delete(id);
+        rejectPromise(new Error(`cdp_timeout:${method}`));
+      }, 8000);
+      this.browser.cdpPending.set(id, {
+        resolve: (val) => {
+          clearTimeout(timer);
+          resolvePromise(val);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          rejectPromise(err);
+        },
+      });
+      ws.send(JSON.stringify({ id, method, params: params ?? {} }));
+    });
+  }
+
+  private async connectCdpTarget(tab: RemoteBrowserTabInfo): Promise<void> {
+    if (this.browser.cdpWs) {
+      try {
+        this.browser.cdpWs.close();
+      } catch {
+        // ignore
+      }
+      this.browser.cdpWs = undefined;
+    }
+    if (!tab.webSocketDebuggerUrl) throw new Error('missing_cdp_ws_url');
+
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      const cdpWs = new WebSocket(tab.webSocketDebuggerUrl!);
+      const timer = setTimeout(() => {
+        try {
+          cdpWs.close();
+        } catch {
+          // ignore
+        }
+        rejectPromise(new Error('cdp_ws_connect_timeout'));
+      }, 5000);
+
+      cdpWs.addEventListener('open', () => {
+        clearTimeout(timer);
+        this.browser.cdpWs = cdpWs;
+        this.browser.targetId = tab.id;
+        this.browser.url = tab.url || this.browser.url;
+        this.browser.title = tab.title || this.browser.title;
+        resolvePromise();
+      });
+
+      cdpWs.addEventListener('error', () => {
+        clearTimeout(timer);
+        rejectPromise(new Error('cdp_ws_error'));
+      });
+
+      cdpWs.addEventListener('close', () => {
+        if (this.browser.cdpWs === cdpWs) {
+          this.browser.cdpWs = undefined;
+          for (const p of this.browser.cdpPending.values()) {
+            p.reject(new Error('cdp_closed'));
+          }
+          this.browser.cdpPending.clear();
+        }
+      });
+
+      cdpWs.addEventListener('message', (ev) => {
+        let msg: Record<string, unknown>;
+        try {
+          msg = JSON.parse(String(ev.data)) as Record<string, unknown>;
+        } catch {
+          return;
+        }
+        if (typeof msg.id === 'number' && this.browser.cdpPending.has(msg.id)) {
+          const pending = this.browser.cdpPending.get(msg.id)!;
+          this.browser.cdpPending.delete(msg.id);
+          if (msg.error) {
+            pending.reject(new Error(JSON.stringify(msg.error)));
+          } else {
+            pending.resolve((msg.result as Record<string, unknown>) ?? {});
+          }
+          return;
+        }
+        if (msg.method === 'Page.frameNavigated' && msg.params && typeof msg.params === 'object') {
+          const frame = (msg.params as Record<string, unknown>).frame as Record<string, unknown> | undefined;
+          if (frame && !frame.parentId && typeof frame.url === 'string') {
+            this.browser.url = frame.url;
+          }
+          return;
+        }
+        if (msg.method === 'Page.screencastFrame' && msg.params && typeof msg.params === 'object') {
+          const params = msg.params as { data?: string; sessionId?: number; metadata?: Record<string, unknown> };
+          if (typeof params.sessionId === 'number') {
+            void this.sendCdp('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
+          }
+          if (typeof params.data === 'string' && params.data.length > 0 && params.data.length < 440_000) {
+            this.browser.lastFrame = params.data;
+            const now = Date.now();
+            if (now - this.browser.lastFrameAt >= 95) {
+              this.browser.lastFrameAt = now;
+              this.broadcastToSubscribers(this.browser.subscribers, {
+                kind: 'browser_frame',
+                data: params.data,
+                url: this.browser.url,
+                title: this.browser.title,
+                width: this.browser.width,
+                height: this.browser.height,
+                ts: now,
+              });
+            }
+          }
+        }
+      });
+    });
+
+    await this.sendCdp('Page.enable').catch(() => {});
+    await this.sendCdp('Emulation.setDeviceMetricsOverride', {
+      width: this.browser.width,
+      height: this.browser.height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    }).catch(() => {});
+    await this.sendCdp('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 65,
+      maxWidth: this.browser.width,
+      maxHeight: this.browser.height,
+      everyNthFrame: 1,
+    }).catch(() => {});
+  }
+
+  private async launchOrAttachBrowser(opts: {
+    url?: string;
+    width?: number;
+    height?: number;
+    cdpPort?: number;
+    attachOnly?: boolean;
+    subscriberKey?: string;
+  }): Promise<Record<string, unknown>> {
+    if (opts.subscriberKey) this.browser.subscribers.add(opts.subscriberKey);
+    const width = Math.max(480, Math.min(1920, Number(opts.width) || this.browser.width || 1280));
+    const height = Math.max(360, Math.min(1200, Number(opts.height) || this.browser.height || 800));
+    this.browser.width = width;
+    this.browser.height = height;
+
+    const requestedPort = Number(opts.cdpPort) || 0;
+    const probePort = requestedPort || (this.browser.running ? this.browser.cdpPort : 9222);
+
+    // 1. Try attaching to an already running CDP browser (e.g. started by agent/Playwright or existing session)
+    let tabs = await this.fetchCdpTabs(probePort);
+    if (tabs.length > 0) {
+      this.browser.cdpPort = probePort;
+      this.browser.running = true;
+      if (!this.browser.proc) this.browser.attachedExternal = true;
+      const targetTab = tabs.find((t) => t.id === this.browser.targetId) ?? tabs[0]!;
+      await this.connectCdpTarget(targetTab);
+      if (opts.url && opts.url.trim()) {
+        const navUrl = /^https?:\/\//i.test(opts.url.trim()) ? opts.url.trim() : `https://${opts.url.trim()}`;
+        await this.sendCdp('Page.navigate', { url: navUrl }).catch(() => {});
+        this.browser.url = navUrl;
+      }
+      return {
+        ok: true,
+        running: true,
+        attachedExternal: this.browser.attachedExternal,
+        cdpPort: this.browser.cdpPort,
+        url: this.browser.url,
+        title: this.browser.title,
+        width: this.browser.width,
+        height: this.browser.height,
+        tabs: tabs.map(({ id, title, url }) => ({ id, title, url })),
+        lastFrame: this.browser.lastFrame,
+      };
+    }
+
+    if (opts.attachOnly) {
+      return {
+        ok: false,
+        error: `未在端口 ${probePort} 检测到已运行的 Chrome CDP 实例`,
+        chromeAvailable: Boolean(PipiCliAgentRelayHost.detectChromeBinary()),
+      };
+    }
+
+    // 2. Spawn a dedicated headless Chrome/Chromium instance with remote debugging
+    const chromeBin = PipiCliAgentRelayHost.detectChromeBinary();
+    if (!chromeBin) {
+      return {
+        ok: false,
+        error: '当前节点未检测到 Chrome / Chromium（可安装 chromium 或设置 PIPIBOT_CHROME_PATH）',
+        chromeAvailable: false,
+      };
+    }
+
+    const spawnPort = requestedPort || 9333;
+    const profileDir = join(tmpdir(), `pipibot-chrome-${spawnPort}`);
+    mkdirSync(profileDir, { recursive: true });
+    const startUrl = opts.url?.trim()
+      ? (/^https?:\/\//i.test(opts.url.trim()) ? opts.url.trim() : `https://${opts.url.trim()}`)
+      : 'about:blank';
+
+    const chromeArgs = [
+      '--headless=new',
+      `--remote-debugging-port=${spawnPort}`,
+      '--remote-debugging-address=127.0.0.1',
+      `--window-size=${width},${height}`,
+      `--user-data-dir=${profileDir}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      ...(platform() === 'linux' ? ['--no-sandbox'] : []),
+      startUrl,
+    ];
+
+    const proc = spawn(chromeBin, chromeArgs, {
+      stdio: ['ignore', 'ignore', 'ignore'],
+      detached: false,
+    });
+    this.browser.proc = proc;
+    this.browser.attachedExternal = false;
+    this.browser.cdpPort = spawnPort;
+    proc.on('exit', () => {
+      if (this.browser.proc === proc) {
+        this.browser.proc = undefined;
+        this.browser.running = false;
+        this.browser.cdpWs = undefined;
+      }
+    });
+
+    // Wait up to 6s for CDP HTTP endpoint to become ready
+    const deadline = Date.now() + 6000;
+    while (Date.now() < deadline) {
+      tabs = await this.fetchCdpTabs(spawnPort);
+      if (tabs.length > 0) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (tabs.length === 0) {
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        // ignore
+      }
+      this.browser.proc = undefined;
+      return { ok: false, error: '无头浏览器启动超时，请检查本机 Chromium 依赖' };
+    }
+
+    this.browser.running = true;
+    await this.connectCdpTarget(tabs[0]!);
+    return {
+      ok: true,
+      running: true,
+      attachedExternal: false,
+      cdpPort: spawnPort,
+      url: this.browser.url,
+      title: this.browser.title,
+      width: this.browser.width,
+      height: this.browser.height,
+      tabs: tabs.map(({ id, title, url }) => ({ id, title, url })),
+      lastFrame: this.browser.lastFrame,
+    };
+  }
+
+  private async handleBrowserAction(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (!this.browser.running || !this.browser.cdpWs) {
+      return { ok: false, error: 'browser_not_running' };
+    }
+    const type = String(body.type ?? '').toLowerCase();
+    try {
+      if (type === 'navigate') {
+        const rawUrl = String(body.url ?? '').trim();
+        if (!rawUrl) return { ok: false, error: 'empty_url' };
+        const url = /^[a-zA-Z]+:\/\//.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+        await this.sendCdp('Page.navigate', { url });
+        this.browser.url = url;
+        return { ok: true, url };
+      }
+      if (type === 'click') {
+        const x = Math.round(Number(body.x) || 0);
+        const y = Math.round(Number(body.y) || 0);
+        await this.sendCdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        await this.sendCdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+        await this.sendCdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+        return { ok: true };
+      }
+      if (type === 'wheel') {
+        const x = Math.round(Number(body.x) || this.browser.width / 2);
+        const y = Math.round(Number(body.y) || this.browser.height / 2);
+        const deltaX = Math.round(Number(body.deltaX) || 0);
+        const deltaY = Math.round(Number(body.deltaY) || 240);
+        await this.sendCdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX, deltaY });
+        return { ok: true };
+      }
+      if (type === 'type') {
+        const text = String(body.text ?? '');
+        if (text) await this.sendCdp('Input.insertText', { text });
+        return { ok: true };
+      }
+      if (type === 'key') {
+        const key = String(body.key ?? 'Enter');
+        const keyMap: Record<string, { code: string; windowsVirtualKeyCode: number; text?: string }> = {
+          Enter: { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
+          Backspace: { code: 'Backspace', windowsVirtualKeyCode: 8 },
+          Tab: { code: 'Tab', windowsVirtualKeyCode: 9 },
+          Escape: { code: 'Escape', windowsVirtualKeyCode: 27 },
+          ArrowUp: { code: 'ArrowUp', windowsVirtualKeyCode: 38 },
+          ArrowDown: { code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+          ArrowLeft: { code: 'ArrowLeft', windowsVirtualKeyCode: 37 },
+          ArrowRight: { code: 'ArrowRight', windowsVirtualKeyCode: 39 },
+        };
+        const mapped = keyMap[key] ?? { code: key, windowsVirtualKeyCode: 0, text: key.length === 1 ? key : undefined };
+        await this.sendCdp('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key,
+          code: mapped.code,
+          windowsVirtualKeyCode: mapped.windowsVirtualKeyCode,
+          text: mapped.text,
+        });
+        await this.sendCdp('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key,
+          code: mapped.code,
+          windowsVirtualKeyCode: mapped.windowsVirtualKeyCode,
+        });
+        return { ok: true };
+      }
+      if (type === 'reload') {
+        await this.sendCdp('Page.reload', { ignoreCache: false });
+        return { ok: true };
+      }
+      if (type === 'back' || type === 'forward') {
+        const hist = (await this.sendCdp('Page.getNavigationHistory')) as {
+          currentIndex?: number;
+          entries?: Array<{ id: number }>;
+        };
+        const cur = hist.currentIndex ?? 0;
+        const nextIdx = type === 'back' ? cur - 1 : cur + 1;
+        const entry = hist.entries?.[nextIdx];
+        if (entry) {
+          await this.sendCdp('Page.navigateToHistoryEntry', { entryId: entry.id });
+        }
+        return { ok: true };
+      }
+      if (type === 'click-ref') {
+        const ref = String(body.ref ?? '').replace(/"/g, '');
+        if (!ref) return { ok: false, error: 'missing_ref' };
+        const evalRes = (await this.sendCdp('Runtime.evaluate', {
+          expression: `(() => {
+            const el = (window.__pipiRefs || {})["${ref}"];
+            if (!el || !el.isConnected) return null;
+            el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+            const r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return null;
+            return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+          })()`,
+          returnByValue: true,
+        })) as { result?: { value?: string } };
+        const raw = evalRes.result?.value;
+        if (!raw) return { ok: false, error: `element_not_found:${ref}` };
+        const coords = JSON.parse(raw) as { x: number; y: number };
+        await this.sendCdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: coords.x, y: coords.y });
+        await this.sendCdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: coords.x, y: coords.y, button: 'left', clickCount: 1 });
+        await this.sendCdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: coords.x, y: coords.y, button: 'left', clickCount: 1 });
+        return { ok: true, ref, x: coords.x, y: coords.y };
+      }
+      if (type === 'switch-tab') {
+        const targetId = String(body.targetId ?? '');
+        const tabs = await this.fetchCdpTabs(this.browser.cdpPort);
+        const foundTab = tabs.find((t) => t.id === targetId);
+        if (!foundTab) return { ok: false, error: 'tab_not_found' };
+        await this.connectCdpTarget(foundTab);
+        return { ok: true, url: this.browser.url, title: this.browser.title };
+      }
+      return { ok: false, error: 'unknown_browser_action' };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'browser_action_failed' };
+    }
+  }
+
+  private async captureBrowserSnapshot(includeScreenshot = true): Promise<Record<string, unknown>> {
+    if (!this.browser.running || !this.browser.cdpWs) {
+      return { ok: false, error: 'browser_not_running' };
+    }
+    try {
+      const domScript = `(() => {
+        window.__pipiRefs = {};
+        const vw = window.innerWidth || 1280;
+        const vh = window.innerHeight || 800;
+        const nodes = Array.from(document.querySelectorAll('a, button, input, textarea, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"], summary'));
+        const elements = [];
+        let idx = 0;
+        for (const el of nodes) {
+          if (elements.length >= 45) break;
+          const style = window.getComputedStyle(el);
+          if (!style || style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') === 0) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 6 || r.height < 6) continue;
+          if (r.bottom < -120 || r.top > vh + 240 || r.right < 0 || r.left > vw) continue;
+          const tag = (el.tagName || '').toLowerCase();
+          const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag);
+          const label = (el.getAttribute('aria-label') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || el.value || '').replace(/\\s+/g, ' ').trim();
+          const href = tag === 'a' ? (el.getAttribute('href') || '') : '';
+          if (!label && !href && tag !== 'input' && tag !== 'textarea') continue;
+          idx += 1;
+          const ref = 'e' + idx;
+          window.__pipiRefs[ref] = el;
+          elements.push({ ref, tag, role, label: label.slice(0, 96), href: href ? href.slice(0, 140) : null, inputType: tag === 'input' ? (el.getAttribute('type') || 'text') : null, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), width: Math.round(r.width), height: Math.round(r.height) });
+        }
+        const mainRoot = document.querySelector('main, article, [role="main"]') || document.body;
+        const rawText = (mainRoot && mainRoot.innerText ? mainRoot.innerText : (document.body ? document.body.innerText : '')) || '';
+        const visibleText = rawText.replace(/\\r/g, '').replace(/[ \\t]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim().slice(0, 6800);
+        return JSON.stringify({ url: location.href, title: document.title || '', scrollY: Math.round(window.scrollY || 0), scrollHeight: Math.round(document.documentElement ? document.documentElement.scrollHeight : 0), viewportHeight: Math.round(vh), visibleText, elements });
+      })()`;
+      const evalRes = (await this.sendCdp('Runtime.evaluate', {
+        expression: domScript,
+        returnByValue: true,
+      })) as { result?: { value?: string } };
+      const parsed = evalRes.result?.value ? (JSON.parse(evalRes.result.value) as Record<string, unknown>) : {};
+      let screenshotBase64: string | undefined;
+      if (includeScreenshot) {
+        const shot = (await this.sendCdp('Page.captureScreenshot', { format: 'jpeg', quality: 70, fromSurface: true }).catch(() => null)) as { data?: string } | null;
+        if (shot?.data) screenshotBase64 = shot.data;
+      }
+      return { ok: true, ...parsed, screenshotBase64 };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'browser_snapshot_failed' };
+    }
+  }
+
+  private stopBrowser(): void {
+    if (this.browser.cdpWs) {
+      try {
+        void this.sendCdp('Page.stopScreencast').catch(() => {});
+        this.browser.cdpWs.close();
+      } catch {
+        // ignore
+      }
+      this.browser.cdpWs = undefined;
+    }
+    if (this.browser.proc && !this.browser.attachedExternal) {
+      try {
+        this.browser.proc.kill('SIGTERM');
+      } catch {
+        // ignore
+      }
+      this.browser.proc = undefined;
+    }
+    this.browser.running = false;
+    this.browser.attachedExternal = false;
+    this.browser.lastFrame = '';
+  }
+
   private async handleRpc(
     clientId: string,
+    sid: string,
     req: { id?: string; method?: string; path?: string; token?: string; body?: Record<string, unknown> },
   ): Promise<Record<string, unknown>> {
     const method = (req.method ?? 'GET').toUpperCase();
     const path = req.path ?? '/';
     const body = req.body ?? {};
+    const subKey = `${clientId}:${sid}`;
 
     // Privileged endpoints require same-account token verification
     const requiresAuth =
@@ -917,6 +1919,8 @@ export class PipiCliAgentRelayHost {
       path === '/api/v1/mobile/chat' ||
       path === '/api/files/read' ||
       path === '/api/files/list' ||
+      path.startsWith('/api/browser/') ||
+      path.includes('/attach') ||
       path.includes('/input') ||
       path.includes('/stop') ||
       path.includes('/takeover');
@@ -956,7 +1960,14 @@ export class PipiCliAgentRelayHost {
           triggers: [],
           sentinelIssues: [],
           usageSummary: { todayCostUSD: 0 },
-          sessions: [...this.sessions.values()].map(({ proc: _p, ...rest }) => rest),
+          sessions: [...this.sessions.values()].map((s) => PipiCliAgentRelayHost.serializeSession(s)),
+          browser: {
+            running: this.browser.running,
+            url: this.browser.url,
+            title: this.browser.title,
+            cdpPort: this.browser.cdpPort,
+            chromeAvailable: Boolean(PipiCliAgentRelayHost.detectChromeBinary()),
+          },
         },
       };
     }
@@ -973,7 +1984,7 @@ export class PipiCliAgentRelayHost {
         content: text,
         createdAt: new Date().toISOString(),
       });
-      const sess = this.startAgentSession(harnessId, text, clientId, undefined, model, mode);
+      const sess = this.startAgentSession(harnessId, text, clientId, undefined, model, mode, subKey);
       const replyMsg = {
         id: `m_${randomUUID().slice(0, 8)}`,
         role: 'assistant' as const,
@@ -995,12 +2006,107 @@ export class PipiCliAgentRelayHost {
       } else {
         syncOutput();
       }
-      return { status: 200, body: { ok: true, sessionId: sess.id } };
+      return { status: 200, body: { ok: true, sessionId: sess.id, session: PipiCliAgentRelayHost.serializeSession(sess) } };
+    }
+
+    // Remote Headless Browser CDP endpoints
+    if (path === '/api/browser/status' && method === 'GET') {
+      const tabs = this.browser.running ? await this.fetchCdpTabs(this.browser.cdpPort) : [];
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          running: this.browser.running,
+          attachedExternal: this.browser.attachedExternal,
+          cdpPort: this.browser.cdpPort,
+          url: this.browser.url,
+          title: this.browser.title,
+          width: this.browser.width,
+          height: this.browser.height,
+          chromeAvailable: Boolean(PipiCliAgentRelayHost.detectChromeBinary()),
+          tabs: tabs.map(({ id, title, url }) => ({ id, title, url })),
+        },
+      };
+    }
+
+    if (path === '/api/browser/attach' && method === 'POST') {
+      this.browser.subscribers.add(subKey);
+      const tabs = this.browser.running ? await this.fetchCdpTabs(this.browser.cdpPort) : [];
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          running: this.browser.running,
+          attachedExternal: this.browser.attachedExternal,
+          cdpPort: this.browser.cdpPort,
+          url: this.browser.url,
+          title: this.browser.title,
+          width: this.browser.width,
+          height: this.browser.height,
+          chromeAvailable: Boolean(PipiCliAgentRelayHost.detectChromeBinary()),
+          tabs: tabs.map(({ id, title, url }) => ({ id, title, url })),
+          lastFrame: this.browser.lastFrame,
+        },
+      };
+    }
+
+    if (path === '/api/browser/launch' && method === 'POST') {
+      const res = await this.launchOrAttachBrowser({
+        url: typeof body.url === 'string' ? body.url : undefined,
+        width: typeof body.width === 'number' ? body.width : undefined,
+        height: typeof body.height === 'number' ? body.height : undefined,
+        cdpPort: typeof body.cdpPort === 'number' ? body.cdpPort : undefined,
+        attachOnly: Boolean(body.attachOnly),
+        subscriberKey: subKey,
+      });
+      return { status: res.ok ? 200 : 400, body: res };
+    }
+
+    if (path === '/api/browser/navigate' && method === 'POST') {
+      const res = await this.handleBrowserAction({ type: 'navigate', url: body.url });
+      return { status: res.ok ? 200 : 400, body: res };
+    }
+
+    if (path === '/api/browser/action' && method === 'POST') {
+      const res = await this.handleBrowserAction(body);
+      return { status: res.ok ? 200 : 400, body: res };
+    }
+
+    if (path === '/api/browser/snapshot' && (method === 'GET' || method === 'POST')) {
+      const includeScreenshot = body.includeScreenshot !== false;
+      const res = await this.captureBrowserSnapshot(includeScreenshot);
+      return { status: res.ok ? 200 : 400, body: res };
+    }
+
+    if (path === '/api/browser/stop' && method === 'POST') {
+      this.stopBrowser();
+      return { status: 200, body: { ok: true } };
     }
 
     if (path === '/api/system/info' && method === 'GET') {
       const info = await this.collectSystemInfo();
       return { status: 200, body: info };
+    }
+
+    if (path === '/api/system/upgrade' && method === 'POST') {
+      const force = Boolean(body.force);
+      const dryRun = Boolean(body.checkOnly);
+      const res = await checkAndUpgradeCli({
+        relayOrigin: this.auth.relayOrigin,
+        force,
+        dryRun,
+        restartDaemon: false,
+      });
+      if (res.updated && !dryRun) {
+        this.scheduleGracefulRestartForUpgrade();
+      }
+      return {
+        status: res.ok ? 200 : 500,
+        body: {
+          ...res,
+          restartScheduled: res.updated && !dryRun,
+        },
+      };
     }
 
     if (path === '/api/shell/exec' && method === 'POST') {
@@ -1052,7 +2158,7 @@ export class PipiCliAgentRelayHost {
           deviceName: this.deviceName,
           workspacePath: this.workspacePath,
           installedAgents: this.detectedAgents,
-          sessions: [...this.sessions.values()].map(({ proc: _p, ...rest }) => rest),
+          sessions: [...this.sessions.values()].map((s) => PipiCliAgentRelayHost.serializeSession(s)),
         },
       };
     }
@@ -1061,19 +2167,25 @@ export class PipiCliAgentRelayHost {
     if (singleSessionMatch && method === 'GET') {
       const sess = this.sessions.get(singleSessionMatch[1]!);
       if (!sess) return { status: 404, body: { error: 'session_not_found' } };
-      const { proc: _p, ...pub } = sess;
-      return { status: 200, body: { ok: true, session: pub } };
+      return { status: 200, body: { ok: true, session: PipiCliAgentRelayHost.serializeSession(sess) } };
     }
 
     if (path === '/api/agents/run' && method === 'POST') {
-      const agent = String(body.agent ?? this.detectedAgents[0]?.id ?? 'claude-code');
+      const agent = String(body.agent ?? this.detectedAgents[0]?.id ?? 'shell');
+      const mode = typeof body.mode === 'string' ? body.mode : (agent === 'shell' ? 'tui' : 'tui');
+      const model = typeof body.model === 'string' ? body.model : undefined;
       const prompt = String(body.prompt ?? '').trim();
-      if (!prompt) return { status: 400, body: { error: 'empty_prompt' } };
+      if (!prompt && mode !== 'tui' && agent !== 'shell') {
+        return { status: 400, body: { error: 'empty_prompt' } };
+      }
       const sess = this.startAgentSession(
         agent,
         prompt,
         clientId,
         typeof body.cwd === 'string' ? body.cwd : undefined,
+        model,
+        mode,
+        subKey,
       );
       const waitMs = Math.max(0, Math.min(25_000, Number(body.waitMs) || 0));
       if (waitMs > 0 && sess.status === 'running') {
@@ -1082,8 +2194,38 @@ export class PipiCliAgentRelayHost {
           await new Promise((r) => setTimeout(r, 250));
         }
       }
-      const { proc: _p, ...pub } = sess;
-      return { status: 200, body: { ok: true, session: pub } };
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          session: PipiCliAgentRelayHost.serializeSession(sess),
+          rawBuffer: sess.rawBuffer,
+          streamSeq: sess.streamSeq,
+        },
+      };
+    }
+
+    const attachMatch = /^\/api\/agents\/([a-zA-Z0-9_-]+)\/attach$/.exec(path);
+    if (attachMatch && method === 'POST') {
+      const sess = this.sessions.get(attachMatch[1]!);
+      if (!sess) return { status: 404, body: { error: 'session_not_found' } };
+      sess.subscribers.add(subKey);
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          session: PipiCliAgentRelayHost.serializeSession(sess),
+          rawBuffer: sess.rawBuffer,
+          streamSeq: sess.streamSeq,
+        },
+      };
+    }
+
+    const detachMatch = /^\/api\/agents\/([a-zA-Z0-9_-]+)\/detach$/.exec(path);
+    if (detachMatch && method === 'POST') {
+      const sess = this.sessions.get(detachMatch[1]!);
+      if (sess) sess.subscribers.delete(subKey);
+      return { status: 200, body: { ok: true } };
     }
 
     const takeoverMatch = /^\/api\/agents\/([a-zA-Z0-9_-]+)\/takeover$/.exec(path);
@@ -1092,6 +2234,7 @@ export class PipiCliAgentRelayHost {
       if (!sess) return { status: 404, body: { error: 'session_not_found' } };
       const previousOwner = sess.ownerClientId;
       sess.ownerClientId = clientId;
+      sess.subscribers.add(subKey);
       return { status: 200, body: { ok: true, sessionId: sess.id, previousOwner, ownerClientId: clientId } };
     }
 
@@ -1103,10 +2246,16 @@ export class PipiCliAgentRelayHost {
         return { status: 409, body: { error: 'owned_by_another_client', ownerClientId: sess.ownerClientId } };
       }
       sess.ownerClientId = clientId;
-      const text = String(body.text ?? '');
+      sess.subscribers.add(subKey);
       if (sess.proc?.stdin?.writable) {
-        sess.proc.stdin.write(`${text}\n`);
-        sess.outputLines.push(`> ${text}`);
+        if (typeof body.raw === 'string') {
+          sess.proc.stdin.write(body.raw);
+          return { status: 200, body: { ok: true } };
+        }
+        const text = String(body.text ?? '');
+        const eol = sess.mode === 'tui' ? '\r' : '\n';
+        sess.proc.stdin.write(`${text}${eol}`);
+        if (text) sess.outputLines.push(`> ${text}`);
         return { status: 200, body: { ok: true } };
       }
       return { status: 400, body: { error: 'session_not_running' } };
@@ -1129,7 +2278,7 @@ export class PipiCliAgentRelayHost {
         platform: platform(),
         workspacePath: this.workspacePath,
         installedAgents: this.detectedAgents,
-        sessions: [...this.sessions.values()].map(({ proc: _p, ...rest }) => rest),
+        sessions: [...this.sessions.values()].map((s) => PipiCliAgentRelayHost.serializeSession(s)),
       },
     };
   }
@@ -1168,6 +2317,21 @@ export class PipiCliAgentRelayHost {
       ws.addEventListener('message', async (event) => {
         try {
           const msg = JSON.parse(String(event.data)) as Record<string, unknown>;
+          if (msg.type === 'client_status' && msg.online === false && typeof msg.clientId === 'string') {
+            const prefix = `${msg.clientId}:`;
+            for (const key of [...this.clientKeys.keys()]) {
+              if (key.startsWith(prefix)) this.clientKeys.delete(key);
+            }
+            for (const s of this.sessions.values()) {
+              for (const sub of [...s.subscribers]) {
+                if (sub.startsWith(prefix)) s.subscribers.delete(sub);
+              }
+            }
+            for (const sub of [...this.browser.subscribers]) {
+              if (sub.startsWith(prefix)) this.browser.subscribers.delete(sub);
+            }
+            return;
+          }
           if (msg.type === 'envelope') {
             const opened = this.openEnvelope(msg as Parameters<PipiCliAgentRelayHost['openEnvelope']>[0]);
             if (opened) {
@@ -1175,6 +2339,7 @@ export class PipiCliAgentRelayHost {
               const sid = String(msg.sid ?? '');
               const response = await this.handleRpc(
                 clientId,
+                sid,
                 opened.plaintext as { id?: string; reqId?: string; method?: string; path?: string; token?: string; body?: Record<string, unknown> },
               );
               const reqId = opened.plaintext.reqId ?? opened.plaintext.id;
@@ -1204,12 +2369,102 @@ export class PipiCliAgentRelayHost {
     };
 
     connect();
+    this.startAutoUpgradeLoop();
+  }
+
+  private hasActiveRunningSessions(): boolean {
+    return [...this.sessions.values()].some((s) => s.status === 'running');
+  }
+
+  private scheduleGracefulRestartForUpgrade(): void {
+    this.pendingUpgradeRestart = true;
+    const attemptRestart = () => {
+      if (this.stopped) return;
+      if (this.hasActiveRunningSessions()) {
+        setTimeout(attemptRestart, 5_000);
+        return;
+      }
+      const scriptPath = fileURLToPath(import.meta.url);
+      console.log('[pipibot-upgrade] 🔄 正在无缝热重启至新版 CLI...');
+      const scope = detectSystemdServiceScope();
+      if (scope) {
+        // Under systemd (Restart=always), exiting cleanly brings up the upgraded bundle immediately
+        this.stop();
+        process.exit(0);
+      }
+      // Detached non-systemd daemon: spawn upgraded replacement process before exiting
+      try {
+        mkdirSync(dirname(daemonLogPath()), { recursive: true });
+        const logFd = openSync(daemonLogPath(), 'a');
+        const child = spawn(
+          process.execPath,
+          ['--dns-result-order=ipv4first', '--experimental-strip-types', '--no-warnings', scriptPath, 'up', '--workspace', this.workspacePath, '--name', this.deviceName],
+          {
+            cwd: this.workspacePath,
+            detached: true,
+            stdio: ['ignore', logFd, logFd],
+            env: { ...process.env, NODE_USE_ENV_PROXY: '1' },
+          },
+        );
+        child.unref();
+        if (child.pid) {
+          writeFileSync(daemonPidPath(), `${child.pid}\n`, 'utf8');
+        }
+      } catch (err) {
+        console.error('[pipibot-upgrade] 热重启失败：', err instanceof Error ? err.message : String(err));
+        return;
+      }
+      this.stop();
+      process.exit(0);
+    };
+    setTimeout(attemptRestart, 800);
+  }
+
+  private startAutoUpgradeLoop(): void {
+    if (!isAutoUpgradeEnabled()) return;
+    const scriptPath = fileURLToPath(import.meta.url);
+    if (isInsideGitSourceCheckout(scriptPath)) return;
+
+    const runCheck = async () => {
+      if (this.stopped || this.pendingUpgradeRestart) return;
+      try {
+        const res = await checkAndUpgradeCli({
+          relayOrigin: this.auth.relayOrigin,
+          scriptPath,
+          force: false,
+          dryRun: false,
+          restartDaemon: false,
+        });
+        if (res.updated) {
+          console.log(`[pipibot-upgrade] ⬆️ 已自动下载并校验新版 CLI v${res.latestVersion} (${res.localSha256.slice(0, 8)})`);
+          this.scheduleGracefulRestartForUpgrade();
+        }
+      } catch {
+        // Silent retry on next interval
+      }
+    };
+
+    const intervalMs = Math.max(60_000, Number(process.env.PIPIBOT_AUTO_UPGRADE_INTERVAL_MS) || 6 * 60 * 60 * 1000);
+    this.autoUpgradeStartupTimer = setTimeout(() => { void runCheck(); }, 45_000);
+    this.autoUpgradeStartupTimer.unref?.();
+    this.autoUpgradeIntervalTimer = setInterval(() => { void runCheck(); }, intervalMs);
+    this.autoUpgradeIntervalTimer.unref?.();
   }
 
   stop(): void {
     this.stopped = true;
+    if (this.autoUpgradeStartupTimer) {
+      clearTimeout(this.autoUpgradeStartupTimer);
+      this.autoUpgradeStartupTimer = null;
+    }
+    if (this.autoUpgradeIntervalTimer) {
+      clearInterval(this.autoUpgradeIntervalTimer);
+      this.autoUpgradeIntervalTimer = null;
+    }
     this.ws?.close();
+    this.stopBrowser();
     for (const s of this.sessions.values()) {
+      if (s.flushTimer) clearTimeout(s.flushTimer);
       s.proc?.kill('SIGTERM');
     }
   }
@@ -1332,6 +2587,41 @@ async function runStandaloneCli(argv: string[]): Promise<void> {
   const hasFlag = (name: string): boolean => rest.includes(name);
   const relayOrigin = flag('--relay') ?? process.env.PIPIBOT_RELAY_ORIGIN ?? DEFAULT_RELAY_ORIGIN;
 
+  if (cmd === 'version' || cmd === '--version' || cmd === '-v') {
+    let shortSha = '';
+    try {
+      shortSha = sha256Hex(readFileSync(fileURLToPath(import.meta.url))).slice(0, 8);
+    } catch {
+      // ignore
+    }
+    console.log(`PiPiBot Node CLI v${PIPIBOT_CLI_VERSION}${shortSha ? ` (${shortSha})` : ''} · autoUpgrade=${isAutoUpgradeEnabled() ? 'on' : 'off'}`);
+    return;
+  }
+  if (cmd === 'upgrade' || cmd === 'update') {
+    const checkOnly = hasFlag('--check');
+    const force = hasFlag('--force');
+    console.log(`🔍 正在向 ${relayOrigin} 检查 PiPiBot CLI 更新...`);
+    const res = await checkAndUpgradeCli({
+      relayOrigin,
+      force,
+      dryRun: checkOnly,
+      restartDaemon: !checkOnly,
+    });
+    if (!res.ok) {
+      console.error(`❌ 升级失败：${res.reason ?? 'unknown_error'}`);
+      process.exit(1);
+    }
+    if (res.reason === 'already_up_to_date') {
+      console.log(`✅ 当前已是最新版本：v${res.currentVersion} (${res.localSha256.slice(0, 8)})`);
+    } else if (res.reason === 'update_available') {
+      console.log(`⬆️ 发现新版本：v${res.currentVersion} -> v${res.latestVersion} (${res.remoteSha256.slice(0, 8)})，运行 \`pipibot upgrade\` 立即升级。`);
+    } else if (res.reason === 'git_source_checkout_protected') {
+      console.log('ℹ️ 当前运行在 Git 源码目录中，已跳过覆盖；请使用 `git pull` 或加 `--force` 强制覆盖。');
+    } else if (res.updated) {
+      console.log(`✅ PiPiBot CLI 已升级至 v${res.latestVersion} (${res.localSha256.slice(0, 8)})${res.restarted ? '，后台守护进程已无缝重启' : ''}。`);
+    }
+    return;
+  }
   if (cmd === 'login') {
     await runCliDeviceLogin(relayOrigin);
     return;
@@ -1507,6 +2797,8 @@ async function runStandaloneCli(argv: string[]): Promise<void> {
   pipibot status                    查看后台守护进程运行状态
   pipibot logs                      查看后台守护进程最近日志
   pipibot down                      停止后台常驻守护进程
+  pipibot upgrade [--check|--force] 检查并热升级到最新 CLI（后台守护每 6 小时自动检测升级）
+  pipibot version                   查看当前 CLI 版本与 SHA-256 校验值
   pipibot devices                   查看账号下所有已纳管设备与在线状态
   pipibot agents                    扫描本机已安装的 Agent Harness（Claude Code / Codex / OpenCode / Pi / Ollama）
   pipibot logout                    退出当前登录账号

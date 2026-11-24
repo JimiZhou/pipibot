@@ -1093,6 +1093,147 @@ export const WRITE_AHEAD_JOURNAL_STATUSES = [
 
 export type WriteAheadJournalStatus = (typeof WRITE_AHEAD_JOURNAL_STATUSES)[number];
 
+// ---------------------------------------------------------------------------
+// 12. Phase 2 Canonical Board Coordination Contracts (Channel -> Thread -> Task)
+// ---------------------------------------------------------------------------
+
+export const BOARD_THREAD_KINDS = [
+  'discussion',
+  'task',
+  'review',
+  'incident',
+] as const;
+
+export type BoardThreadKind = (typeof BOARD_THREAD_KINDS)[number];
+
+export const BOARD_TASK_STATUSES = [
+  'open',
+  'blocked',
+  'claimed',
+  'needs_you',
+  'done',
+  'cancelled',
+] as const;
+
+export type BoardTaskStatus = (typeof BOARD_TASK_STATUSES)[number];
+
+export const BOARD_ACTOR_KINDS = [
+  'human',
+  'bot',
+  'harness',
+  'system',
+] as const;
+
+export type BoardActorKind = (typeof BOARD_ACTOR_KINDS)[number];
+
+export const BOARD_EVENT_KINDS = [
+  'channel_created',
+  'thread_created',
+  'message_posted',
+  'task_claimed',
+  'lease_renewed',
+  'claim_lost',
+  'task_unblocked',
+  'task_needs_you',
+  'task_completed',
+  'followup_scheduled',
+  'followup_triggered',
+] as const;
+
+export type BoardEventKind = (typeof BOARD_EVENT_KINDS)[number];
+
+export type BoardTaskPriority = 'urgent' | 'high' | 'normal' | 'low';
+
+export interface BoardActorRef {
+  id: string;
+  name: string;
+  kind: BoardActorKind;
+  harness?: HarnessProvider;
+  nodeId?: string;
+}
+
+export interface BoardChannel {
+  id: string;
+  slug: string; // e.g. "inbox", "dev", "dev/pipibot", "ops"
+  title: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BoardMessage {
+  id: string;
+  threadId: string;
+  author: BoardActorRef;
+  body: string;
+  artifactRef?: string;
+  metadata?: Record<string, string>;
+  createdAt: string;
+}
+
+export interface BoardTaskClaim {
+  actor: BoardActorRef;
+  leaseToken: string;
+  claimedAt: string;
+  expiresAt: string;
+  renewCount: number;
+  note?: string;
+}
+
+export interface BoardScheduledFollowUp {
+  id: string;
+  threadId: string;
+  actor: BoardActorRef;
+  prompt: string;
+  dueAt: string;
+  status: 'pending' | 'triggered' | 'cancelled';
+  createdAt: string;
+  triggeredAt?: string;
+}
+
+export interface BoardThread {
+  id: string;
+  channelSlug: string;
+  kind: BoardThreadKind;
+  title: string;
+  status: BoardTaskStatus;
+  priority: BoardTaskPriority;
+  labels: string[];
+  blockedBy: string[];
+  claim?: BoardTaskClaim;
+  claimLostCount: number;
+  maxClaimRetries: number;
+  messages: BoardMessage[];
+  followUps: BoardScheduledFollowUp[];
+  deliverableRef?: string;
+  linkedConversationId?: string;
+  linkedWorktreeId?: string;
+  linkedDecisionId?: string;
+  createdBy: BoardActorRef;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export interface BoardActivityEvent {
+  id: string;
+  kind: BoardEventKind;
+  channelSlug: string;
+  threadId?: string;
+  actor: BoardActorRef;
+  summary: string;
+  detail?: Record<string, string>;
+  createdAt: string;
+}
+
+export interface BoardSnapshot {
+  channels: BoardChannel[];
+  threads: BoardThread[];
+  recentEvents: BoardActivityEvent[];
+  counts: Record<BoardTaskStatus, number>;
+  updatedAt: string;
+}
+
 
 
 

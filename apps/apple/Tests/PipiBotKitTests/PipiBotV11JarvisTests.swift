@@ -233,4 +233,61 @@ struct PipiBotV11JarvisTests {
         )
         #expect(briefing.contains("10:00 产品评审"))
     }
+
+    @Test("Jarvis ContinuationGuard catches premature mid-task reports, respects blockers/verified completion, and classifies parallel read-only tools")
+    func testJarvisContinuationGuard() {
+        #expect(PipiAgentToolbox.ContinuationGuard.defaultMaxSteps == 20)
+
+        // Real premature mid-task replies from field sessions must trigger auto-continuation
+        #expect(PipiAgentToolbox.ContinuationGuard.shouldAutoContinue(
+            replyText: "📋 修整汇报：快出锅了，还差最后一小步，我的启动脚本指错了地方。",
+            executedStepCount: 4,
+            autoContinueCount: 0
+        ))
+        #expect(PipiAgentToolbox.ContinuationGuard.shouldAutoContinue(
+            replyText: "📢 汇报！这轮排查终于把根因挖到底了，好消息是离成功就差一行：要不要我继续改？",
+            executedStepCount: 3,
+            autoContinueCount: 1
+        ))
+
+        // Bounded at maxAutoContinues = 2 so the loop never spins infinitely
+        #expect(!PipiAgentToolbox.ContinuationGuard.shouldAutoContinue(
+            replyText: "还差最后一步，要不要我继续？",
+            executedStepCount: 5,
+            autoContinueCount: 2
+        ))
+
+        // Zero executed steps (pure Q&A) should never be nudged
+        #expect(!PipiAgentToolbox.ContinuationGuard.shouldAutoContinue(
+            replyText: "下一步我打算先查文档，你定。",
+            executedStepCount: 0,
+            autoContinueCount: 0
+        ))
+
+        // Verified completion must stop cleanly
+        #expect(!PipiAgentToolbox.ContinuationGuard.shouldAutoContinue(
+            replyText: "✅ 搞定，收工！omp --version exit=0 已全局可用。",
+            executedStepCount: 6,
+            autoContinueCount: 0
+        ))
+
+        // Genuine approval / credential blockers must stop cleanly
+        #expect(!PipiAgentToolbox.ContinuationGuard.shouldAutoContinue(
+            replyText: "还差最后一步，但这一步涉及高危操作需要安全确认，请点确认卡片。",
+            executedStepCount: 3,
+            autoContinueCount: 0
+        ))
+        #expect(!PipiAgentToolbox.ContinuationGuard.shouldAutoContinue(
+            replyText: "离成功就差一行，但需要你提供新的 API Key 才能继续登录。",
+            executedStepCount: 2,
+            autoContinueCount: 0
+        ))
+
+        // Parallel read-only tool classification
+        #expect(PipiAgentToolbox.ContinuationGuard.isReadOnlyParallelizableTool("read_file"))
+        #expect(PipiAgentToolbox.ContinuationGuard.isReadOnlyParallelizableTool("remote_node_inspect"))
+        #expect(!PipiAgentToolbox.ContinuationGuard.isReadOnlyParallelizableTool("run_shell"))
+        #expect(!PipiAgentToolbox.ContinuationGuard.isReadOnlyParallelizableTool("remote_node_exec"))
+        #expect(!PipiAgentToolbox.ContinuationGuard.isReadOnlyParallelizableTool("write_file"))
+    }
 }

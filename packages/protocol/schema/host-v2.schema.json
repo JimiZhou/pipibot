@@ -364,6 +364,55 @@
         "unknown_outcome"
       ]
     },
+    "BoardThreadKind": {
+      "type": "string",
+      "description": "Board primitive thread classification inspired by Vercel Board coordination semantics.",
+      "enum": [
+        "discussion",
+        "task",
+        "review",
+        "incident"
+      ]
+    },
+    "BoardTaskStatus": {
+      "type": "string",
+      "description": "Lifecycle state of a Board task thread supporting atomic claims, dependency blocking, and human review.",
+      "enum": [
+        "open",
+        "blocked",
+        "claimed",
+        "needs_you",
+        "done",
+        "cancelled"
+      ]
+    },
+    "BoardActorKind": {
+      "type": "string",
+      "description": "Identity category for a participant posting to or claiming work on the Board.",
+      "enum": [
+        "human",
+        "bot",
+        "harness",
+        "system"
+      ]
+    },
+    "BoardEventKind": {
+      "type": "string",
+      "description": "Structured live activity event kind emitted by PipiBoardEngine for SSE and inspect streams.",
+      "enum": [
+        "channel_created",
+        "thread_created",
+        "message_posted",
+        "task_claimed",
+        "lease_renewed",
+        "claim_lost",
+        "task_unblocked",
+        "task_needs_you",
+        "task_completed",
+        "followup_scheduled",
+        "followup_triggered"
+      ]
+    },
     "GuardrailVerdict": {
       "type": "object",
       "additionalProperties": false,

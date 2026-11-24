@@ -52,7 +52,7 @@ html, body {
 }
 
 .stage-title {
-  font-weight: 700;
+  font-weight: 500;
   font-size: var(--pipi-text-base);
   letter-spacing: -0.015em;
 }
@@ -158,7 +158,7 @@ html, body {
 
 .mac-sidebar-wordmark {
   font-size: var(--pipi-text-xs);
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: -0.01em;
 }
 
@@ -202,7 +202,7 @@ html, body {
 
 .mac-kpi-figure {
   font-size: var(--pipi-text-2xl);
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: -0.025em;
 }
 
@@ -290,7 +290,7 @@ html, body {
   justify-content: space-between;
   gap: var(--pipi-space-3);
   font-size: var(--pipi-text-2xs);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .di-leading {
@@ -360,12 +360,12 @@ html, body {
   color: var(--pipi-text-primary);
   font-family: var(--pipi-font-sans);
   font-size: var(--pipi-text-sm);
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: transform var(--pipi-duration-fast) var(--pipi-ease-overshoot),
-              background var(--pipi-duration-fast);
+  transition: transform var(--pipi-duration-press) var(--pipi-ease-snappy),
+              background var(--pipi-duration-fast) var(--pipi-ease-snappy);
 }
 
 .pipi-btn:hover {
@@ -383,7 +383,7 @@ html, body {
 }
 
 [data-theme="dark"] .pipi-btn-primary {
-  color: var(--pipi-text-primary);
+  color: var(--pipi-text-inverse);
 }
 
 .pipi-btn-danger {
@@ -453,7 +453,7 @@ html, body {
 
 .pipi-list-card-title {
   font-size: var(--pipi-text-sm);
-  font-weight: 700;
+  font-weight: 500;
   color: var(--pipi-text-primary);
 }
 
@@ -542,7 +542,7 @@ html, body {
 
 .pipi-dock-title {
   font-size: var(--pipi-text-xs);
-  font-weight: 700;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -579,7 +579,7 @@ html, body {
   min-height: var(--pipi-btn-height-mobile);
   border-radius: var(--pipi-radius-sm);
   font-size: var(--pipi-text-2xs);
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   position: relative;
 }
@@ -600,7 +600,7 @@ html, body {
   background: var(--pipi-status-warn);
   color: var(--pipi-text-inverse);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 500;
   display: grid;
   place-items: center;
 }
@@ -621,7 +621,7 @@ html, body {
 .pipi-empty-title {
   margin: 0;
   font-size: var(--pipi-text-md);
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .pipi-empty-desc {
@@ -638,10 +638,10 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 9px;
-  border-radius: var(--pipi-radius-pill);
+  padding: 2px 8px;
+  border-radius: var(--pipi-radius-xs);
   font-size: var(--pipi-text-2xs);
-  font-weight: 600;
+  font-weight: 500;
   background: var(--pipi-bg-inset);
   border: 1px solid var(--pipi-border-subtle);
   color: var(--pipi-text-secondary);
@@ -652,19 +652,19 @@ html, body {
 .pipi-pill.is-ok {
   background: var(--pipi-status-ok-bg);
   color: var(--pipi-status-ok);
-  border-color: var(--pipi-status-ok);
+  border-color: transparent;
 }
 
 .pipi-pill.is-warn {
   background: var(--pipi-status-warn-bg);
   color: var(--pipi-status-warn);
-  border-color: var(--pipi-status-warn);
+  border-color: transparent;
 }
 
 .pipi-pill.is-soul {
   background: var(--pipi-soul-tint);
   color: var(--pipi-soul-primary);
-  border-color: var(--pipi-soul-primary);
+  border-color: transparent;
 }
 
 .pipi-field-group {
@@ -675,7 +675,7 @@ html, body {
 
 .pipi-field-label {
   font-size: var(--pipi-text-xs);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--pipi-text-secondary);
 }
 
@@ -752,8 +752,8 @@ html, body {
 }
 
 .swipe-card-anim {
-  transition: transform var(--pipi-duration-med) var(--pipi-ease-overshoot),
-              opacity var(--pipi-duration-fast) var(--pipi-ease-gentle);
+  transition: transform var(--pipi-duration-exit) var(--pipi-ease-snappy),
+              opacity var(--pipi-duration-exit) var(--pipi-ease-gentle);
 }
 
 .swipe-card-anim.is-approved {

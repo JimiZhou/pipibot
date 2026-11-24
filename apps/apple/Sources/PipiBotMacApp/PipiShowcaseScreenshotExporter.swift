@@ -6,6 +6,7 @@
 import AppKit
 import SwiftUI
 import PipiBotKit
+import PipiBotIOSUI
 
 @MainActor
 enum PipiShowcaseScreenshotExporter {
@@ -56,12 +57,73 @@ enum PipiShowcaseScreenshotExporter {
             .environment(\.colorScheme, .dark)
         renderViaHostingWindow(view: workspaceDark, size: canvasSize, appearance: .darkAqua, splitSidebarWidth: 256, to: outDir.appendingPathComponent("mac-workspace-dark.png"))
 
+        // 5. Real Consumer iOS App (iPhone 16 Pro 393x852, Warm Paper Light)
+        let iosSize = CGSize(width: 393, height: 852)
+        store.themeMode = .light
+        let iosLight = PipiIOSCompanionRootView(store: store)
+            .frame(width: iosSize.width, height: iosSize.height)
+            .environment(\.colorScheme, .light)
+        renderViaHostingWindow(view: iosLight, size: iosSize, appearance: .aqua, splitSidebarWidth: nil, to: outDir.appendingPathComponent("ios-chat.png"))
+
+        // 6. Real Consumer iOS App (Obsidian Dark)
+        store.themeMode = .dark
+        let iosDark = PipiIOSCompanionRootView(store: store)
+            .frame(width: iosSize.width, height: iosSize.height)
+            .environment(\.colorScheme, .dark)
+        renderViaHostingWindow(view: iosDark, size: iosSize, appearance: .darkAqua, splitSidebarWidth: nil, to: outDir.appendingPathComponent("ios-chat-dark.png"))
+
+        // 7. Muse-Inspired Floating Voice Companion Sheet (Light)
+        store.themeMode = .light
+        let iosVoice = PipiIOSVoiceSheetView(store: store, onDismiss: {})
+            .frame(width: iosSize.width, height: 560)
+            .environment(\.colorScheme, .light)
+        renderViaHostingWindow(view: iosVoice, size: CGSize(width: iosSize.width, height: 560), appearance: .aqua, splitSidebarWidth: nil, to: outDir.appendingPathComponent("ios-voice.png"))
+
+        // 8. Read-Only Agent Sandbox Execution Activity Sheet (Light)
+        PipiMobileTerminalLog.shared.clear()
+        PipiMobileTerminalLog.shared.append(
+            PipiTerminalTranscriptEntry(
+                source: "agent",
+                targetLabel: "iPhone 本机沙箱 · POSIX",
+                command: "ls -la && wc -l notes.md",
+                output: "drwxr-xr-x   notes/\n-rw-r--r--   412B  notes.md\n-rw-r--r--   1.4K  metrics.csv\n      18 notes.md",
+                exitCode: 0,
+                durationMs: 4
+            )
+        )
+        PipiMobileTerminalLog.shared.append(
+            PipiTerminalTranscriptEntry(
+                source: "agent",
+                targetLabel: "iPhone 本机沙箱 · JavaScriptCore",
+                command: "const rows = fs.read('metrics.csv').split('\\n'); rows.length",
+                output: "42",
+                exitCode: 0,
+                durationMs: 7
+            )
+        )
+        PipiMobileTerminalLog.shared.append(
+            PipiTerminalTranscriptEntry(
+                source: "agent",
+                targetLabel: "MacBook Pro · E2EE 自动中继",
+                command: "swift test --filter MobileSandbox",
+                output: "Executed 6 tests, with 0 failures in 0.084 seconds",
+                exitCode: 0,
+                durationMs: 312
+            )
+        )
+        let iosTerminal = PipiIOSTerminalSheetView(store: store, onDismiss: {})
+            .frame(width: iosSize.width, height: 640)
+            .environment(\.colorScheme, .light)
+        renderViaHostingWindow(view: iosTerminal, size: CGSize(width: iosSize.width, height: 640), appearance: .aqua, splitSidebarWidth: nil, to: outDir.appendingPathComponent("ios-terminal.png"))
+        PipiMobileTerminalLog.shared.clear()
+
         return true
     }
 
     private static func buildShowcaseStore() -> PipiAppStore {
         let store = PipiAppStore(enableNativeRuntime: false)
         store.hasCompletedOnboarding = true
+        store.isInspectorPresented = false
         store.language = .zhHans
         store.themeMode = .light
 
@@ -196,6 +258,67 @@ enum PipiShowcaseScreenshotExporter {
             )
         ]
 
+        // Seed realistic Phase 3 Board coordination threads across channels
+        let ownerActor = PipiBoardActorRef(id: "human:owner", name: "Jimi", kind: .human)
+        let coderActor = PipiBoardActorRef(id: "bot:\(coderId)", name: "Coder · 编程搭档", kind: .bot, harness: "codex")
+        let operatorActor = PipiBoardActorRef(id: "bot:\(operatorId)", name: "Operator · 任务管家", kind: .bot)
+
+        let tClaimed = store.createBoardThread(
+            channelSlug: "dev",
+            title: "补齐 Jarvis 早停自动续跑与并发只读工具单测",
+            body: "确保工具步数预算与并发只读批次全部验证通过。",
+            priority: .high,
+            labels: ["jarvis", "harness"],
+            author: ownerActor
+        )
+        _ = store.claimBoardTask(threadId: tClaimed.id, actor: coderActor, leaseSeconds: 840)
+
+        _ = store.createBoardThread(
+            channelSlug: "ops",
+            title: "云主机节点巡检与 omp CLI 版本核验",
+            body: "批量检测三台在线节点的可用内存、磁盘及 harness 状态。",
+            priority: .normal,
+            labels: ["fleet"],
+            author: ownerActor
+        )
+
+        _ = store.createBoardThread(
+            channelSlug: "dev",
+            title: "打包 v0.13.0 Release 并推送更新说明",
+            body: "待前置单测任务完成后自动解锁认领。",
+            priority: .normal,
+            labels: ["release"],
+            blockedBy: [tClaimed.id],
+            author: ownerActor
+        )
+
+        let tNeedsYou = store.createBoardThread(
+            channelSlug: "inbox",
+            title: "确认是否启用远程节点自动续租提醒推送",
+            body: "已整理默认 15 分钟续租阈值，等待你拍板是否同步推送到微信。",
+            priority: .high,
+            author: operatorActor
+        )
+        _ = store.requestBoardNeedsYou(
+            threadId: tNeedsYou.id,
+            actor: operatorActor,
+            reason: "是否同步开启微信到期提醒？"
+        )
+
+        let tDone = store.createBoardThread(
+            channelSlug: "dev",
+            title: "统一协议层 39 项枚举 1:1 校验",
+            body: "JSON Schema、TypeScript 与 Swift 端保持严格一致。",
+            priority: .normal,
+            author: coderActor
+        )
+        _ = store.completeBoardTask(
+            threadId: tDone.id,
+            actor: coderActor,
+            summary: "audit:protocol 39/39 PASS",
+            deliverableRef: "scripts/audit-protocol-parity.mjs"
+        )
+
         _ = store.generateUniversalPairingLink(scope: .owner)
         store.lastBoxSelfCheck = PipiBoxSelfCheckResult(
             backend: "seatbelt",
@@ -238,10 +361,9 @@ enum PipiShowcaseScreenshotExporter {
         // Pump main RunLoop briefly so SwiftUI & AppKit lay out NavigationSplitView, ScrollViews, and TextViews
         RunLoop.main.run(until: Date().addingTimeInterval(0.35))
         if let sidebarWidth = splitSidebarWidth {
-            for splitView in findSubviews(ofType: NSSplitView.self, in: hosting) {
-                if splitView.arrangedSubviews.count >= 2 {
-                    splitView.setPosition(sidebarWidth, ofDividerAt: 0)
-                }
+            if let outerSplit = findSubviews(ofType: NSSplitView.self, in: hosting).first,
+               outerSplit.arrangedSubviews.count >= 2 {
+                outerSplit.setPosition(sidebarWidth, ofDividerAt: 0)
             }
         }
         hosting.layoutSubtreeIfNeeded()

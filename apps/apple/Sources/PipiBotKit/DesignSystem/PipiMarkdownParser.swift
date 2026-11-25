@@ -1,5 +1,21 @@
 import Foundation
 
+public enum PipiDiagramKind: String, Codable, Equatable, Sendable {
+    case svg
+    case mermaid
+    case canvas
+    case chart
+
+    public var displayLabel: String {
+        switch self {
+        case .svg: return "SVG"
+        case .mermaid: return "Mermaid"
+        case .canvas: return "Canvas"
+        case .chart: return "Chart"
+        }
+    }
+}
+
 public enum PipiMarkdownBlock: Identifiable, Equatable, Sendable {
     case thinking(id: Int, text: String, isOpen: Bool)
     case prose(id: Int, text: String)
@@ -7,6 +23,7 @@ public enum PipiMarkdownBlock: Identifiable, Equatable, Sendable {
     case diff(id: Int, code: String)
     case terminal(id: Int, language: String, code: String)
     case table(id: Int, headers: [String], rows: [[String]])
+    case diagram(id: Int, kind: PipiDiagramKind, source: String, title: String?, isComplete: Bool)
 
     public var id: Int {
         switch self {
@@ -16,6 +33,7 @@ public enum PipiMarkdownBlock: Identifiable, Equatable, Sendable {
         case .diff(let id, _): return id
         case .terminal(let id, _, _): return id
         case .table(let id, _, _): return id
+        case .diagram(let id, _, _, _, _): return id
         }
     }
 }
@@ -68,6 +86,31 @@ public enum PipiMarkdownParser {
             result.append(.prose(id: 0, text: raw))
         }
         return result
+    }
+
+    /// Sanitizes inline SVG/HTML diagram payloads to strip active script vectors before WebView rendering.
+    public static func sanitizeDiagramSource(_ raw: String) -> String {
+        var out = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dangerousPatterns = [
+            #"<script\b[\s\S]*?</script>"#,
+            #"<foreignObject\b[\s\S]*?</foreignObject>"#,
+            #"<iframe\b[\s\S]*?</iframe>"#,
+            #"<object\b[\s\S]*?</object>"#,
+            #"<embed\b[^>]*?/?>"#,
+            #"\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)"#
+        ]
+        for p in dangerousPatterns {
+            if let regex = try? NSRegularExpression(pattern: p, options: [.caseInsensitive]) {
+                out = regex.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "")
+            }
+        }
+        if let jsHrefRegex = try? NSRegularExpression(
+            pattern: #"(xlink:href|href|src)\s*=\s*["']\s*(?:javascript:|data:text/html)[^"']*["']"#,
+            options: [.caseInsensitive]
+        ) {
+            out = jsHrefRegex.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "$1=\"#\"")
+        }
+        return out
     }
 
     private enum TopSegment {
@@ -127,11 +170,11 @@ public enum PipiMarkdownParser {
         var result: [PipiMarkdownBlock] = []
         var buffer: [String] = []
         var inCode = false
-        var codeLang = ""
+        var codeInfo = ""
 
-        func flushProseAndTables() {
+        func flushProseTablesAndRawSvg() {
             guard !buffer.isEmpty else { return }
-            let subBlocks = splitProseAndTables(buffer, nextId: &nextId)
+            let subBlocks = splitRawSvgAndProseTables(buffer, nextId: &nextId)
             result.append(contentsOf: subBlocks)
             buffer.removeAll()
         }
@@ -141,14 +184,14 @@ public enum PipiMarkdownParser {
             if trimmed.hasPrefix("```") {
                 if inCode {
                     let codeText = buffer.joined(separator: "\n")
-                    result.append(classifyFencedBlock(id: nextId, language: codeLang, code: codeText))
+                    result.append(classifyFencedBlock(id: nextId, infoString: codeInfo, code: codeText, isComplete: true))
                     nextId += 1
                     buffer.removeAll()
-                    codeLang = ""
+                    codeInfo = ""
                     inCode = false
                 } else {
-                    flushProseAndTables()
-                    codeLang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                    flushProseTablesAndRawSvg()
+                    codeInfo = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
                     inCode = true
                 }
             } else {
@@ -159,25 +202,126 @@ public enum PipiMarkdownParser {
         if !buffer.isEmpty {
             if inCode {
                 let codeText = buffer.joined(separator: "\n")
-                result.append(classifyFencedBlock(id: nextId, language: codeLang, code: codeText))
+                result.append(classifyFencedBlock(id: nextId, infoString: codeInfo, code: codeText, isComplete: false))
                 nextId += 1
             } else {
-                flushProseAndTables()
+                flushProseTablesAndRawSvg()
             }
         }
 
         return result
     }
 
-    private static func classifyFencedBlock(id: Int, language: String, code: String) -> PipiMarkdownBlock {
-        let lower = language.lowercased()
+    private static func parseFenceTitle(from info: String) -> String? {
+        let patterns = [
+            #"title\s*=\s*"([^"]+)""#,
+            #"title\s*=\s*'([^']+)'"#,
+            #"title\s*=\s*(\S+)"#
+        ]
+        for p in patterns {
+            if let regex = try? NSRegularExpression(pattern: p, options: [.caseInsensitive]),
+               let match = regex.firstMatch(in: info, range: NSRange(info.startIndex..., in: info)),
+               let range = Range(match.range(at: 1), in: info) {
+                let val = String(info[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !val.isEmpty { return val }
+            }
+        }
+        return nil
+    }
+
+    private static func extractSvgTitle(from svg: String) -> String? {
+        if let regex = try? NSRegularExpression(pattern: #"<title[^>]*>([\s\S]*?)</title>"#, options: [.caseInsensitive]),
+           let match = regex.firstMatch(in: svg, range: NSRange(svg.startIndex..., in: svg)),
+           let range = Range(match.range(at: 1), in: svg) {
+            let t = String(svg[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+        return nil
+    }
+
+    private static func classifyFencedBlock(id: Int, infoString: String, code: String, isComplete: Bool) -> PipiMarkdownBlock {
+        let firstToken = infoString.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+        let lower = firstToken.lowercased()
+        let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = parseFenceTitle(from: infoString)
+
+        if lower == "svg" || (lower == "xml" && trimmedCode.lowercased().hasPrefix("<svg")) {
+            let cleaned = sanitizeDiagramSource(trimmedCode)
+            return .diagram(id: id, kind: .svg, source: cleaned, title: title ?? extractSvgTitle(from: cleaned), isComplete: isComplete)
+        }
+        if lower == "mermaid" || lower == "mmd" {
+            return .diagram(id: id, kind: .mermaid, source: trimmedCode, title: title, isComplete: isComplete)
+        }
+        if lower == "chart" || lower == "xychart" || lower == "plot" {
+            return .diagram(id: id, kind: .chart, source: trimmedCode, title: title, isComplete: isComplete)
+        }
+        if lower == "canvas" || lower == "diagram" || lower == "html-diagram" {
+            let cleaned = sanitizeDiagramSource(trimmedCode)
+            return .diagram(id: id, kind: .canvas, source: cleaned, title: title, isComplete: isComplete)
+        }
         if lower == "diff" || lower == "patch" || code.hasPrefix("diff --git") || code.hasPrefix("@@ ") {
             return .diff(id: id, code: code)
         }
         if ["bash", "sh", "zsh", "shell", "console", "terminal"].contains(lower) {
             return .terminal(id: id, language: lower, code: code)
         }
-        return .code(id: id, language: language, code: code)
+        return .code(id: id, language: firstToken, code: code)
+    }
+
+    /// Detects standalone raw `<svg ...>...</svg>` blocks directly inside Markdown prose (streaming-safe).
+    private static func splitRawSvgAndProseTables(_ lines: [String], nextId: inout Int) -> [PipiMarkdownBlock] {
+        let joined = lines.joined(separator: "\n")
+        guard joined.range(of: "<svg", options: .caseInsensitive) != nil else {
+            return splitProseAndTables(lines, nextId: &nextId)
+        }
+
+        var blocks: [PipiMarkdownBlock] = []
+        var cursor = joined.startIndex
+
+        while cursor < joined.endIndex {
+            guard let openRange = joined.range(of: "<svg", options: .caseInsensitive, range: cursor..<joined.endIndex) else {
+                let tail = String(joined[cursor..<joined.endIndex])
+                if !tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    blocks.append(contentsOf: splitProseAndTables(tail.components(separatedBy: .newlines), nextId: &nextId))
+                }
+                break
+            }
+
+            if openRange.lowerBound > cursor {
+                let before = String(joined[cursor..<openRange.lowerBound])
+                if !before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    blocks.append(contentsOf: splitProseAndTables(before.components(separatedBy: .newlines), nextId: &nextId))
+                }
+            }
+
+            if let closeRange = joined.range(of: "</svg>", options: .caseInsensitive, range: openRange.lowerBound..<joined.endIndex) {
+                let rawSvg = String(joined[openRange.lowerBound..<closeRange.upperBound])
+                let cleaned = sanitizeDiagramSource(rawSvg)
+                blocks.append(.diagram(
+                    id: nextId,
+                    kind: .svg,
+                    source: cleaned,
+                    title: extractSvgTitle(from: cleaned),
+                    isComplete: true
+                ))
+                nextId += 1
+                cursor = closeRange.upperBound
+            } else {
+                // Streaming unclosed `<svg ...` block
+                let partialSvg = String(joined[openRange.lowerBound..<joined.endIndex])
+                blocks.append(.diagram(
+                    id: nextId,
+                    kind: .svg,
+                    source: sanitizeDiagramSource(partialSvg),
+                    title: nil,
+                    isComplete: false
+                ))
+                nextId += 1
+                break
+            }
+        }
+
+        return blocks
     }
 
     private static func splitProseAndTables(_ lines: [String], nextId: inout Int) -> [PipiMarkdownBlock] {

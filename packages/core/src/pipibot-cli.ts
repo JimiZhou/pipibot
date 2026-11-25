@@ -46,6 +46,19 @@ import { PipiPersonalWikiStore } from './personal-wiki.ts';
 import { PipiPocketNotesEngine } from './pocket-notes.ts';
 import { parseAndValidateTeamMd, renderTeamMdTemplate } from './team-protocol.ts';
 import { defaultDailyVoiceConfig } from './voice-engine.ts';
+import {
+  extractDiagramBlocks,
+  renderDiagramToStandaloneHtml,
+  renderMermaidToAscii,
+  renderMermaidToSvg,
+  sanitizeSvg,
+  type DiagramKind,
+  type DiagramThemeMode,
+} from './diagram-canvas.ts';
+import {
+  validateOrchestrationPlan,
+  type OrchestrationPlan,
+} from './agent-orchestrator.ts';
 
 // ---------------------------------------------------------------------------
 // 1. Single-Source-of-Truth Command Definition Registry
@@ -370,6 +383,44 @@ export const PIPIBOT_CLI_COMMANDS: readonly CliCommandDefinition[] = [
     flags: [
       { name: 'channel', type: 'string', description: 'Optional channel filter' },
       { name: 'limit', type: 'number', description: 'Max recent activity events to return (default: 40)' },
+    ],
+  },
+  {
+    id: 'diagram.render',
+    group: 'diagram',
+    subcommand: 'render',
+    summary: 'Render a Mermaid/SVG diagram to terminal Unicode ASCII, crisp SVG, or theme-adaptive HTML canvas (OMP/T3 parity).',
+    actionKind: 'read_only',
+    requiresOperationId: false,
+    flags: [
+      { name: 'file', type: 'string', description: 'Optional path to a .mmd/.svg/.md file' },
+      { name: 'source', type: 'string', description: 'Inline Mermaid or SVG source text' },
+      { name: 'kind', type: 'string', description: 'Diagram kind', enum: ['mermaid', 'svg', 'chart', 'canvas'] },
+      { name: 'format', type: 'string', description: 'Output format', enum: ['ascii', 'svg', 'html'] },
+      { name: 'theme', type: 'string', description: 'Color theme for SVG/HTML output', enum: ['dark', 'light'] },
+      { name: 'title', type: 'string', description: 'Optional diagram title' },
+    ],
+  },
+  {
+    id: 'diagram.extract',
+    group: 'diagram',
+    subcommand: 'extract',
+    summary: 'Extract and sanitize all inline SVG, Mermaid, and Canvas diagram blocks from a Markdown file.',
+    actionKind: 'read_only',
+    requiresOperationId: false,
+    flags: [
+      { name: 'file', type: 'string', required: true, description: 'Path to Markdown file' },
+    ],
+  },
+  {
+    id: 'orchestrate.validate',
+    group: 'orchestrate',
+    subcommand: 'validate',
+    summary: 'Validate a multi-agent DAG orchestration plan JSON file, compute execution waves, and identify auto-isolated worktrees.',
+    actionKind: 'read_only',
+    requiresOperationId: false,
+    flags: [
+      { name: 'file', type: 'string', required: true, description: 'Path to OrchestrationPlan JSON file' },
     ],
   },
 ];
@@ -834,6 +885,47 @@ export async function runPipiBotCli(
           channelSlug: typeof flags.channel === 'string' ? flags.channel : undefined,
           limit: typeof flags.limit === 'number' ? flags.limit : 40,
         });
+        break;
+      }
+      case 'diagram.render': {
+        const rawSource =
+          typeof flags.file === 'string'
+            ? await readFile(String(flags.file), 'utf8')
+            : typeof flags.source === 'string'
+              ? String(flags.source)
+              : '';
+        if (!rawSource.trim()) {
+          return { exitCode: 2, stdout: '', stderr: 'Provide --file <path> or --source <diagram> for diagram.render.' };
+        }
+        const kind = (typeof flags.kind === 'string'
+          ? flags.kind
+          : rawSource.trim().startsWith('<svg')
+            ? 'svg'
+            : 'mermaid') as DiagramKind;
+        const format = typeof flags.format === 'string' ? flags.format : 'ascii';
+        const theme = (typeof flags.theme === 'string' ? flags.theme : 'dark') as DiagramThemeMode;
+        const title = typeof flags.title === 'string' ? flags.title : undefined;
+
+        if (format === 'ascii') {
+          const rendered = kind === 'svg' ? sanitizeSvg(rawSource) : renderMermaidToAscii(rawSource);
+          return { exitCode: 0, stdout: rendered, stderr: '' };
+        }
+        if (format === 'svg') {
+          const svg = kind === 'svg' ? sanitizeSvg(rawSource) : renderMermaidToSvg(rawSource, theme);
+          return { exitCode: 0, stdout: svg, stderr: '' };
+        }
+        const html = renderDiagramToStandaloneHtml({ kind, source: rawSource, title, theme });
+        return { exitCode: 0, stdout: html, stderr: '' };
+      }
+      case 'diagram.extract': {
+        const md = await readFile(String(flags.file), 'utf8');
+        payload = { diagrams: extractDiagramBlocks(md) };
+        break;
+      }
+      case 'orchestrate.validate': {
+        const rawJson = await readFile(String(flags.file), 'utf8');
+        const plan = JSON.parse(rawJson) as OrchestrationPlan;
+        payload = validateOrchestrationPlan(plan);
         break;
       }
     }

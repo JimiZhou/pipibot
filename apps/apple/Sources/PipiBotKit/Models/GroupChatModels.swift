@@ -56,9 +56,15 @@ public struct PipiSwarmTaskAssignment: Codable, Identifiable, Equatable, Sendabl
     public var taskTitle: String
     public var status: Status
     public var updatedAt: String
+    public var waveIndex: Int?
+    public var rolePreset: String?
+    public var harnessLabel: String?
+    public var worktreeBranch: String?
+    public var dependsOn: [String]?
 
     private enum CodingKeys: String, CodingKey {
         case id, personaId, taskTitle, status, updatedAt
+        case waveIndex, rolePreset, harnessLabel, worktreeBranch, dependsOn
     }
 
     public init(
@@ -66,13 +72,23 @@ public struct PipiSwarmTaskAssignment: Codable, Identifiable, Equatable, Sendabl
         personaId: String,
         taskTitle: String,
         status: Status = .queued,
-        updatedAt: String = ISO8601DateFormatter().string(from: Date())
+        updatedAt: String = ISO8601DateFormatter().string(from: Date()),
+        waveIndex: Int? = nil,
+        rolePreset: String? = nil,
+        harnessLabel: String? = nil,
+        worktreeBranch: String? = nil,
+        dependsOn: [String]? = nil
     ) {
         self.id = id
         self.personaId = personaId
         self.taskTitle = taskTitle
         self.status = status
         self.updatedAt = updatedAt
+        self.waveIndex = waveIndex
+        self.rolePreset = rolePreset
+        self.harnessLabel = harnessLabel
+        self.worktreeBranch = worktreeBranch
+        self.dependsOn = dependsOn
     }
 
     public init(from decoder: Decoder) throws {
@@ -82,6 +98,11 @@ public struct PipiSwarmTaskAssignment: Codable, Identifiable, Equatable, Sendabl
         self.taskTitle = try c.decodeIfPresent(String.self, forKey: .taskTitle) ?? ""
         self.status = try c.decodeIfPresent(Status.self, forKey: .status) ?? .queued
         self.updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+        self.waveIndex = try c.decodeIfPresent(Int.self, forKey: .waveIndex)
+        self.rolePreset = try c.decodeIfPresent(String.self, forKey: .rolePreset)
+        self.harnessLabel = try c.decodeIfPresent(String.self, forKey: .harnessLabel)
+        self.worktreeBranch = try c.decodeIfPresent(String.self, forKey: .worktreeBranch)
+        self.dependsOn = try c.decodeIfPresent([String].self, forKey: .dependsOn)
     }
 }
 

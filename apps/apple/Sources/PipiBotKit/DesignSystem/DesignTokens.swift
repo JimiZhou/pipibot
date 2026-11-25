@@ -957,3 +957,53 @@ public extension View {
             .shadow(color: PipiTokens.shadowAmbient, radius: 2, x: 0, y: 1)
     }
 }
+
+// MARK: - Inline Diagram Theme Palette (Single Source of Truth for WKWebView SVG / Mermaid Canvas)
+
+public struct PipiDiagramThemePalette: Sendable, Equatable {
+    public let bgCanvas: String
+    public let bgSurface: String
+    public let bgInset: String
+    public let borderSubtle: String
+    public let borderStrong: String
+    public let textPrimary: String
+    public let textSecondary: String
+    public let textMuted: String
+    public let accent: String
+    public let warn: String
+    public let ok: String
+    public let danger: String
+
+    public static func resolved(isDark: Bool) -> PipiDiagramThemePalette {
+        if isDark {
+            return PipiDiagramThemePalette(
+                bgCanvas: PipiFoundations.obsidian900,
+                bgSurface: PipiFoundations.obsidian800,
+                bgInset: PipiFoundations.obsidian850,
+                borderSubtle: PipiFoundations.obsidian650,
+                borderStrong: PipiFoundations.obsidian550,
+                textPrimary: PipiFoundations.inkDarkPrimary,
+                textSecondary: PipiFoundations.inkDarkSecondary,
+                textMuted: PipiFoundations.inkDarkMuted,
+                accent: PipiFoundations.cobalt400,
+                warn: PipiFoundations.accentAmberDark,
+                ok: PipiFoundations.accentEmeraldDark,
+                danger: PipiFoundations.accentCoralDark
+            )
+        }
+        return PipiDiagramThemePalette(
+            bgCanvas: PipiFoundations.vellum50,
+            bgSurface: PipiFoundations.vellum100,
+            bgInset: PipiFoundations.vellum200,
+            borderSubtle: PipiFoundations.vellum250,
+            borderStrong: PipiFoundations.inkLightMuted,
+            textPrimary: PipiFoundations.inkLightPrimary,
+            textSecondary: PipiFoundations.inkLightSecondary,
+            textMuted: PipiFoundations.inkLightMuted,
+            accent: PipiFoundations.cobalt600,
+            warn: PipiFoundations.accentAmberLight,
+            ok: PipiFoundations.accentEmeraldLight,
+            danger: PipiFoundations.accentCoralLight
+        )
+    }
+}

@@ -236,7 +236,7 @@ public enum PipiJarvisToolRiskEvaluator {
         case "list_directory", "read_file", "search_files", "get_system_status",
              "web_search", "fetch_webpage", "read_calendar_and_reminders", "read_mail_or_sms",
              "capture_screenshot", "record_screen", "synthesize_voice", "send_local_file",
-             "render_visual_card", "generate_image",
+             "render_visual_card", "render_diagram", "generate_image", "spawn_subagents",
              "show_control_menu", "list_or_switch_bot", "create_bot", "switch_session_or_project",
              "configure_group_mode", "update_settings", "check_updates", "create_routine_or_reminder",
              "materialize_blueprint_bot", "record_entity_ledger", "query_entity_ledger", "propose_blueprint_evolution",
@@ -510,6 +510,12 @@ public enum PipiLivelyProgressNarrator {
         case "render_visual_card":
             let title = call.string("title") ?? "卡片"
             return isZh ? "正在把「\(title.prefix(20))」渲染成高清图片卡片 🖼️" : "Rendering visual card \"\(title.prefix(20))\" 🖼️"
+        case "render_diagram":
+            let title = call.string("title") ?? (call.string("kind") ?? "图示")
+            return isZh ? "正在绘制矢量架构/流程图「\(title.prefix(24))」" : "Drawing vector diagram \"\(title.prefix(24))\""
+        case "spawn_subagents":
+            let goal = call.string("goal") ?? "并行子任务"
+            return isZh ? "正在按 DAG 编排多子代理并行推进「\(goal.prefix(24))」" : "Orchestrating parallel subagents for \"\(goal.prefix(24))\""
         case "generate_image":
             return isZh ? "正在帮你生成图片，马上出图 🎨" : "Generating your image 🎨"
         case "delegate_cli_agent":
@@ -620,6 +626,7 @@ public struct PipiAgentHostCallbacks: Sendable {
     public var proposeBlueprintEvolution: @Sendable (_ botQuery: String?, _ rationale: String, _ newRule: String?, _ newVerification: String?, _ newStepsCSV: String?) async -> String
     public var manageTriggers: @Sendable (_ action: String, _ args: [String: String]) async -> String
     public var remoteNodeAction: @Sendable (_ action: String, _ args: [String: String]) async -> String
+    public var spawnSubagents: @Sendable (_ goal: String, _ tasksJSON: String, _ workingDirectory: String) async -> (succeeded: Bool, output: String)
 
     public init(
         captureScreenshot: @escaping @Sendable () async -> PipiMacOmnipotentCommandResult,
@@ -644,7 +651,8 @@ public struct PipiAgentHostCallbacks: Sendable {
         queryEntityLedger: @escaping @Sendable (String?, String?) async -> String = { _, _ in "No matching entity records." },
         proposeBlueprintEvolution: @escaping @Sendable (String?, String, String?, String?, String?) async -> String = { _, rationale, _, _, _ in "Evolution proposal queued: \(rationale)" },
         manageTriggers: @escaping @Sendable (String, [String: String]) async -> String = { action, _ in "Trigger action '\(action)' queued." },
-        remoteNodeAction: @escaping @Sendable (String, [String: String]) async -> String = { action, _ in "Remote node action '\(action)' is not connected in this host context." }
+        remoteNodeAction: @escaping @Sendable (String, [String: String]) async -> String = { action, _ in "Remote node action '\(action)' is not connected in this host context." },
+        spawnSubagents: @escaping @Sendable (String, String, String) async -> (Bool, String) = { goal, _, _ in (false, "Subagent orchestrator is not connected for: \(goal)") }
     ) {
         self.captureScreenshot = captureScreenshot
         self.recordScreen = recordScreen
@@ -669,6 +677,7 @@ public struct PipiAgentHostCallbacks: Sendable {
         self.proposeBlueprintEvolution = proposeBlueprintEvolution
         self.manageTriggers = manageTriggers
         self.remoteNodeAction = remoteNodeAction
+        self.spawnSubagents = spawnSubagents
     }
 }
 
@@ -842,6 +851,25 @@ public enum PipiAgentToolbox {
                 PipiAgentToolParam(name: "title", description: "Card header title", required: true),
                 PipiAgentToolParam(name: "body", description: "Structured bullet points, diagram text, or key summary lines", required: true),
                 PipiAgentToolParam(name: "subtitle", description: "Optional short subtitle or tag", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "render_diagram",
+            description: "Validate, sanitize, and save a crisp inline vector diagram (SVG flowchart, signal/waveform SVG, Mermaid diagram, or XY chart) as a deliverable artifact and return a ready-to-embed markdown block for rich conversational visualization.",
+            parameters: [
+                PipiAgentToolParam(name: "kind", description: "Diagram type: svg, mermaid, chart, or canvas", required: true, enumValues: ["svg", "mermaid", "chart", "canvas"]),
+                PipiAgentToolParam(name: "title", description: "Concise diagram title", required: true),
+                PipiAgentToolParam(name: "source", description: "Complete SVG markup, Mermaid definition, or XY chart spec", required: true),
+                PipiAgentToolParam(name: "caption", description: "Optional short explanatory caption below the diagram", required: false)
+            ]
+        ),
+        PipiAgentToolDefinition(
+            name: "spawn_subagents",
+            description: "Orchestrate a DAG of parallel specialized subagents (OMP/T3-style: scout, coder, reviewer, researcher, architect, verifier) with dependency waves, selective blackboard context passing, cross-provider handoffs, and automatic Git worktree isolation for parallel coding lanes.",
+            parameters: [
+                PipiAgentToolParam(name: "goal", description: "Overall objective for the subagent team", required: true),
+                PipiAgentToolParam(name: "tasks_json", description: "JSON array of task objects: [{\"id\":\"t1\",\"title\":\"...\",\"prompt\":\"...\",\"rolePreset\":\"scout|coder|reviewer|researcher|architect|verifier\",\"dependsOn\":[],\"harness\":\"codex|claude-code|opencode|pi\",\"isolateWorktree\":false}]", required: true),
+                PipiAgentToolParam(name: "working_directory", description: "Target workspace directory path", required: false)
             ]
         ),
         PipiAgentToolDefinition(
@@ -1312,6 +1340,50 @@ public enum PipiAgentToolbox {
                 )
             }
             return PipiAgentToolExecutionResult(output: "图片渲染失败，请改用文字回复。", isError: true)
+
+        case "render_diagram":
+            let kindRaw = (toolCall.string("kind") ?? "svg").lowercased()
+            let title = toolCall.string("title") ?? "Diagram"
+            let rawSource = (toolCall.argumentsDictionary()["source"] as? String) ?? ""
+            let caption = toolCall.string("caption")
+            let cleanedSource = (kindRaw == "svg" || kindRaw == "canvas")
+                ? PipiMarkdownParser.sanitizeDiagramSource(rawSource)
+                : rawSource.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanedSource.isEmpty else {
+                return PipiAgentToolExecutionResult(output: "Diagram source cannot be empty.", isError: true)
+            }
+            try? FileManager.default.createDirectory(at: deliverablesDirectory, withIntermediateDirectories: true)
+            let ext = kindRaw == "svg" ? "svg" : (kindRaw == "mermaid" ? "mmd" : "html")
+            let stamp = Int(Date().timeIntervalSince1970)
+            let safeSlug = title.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) }.prefix(24)
+            let fileName = "diagram-\(safeSlug.isEmpty ? "visual" : String(safeSlug))-\(stamp).\(ext)"
+            let outURL = deliverablesDirectory.appendingPathComponent(fileName)
+            try? cleanedSource.write(to: outURL, atomically: true, encoding: .utf8)
+            let mime = kindRaw == "svg" ? "image/svg+xml" : (kindRaw == "mermaid" ? "text/plain" : "text/html")
+            let art = PipiDeliverableArtifact(
+                kind: .file,
+                fileName: fileName,
+                filePath: outURL.path,
+                mimeType: mime,
+                byteSize: Int64(cleanedSource.utf8.count),
+                caption: caption ?? title
+            )
+            await callbacks.registerArtifact(art)
+            let safeTitleAttr = title.replacingOccurrences(of: "\"", with: "'")
+            let fenced = "```\(kindRaw) title=\"\(safeTitleAttr)\"\n\(cleanedSource)\n```"
+            return PipiAgentToolExecutionResult(
+                output: "Diagram artifact saved (\(fileName)). Include this fenced block directly in your final response so it renders inline:\n\n\(fenced)",
+                artifacts: [art],
+                isError: false
+            )
+
+        case "spawn_subagents":
+            let goal = toolCall.string("goal") ?? ""
+            let tasksJSON = (toolCall.argumentsDictionary()["tasks_json"] as? String) ?? "[]"
+            let rawDir = toolCall.string("working_directory") ?? workspaceDirectory
+            let dir = PipiJarvisToolRiskEvaluator.resolveExpandedPath(rawDir, workspaceDirectory: workspaceDirectory)
+            let res = await callbacks.spawnSubagents(goal, tasksJSON, dir)
+            return PipiAgentToolExecutionResult(output: res.output, isError: !res.succeeded)
 
         case "generate_image":
             let prompt = toolCall.string("prompt") ?? ""

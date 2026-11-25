@@ -1,6 +1,6 @@
 {
   "name": "@pipibot/relay",
-  "version": "0.13.3",
+  "version": "0.13.4",
   "private": true,
   "description": "PiPiBot Zero-Knowledge E2EE Relay, Encrypted WebRTC Signaling, UDP STUN Reflector, and Universal Mobile PWA Host (Clean-Room MIT).",
   "type": "module",

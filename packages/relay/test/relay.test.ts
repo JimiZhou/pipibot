@@ -465,7 +465,7 @@ test('Managed node CLI auto-upgrade: /cli/version.json SHA-256 verification, ato
         edge: { url: string; sha256: string; bytes: number };
       };
     };
-    assert.equal(manifest.version, '0.13.3');
+    assert.equal(manifest.version, '0.13.4');
     assert.ok(manifest.artifacts.node?.sha256 && manifest.artifacts.node.sha256.length === 64);
     assert.ok(manifest.artifacts.lite.sha256.length === 64);
     assert.ok(manifest.artifacts.edge.sha256.length === 64);
@@ -473,7 +473,7 @@ test('Managed node CLI auto-upgrade: /cli/version.json SHA-256 verification, ato
     // 2. Response headers match manifest SHA-256
     const nodeRes = await fetch(`${baseHttp}/cli/pipibot.ts`);
     assert.equal(nodeRes.headers.get('x-pipibot-cli-sha256'), manifest.artifacts.node.sha256);
-    assert.equal(nodeRes.headers.get('x-pipibot-cli-version'), '0.13.3');
+    assert.equal(nodeRes.headers.get('x-pipibot-cli-version'), '0.13.4');
 
     // 3. Simulate an outdated installed CLI and verify atomic self-upgrade + idempotent re-check
     const installedPath = join(sandboxDir, 'pipibot.ts');
@@ -486,7 +486,7 @@ test('Managed node CLI auto-upgrade: /cli/version.json SHA-256 verification, ato
     });
     assert.equal(up1.ok, true);
     assert.equal(up1.updated, true);
-    assert.equal(up1.latestVersion, '0.13.3');
+    assert.equal(up1.latestVersion, '0.13.4');
     assert.equal(up1.localSha256, manifest.artifacts.node.sha256);
     assert.ok(readFileSync(installedPath, 'utf8').includes('PIPIBOT_CLI_VERSION'));
 

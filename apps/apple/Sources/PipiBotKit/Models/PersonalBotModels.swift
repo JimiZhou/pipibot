@@ -1416,12 +1416,17 @@ public struct PipiConversation: Codable, Identifiable, Equatable, Sendable {
     public var isArchived: Bool
     /// Wave 2 (#02): Incremented on conversation compaction to trigger Prompt-Cache-safe memory re-injection.
     public var compactionGeneration: Int
+    /// Infinite-stream auto-topic segmentation metadata (preserves full visible history while bounding prompt context).
+    public var topicSegments: [PipiConversationTopicSegment]
+    public var activeTopicStartIndex: Int
+    public var activeTopicTitle: String?
     public let createdAt: String
     public var updatedAt: String
 
     private enum CodingKeys: String, CodingKey {
         case id, hostId, personaId, projectId, title, state, cliSessionId, lastEngineLabel
-        case messages, planItems, fileChanges, approvals, events, isPinned, isArchived, compactionGeneration, createdAt, updatedAt
+        case messages, planItems, fileChanges, approvals, events, isPinned, isArchived, compactionGeneration
+        case topicSegments, activeTopicStartIndex, activeTopicTitle, createdAt, updatedAt
     }
 
     public init(
@@ -1441,6 +1446,9 @@ public struct PipiConversation: Codable, Identifiable, Equatable, Sendable {
         isPinned: Bool = false,
         isArchived: Bool = false,
         compactionGeneration: Int = 0,
+        topicSegments: [PipiConversationTopicSegment] = [],
+        activeTopicStartIndex: Int = 0,
+        activeTopicTitle: String? = nil,
         createdAt: String = ISO8601DateFormatter().string(from: Date()),
         updatedAt: String = ISO8601DateFormatter().string(from: Date())
     ) {
@@ -1460,6 +1468,9 @@ public struct PipiConversation: Codable, Identifiable, Equatable, Sendable {
         self.isPinned = isPinned
         self.isArchived = isArchived
         self.compactionGeneration = compactionGeneration
+        self.topicSegments = topicSegments
+        self.activeTopicStartIndex = activeTopicStartIndex
+        self.activeTopicTitle = activeTopicTitle
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -1482,6 +1493,9 @@ public struct PipiConversation: Codable, Identifiable, Equatable, Sendable {
         self.isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.isArchived = try c.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         self.compactionGeneration = try c.decodeIfPresent(Int.self, forKey: .compactionGeneration) ?? 0
+        self.topicSegments = try c.decodeIfPresent([PipiConversationTopicSegment].self, forKey: .topicSegments) ?? []
+        self.activeTopicStartIndex = try c.decodeIfPresent(Int.self, forKey: .activeTopicStartIndex) ?? 0
+        self.activeTopicTitle = try c.decodeIfPresent(String.self, forKey: .activeTopicTitle)
         self.createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
         self.updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
     }

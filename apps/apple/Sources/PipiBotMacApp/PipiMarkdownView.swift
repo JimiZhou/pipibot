@@ -72,6 +72,18 @@ public struct PipiMarkdownView: View {
                     PipiTableBlockView(headers: headers, rows: rows)
                         .padding(.vertical, 4)
                         .modifier(PipiBlockEntranceModifier(animate: isStreaming))
+
+                case .diagram(_, let kind, let source, let title, let isComplete):
+                    PipiDiagramBlockView(
+                        kind: kind,
+                        source: source,
+                        title: title,
+                        isComplete: isComplete || !isStreaming,
+                        strings: strings,
+                        accent: accent
+                    )
+                    .padding(.vertical, 4)
+                    .modifier(PipiBlockEntranceModifier(animate: isStreaming))
                 }
             }
 

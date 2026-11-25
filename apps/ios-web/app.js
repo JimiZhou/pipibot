@@ -223,6 +223,155 @@ function escapeHtml(str) {
     .replaceAll('"', '&quot;');
 }
 
+function sanitizeInlineSvg(raw) {
+  return String(raw ?? '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<foreignObject\b[\s\S]*?<\/foreignObject>/gi, '')
+    .replace(/<iframe\b[\s\S]*?<\/iframe>/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/(xlink:href|href|src)\s*=\s*["']\s*(?:javascript:|data:text\/html)[^"']*["']/gi, '$1="#"');
+}
+
+function renderMermaidInlineSvg(src) {
+  const lines = String(src ?? '').replace(/\r\n/g, '\n').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('%%'));
+  const nodes = new Map();
+  const edges = [];
+  const ensure = (tok) => {
+    const clean = tok.trim().replace(/:::[a-zA-Z0-9_-]+$/, '');
+    const m = clean.match(/^([A-Za-z0-9_.-]+)\s*[\[\(\{]([\s\S]+?)[\]\)\}]$/);
+    const id = m ? m[1] : clean;
+    const label = m ? m[2].replace(/^["']|["']$/g, '').split(/<br\s*\/?>|\\n/i)[0] : id;
+    if (!nodes.has(id)) nodes.set(id, { id, label, rank: 0 });
+    return id;
+  };
+  for (let i = 1; i < lines.length; i += 1) {
+    const em = lines[i].match(/^(.+?)\s*(-->|-.->|==>)\s*(?:\|([^|]+)\|\s*)?(.+)$/);
+    if (em) {
+      const from = ensure(em[1]);
+      const to = ensure(em[4]);
+      edges.push({ from, to, label: (em[3] || '').trim(), dashed: em[2].includes('-.') });
+    }
+  }
+  const list = Array.from(nodes.values());
+  if (!list.length) return `<pre class="pipi-diagram-src">${escapeHtml(src)}</pre>`;
+  edges.forEach((e) => {
+    const a = nodes.get(e.from);
+    const b = nodes.get(e.to);
+    if (a && b && b.rank <= a.rank) b.rank = a.rank + 1;
+  });
+  const nW = 136;
+  const nH = 44;
+  const gX = 42;
+  const gY = 26;
+  const pad = 16;
+  const byRank = new Map();
+  let maxR = 0;
+  let maxB = 1;
+  list.forEach((n) => {
+    maxR = Math.max(maxR, n.rank);
+    if (!byRank.has(n.rank)) byRank.set(n.rank, []);
+    byRank.get(n.rank).push(n);
+  });
+  byRank.forEach((arr) => { maxB = Math.max(maxB, arr.length); });
+  const W = pad * 2 + (maxR + 1) * nW + maxR * gX;
+  const H = pad * 2 + maxB * nH + (maxB - 1) * gY;
+  const pos = new Map();
+  byRank.forEach((arr, r) => {
+    const colH = arr.length * nH + (arr.length - 1) * gY;
+    arr.forEach((n, idx) => {
+      pos.set(n.id, { x: pad + r * (nW + gX), y: (H - colH) / 2 + idx * (nH + gY) });
+    });
+  });
+  const parts = [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">`,
+    `<defs><marker id="pwa-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="currentColor"/></marker></defs>`,
+  ];
+  edges.forEach((e) => {
+    const a = pos.get(e.from);
+    const b = pos.get(e.to);
+    if (!a || !b) return;
+    const x1 = a.x + nW;
+    const y1 = a.y + nH / 2;
+    const x2 = b.x;
+    const y2 = b.y + nH / 2;
+    const mx = (x1 + x2) / 2;
+    parts.push(`<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" fill="none" stroke="var(--pipi-border-strong)" stroke-width="1.4" ${e.dashed ? 'stroke-dasharray="4 3"' : ''} marker-end="url(#pwa-arr)"/>`);
+    if (e.label) parts.push(`<text x="${mx}" y="${(y1 + y2) / 2 - 6}" text-anchor="middle" font-size="10" fill="var(--pipi-text-secondary)">${escapeHtml(e.label)}</text>`);
+  });
+  list.forEach((n) => {
+    const p = pos.get(n.id);
+    if (!p) return;
+    parts.push(`<rect x="${p.x}" y="${p.y}" width="${nW}" height="${nH}" rx="8" fill="var(--pipi-bg-surface)" stroke="var(--pipi-border-strong)" stroke-width="1.2"/>`);
+    parts.push(`<text x="${p.x + nW / 2}" y="${p.y + 26}" text-anchor="middle" font-size="11.5" fill="var(--pipi-text-primary)">${escapeHtml(n.label)}</text>`);
+  });
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+function renderRichChatContent(rawText) {
+  const text = String(rawText ?? '');
+  const parts = [];
+  const fenceRe = /```([^\n]*)\n([\s\S]*?)```/g;
+  let lastIdx = 0;
+  let m;
+  while ((m = fenceRe.exec(text)) !== null) {
+    if (m.index > lastIdx) {
+      parts.push(renderInlineProseAndSvg(text.slice(lastIdx, m.index)));
+    }
+    const info = (m[1] || '').trim();
+    const lang = (info.split(/\s+/)[0] || '').toLowerCase();
+    const body = (m[2] || '').trim();
+    const titleMatch = info.match(/title\s*=\s*["']([^"']+)["']/i);
+    const title = titleMatch ? titleMatch[1] : '';
+    if (lang === 'svg' || (lang === 'xml' && body.startsWith('<svg'))) {
+      parts.push(renderDiagramCardHtml('SVG', title, sanitizeInlineSvg(body), body));
+    } else if (lang === 'mermaid' || lang === 'mmd') {
+      parts.push(renderDiagramCardHtml('Mermaid', title, renderMermaidInlineSvg(body), body));
+    } else if (lang === 'canvas' || lang === 'diagram' || lang === 'html-diagram') {
+      parts.push(renderDiagramCardHtml('Canvas', title, sanitizeInlineSvg(body), body));
+    } else {
+      parts.push(`<pre class="pipi-diagram-src">${escapeHtml(body)}</pre>`);
+    }
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) {
+    parts.push(renderInlineProseAndSvg(text.slice(lastIdx)));
+  }
+  return parts.join('');
+}
+
+function renderInlineProseAndSvg(chunk) {
+  const svgRe = /<svg\b[\s\S]*?<\/svg>/gi;
+  let last = 0;
+  let m;
+  const out = [];
+  while ((m = svgRe.exec(chunk)) !== null) {
+    if (m.index > last) {
+      out.push(`<div style="white-space:pre-wrap;">${escapeHtml(chunk.slice(last, m.index))}</div>`);
+    }
+    out.push(renderDiagramCardHtml('SVG', '', sanitizeInlineSvg(m[0]), m[0]));
+    last = m.index + m[0].length;
+  }
+  if (last < chunk.length) {
+    out.push(`<div style="white-space:pre-wrap;">${escapeHtml(chunk.slice(last))}</div>`);
+  }
+  return out.join('');
+}
+
+function renderDiagramCardHtml(kindLabel, title, renderedHtml, rawSource) {
+  const heading = title ? `${escapeHtml(title)} · ${escapeHtml(kindLabel)}` : escapeHtml(kindLabel);
+  return `
+    <div class="pipi-diagram-card" data-diagram-card="1">
+      <div class="pipi-diagram-head">
+        <span>${heading}</span>
+        <button class="pipi-diagram-toggle" type="button" data-diagram-toggle="1">源码</button>
+      </div>
+      <div class="pipi-diagram-body" data-diagram-preview="1">${renderedHtml}</div>
+      <pre class="pipi-diagram-src" data-diagram-source="1" hidden>${escapeHtml(rawSource)}</pre>
+    </div>
+  `;
+}
+
 const HARNESS_META = [
   { id: 'pi', label: 'Pi Core Native', desc: '4 工具极简 SDK + RPC 流' },
   { id: 'claude-code', label: 'Claude Code CLI', desc: '本地已登录 claude + --mcp-config' },
@@ -953,7 +1102,7 @@ export async function initApp() {
         ${state.chatMessages.slice(-4).map((m) => `
           <div class="chat-bubble ${m.role === 'user' ? 'is-user' : ''}">
             <div class="mono" style="font-size:10px;color:var(--pipi-text-muted);margin-bottom:3px;">${m.role === 'user' ? '你' : '助手'} · ${escapeHtml(harnessLabel(m.provider || state.selectedHarness))}</div>
-            <div style="white-space:pre-wrap;">${escapeHtml(m.text)}</div>
+            <div>${m.role === 'user' ? `<div style="white-space:pre-wrap;">${escapeHtml(m.text)}</div>` : renderRichChatContent(m.text)}</div>
           </div>
         `).join('')}
       </div>
@@ -984,6 +1133,20 @@ export async function initApp() {
       if (!prompt) return;
       input.value = '';
       await handleChatTurn(prompt);
+    });
+
+    container.querySelectorAll('[data-diagram-toggle="1"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const card = btn.closest('[data-diagram-card="1"]');
+        if (!card) return;
+        const preview = card.querySelector('[data-diagram-preview="1"]');
+        const source = card.querySelector('[data-diagram-source="1"]');
+        if (!preview || !source) return;
+        const showingSource = !source.hidden;
+        source.hidden = showingSource;
+        preview.hidden = !showingSource;
+        btn.textContent = showingSource ? '源码' : '预览';
+      });
     });
   }
 

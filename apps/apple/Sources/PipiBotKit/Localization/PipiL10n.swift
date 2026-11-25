@@ -505,6 +505,14 @@ public struct PipiStrings: Sendable {
     public var computerUseOpenAccessibility: String { t("打开系统设置", "Open System Settings") }
     public var computerUseJournalTitle: String { t("操作保护日志", "Action Protection Log") }
 
+    // MARK: Inline Diagrams & Multi-Agent Orchestrator V2
+    public var diagramPreview: String { t("预览", "Preview") }
+    public var diagramSource: String { t("源码", "Source") }
+    public var diagramExpand: String { t("放大查看", "Expand") }
+    public var diagramDrawing: String { t("正在绘制图示…", "Drawing diagram…") }
+    public var diagramSaveSvg: String { t("导出 SVG", "Save SVG") }
+    public var diagramSaved: String { t("已导出", "Saved") }
+
     // MARK: iOS Tabs
     public var tabChat: String { t("对话", "Chat") }
     public var tabBots: String { t("人设", "Bots") }

@@ -28,19 +28,28 @@ public struct PipiTeamParticipant: Codable, Identifiable, Equatable, Sendable {
     public var role: String
     public var reportTo: [String]
     public var receiveFrom: [String]
+    public var harness: String?
+    public var model: String?
+    public var worktree: Bool?
 
     public init(
         name: String,
         actorId: String,
         role: String = "",
         reportTo: [String] = [],
-        receiveFrom: [String] = []
+        receiveFrom: [String] = [],
+        harness: String? = nil,
+        model: String? = nil,
+        worktree: Bool? = nil
     ) {
         self.name = name
         self.actorId = actorId
         self.role = role
         self.reportTo = reportTo
         self.receiveFrom = receiveFrom
+        self.harness = harness
+        self.model = model
+        self.worktree = worktree
     }
 }
 
@@ -230,6 +239,9 @@ public enum PipiTeamProtocol {
         var role = ""
         var reportTo: [String] = []
         var receiveFrom: [String] = []
+        var harness: String? = nil
+        var model: String? = nil
+        var worktree: Bool? = nil
         var seenAttrs = Set<String>()
 
         for rawLine in lines {
@@ -263,6 +275,11 @@ public enum PipiTeamProtocol {
             case "role": role = val
             case "report_to": reportTo = splitCsvList(val)
             case "receive_from": receiveFrom = splitCsvList(val)
+            case "harness": harness = val.isEmpty ? nil : val
+            case "model": model = val.isEmpty ? nil : val
+            case "worktree":
+                let low = val.lowercased()
+                worktree = ["true", "yes", "1", "isolated", "auto"].contains(low)
             default:
                 issues.append(PipiTeamMdIssue(
                     path: "\(pathPrefix).\(key)",
@@ -279,7 +296,16 @@ public enum PipiTeamProtocol {
             issues.append(PipiTeamMdIssue(path: "\(pathPrefix).actor_id", code: "team_md_actor_id_missing", message: "Participant \"\(name)\" is missing Actor ID."))
         }
 
-        return PipiTeamParticipant(name: name, actorId: actorId, role: role, reportTo: reportTo, receiveFrom: receiveFrom)
+        return PipiTeamParticipant(
+            name: name,
+            actorId: actorId,
+            role: role,
+            reportTo: reportTo,
+            receiveFrom: receiveFrom,
+            harness: harness,
+            model: model,
+            worktree: worktree
+        )
     }
 
     public static func parseAndValidate(

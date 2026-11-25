@@ -2686,11 +2686,20 @@ public final class PipiAppStore {
         let displayPrompt = trimmed.isEmpty
             ? strings.t("请分析我附加的文件。", "Please analyze the attached file(s).")
             : trimmed
-        let nowIso = ISO8601DateFormatter().string(from: Date())
+        let nowDate = Date()
+        let nowIso = ISO8601DateFormatter().string(from: nowDate)
 
         // Avoid adding a duplicate user message when resuming an approval continuation turn
         let isApprovalResume = input.isApprovalResume
         if !isApprovalResume {
+            // Infinite-stream auto topic segmentation: non-destructively seals prior topic segment when
+            // time gap >= 25m, explicit topic switch, new URL domain, or low semantic overlap occurs.
+            _ = PipiInfiniteStreamContextManager.applyAutoTopicSegmentation(
+                to: &conversations[convIndex],
+                incomingUserText: displayPrompt,
+                now: nowDate
+            )
+
             let userMsg = PipiChatMessage(
                 role: .user,
                 content: displayPrompt,
@@ -2817,7 +2826,7 @@ public final class PipiAppStore {
         let existingCliSessionId = conversations[convIndex].cliSessionId
 
         let effectiveSystemPrompt = buildSystemPrompt(for: persona, project: projectForConv)
-        let historySnapshot: [PipiChatMessage] = conversations[convIndex].messages
+        let rawHistoryWithoutPlaceholder: [PipiChatMessage] = conversations[convIndex].messages
             .filter { $0.id != placeholderId }
             .map { msg in
                 guard msg.role == .user, let files = msg.attachments, !files.isEmpty else { return msg }
@@ -2845,9 +2854,15 @@ public final class PipiAppStore {
                 copy.content = expanded
                 return copy
             }
+        let boundedContext = PipiInfiniteStreamContextManager.buildBoundedPromptHistory(
+            messages: rawHistoryWithoutPlaceholder,
+            topicSegments: conversations[convIndex].topicSegments,
+            activeTopicStartIndex: conversations[convIndex].activeTopicStartIndex,
+            activeTopicTitle: conversations[convIndex].activeTopicTitle
+        )
         var outboundHistory: [PipiChatMessage] = isApprovalResume
             ? [PipiChatMessage(role: .user, content: displayPrompt, createdAt: nowIso)]
-            : historySnapshot
+            : boundedContext.messages
 
         let runPriority: PipiSchedulerPriority = input.priority ?? (isApprovalResume ? .approvalReview : .chatInteractive)
         if runPriority.isInteractiveOrHigher {
@@ -4129,19 +4144,28 @@ public final class PipiAppStore {
         }
 
         // Jarvis Companion Persona & Native Capabilities
+        let nowFormatter = DateFormatter()
+        nowFormatter.locale = Locale(identifier: "zh_CN")
+        nowFormatter.dateFormat = "yyyy-MM-dd HH:mm (EEEE)"
+        let currentLocalTimeStr = nowFormatter.string(from: Date())
+
         sections.append(
             """
-            [PiPiBot Jarvis 个人管家模式 · 自主闭环执行]
-            你是主人这台设备（Mac / iPhone）及所管理远程节点上真正能干活的贴身个人管家（像 Jarvis 一样果断靠谱，说话自然清晰、不打官腔）。
-            核心行为准则：
-            1. 端到端闭环，干到位再交付（最高优先级）：只要任务在当前权限范围内，必须一口气推进到**真正完成并验证通过**（实测命令退出码 `exit=0`、测试通过、目标文件/服务可用）再回复主人。**严禁**干到一半发“进度汇报 / 快出锅了 / 离成功就差一行 / 还没跑通要不要我继续改”把球踢回给主人！
-            2. 合并命令提速，拒绝碎步空转：排查或修复本机/远程节点问题时，优先把多项探测或「修复 + 验证」合并在**一次** compound shell 命令（如 `&&`、分号或多行脚本）中完成；需要同时读多个文件或查多个节点时，在同一轮并发发出多个只读工具调用。绝不要把 `ls`、`cat`、`which`、`chmod` 拆成五六个单独回合白白耗时间。
-            3. 仅在真正硬阻塞时才停下询问：只有触发系统安全确认（高危删除/外发/工作区外写入）、缺少主人私密凭据或明确业务抉择、或连续换 2-3 种方案仍无法突破的外部硬故障时，才暂停请示；其余一律自主判断、试错、兜底并完成。
-            4. 主动动手，绝不推脱：你拥有完整的原生工具箱（list_directory / read_file / search_files / write_file / edit_file / run_shell / run_script / get_system_status / device_vision_ocr / device_clipboard / device_npu_status / web_search / fetch_webpage / browser_browse / browser_open / browser_act / browser_snapshot / capture_screenshot / record_screen / synthesize_voice / send_local_file / render_visual_card / generate_image / delegate_cli_agent / remote_nodes_list / remote_node_inspect / remote_node_exec / remote_node_run_harness / read_calendar_and_reminders / create_routine_or_reminder / read_mail_or_sms / send_mail_or_sms / show_control_menu / list_or_switch_bot / create_bot / switch_session_or_project / configure_group_mode / update_settings / check_updates）。严禁说出“我只是纯文本对话模型”“我无法访问本地文件/磁盘”“我打不开动态网页”这类推脱话术！
-            5. 内置沙箱由你后台静默调用：遇到数值计算、日期换算、JSON/CSV 解析、正则清洗或工作区文件批处理，主动调用 `run_script(code)`（内置 Apple JavaScriptCore 沙箱，支持 `fs` 工作区读写）或 `run_shell(command)`（Mac 走原生 zsh，iPhone 走内置 POSIX 沙箱并在需要 python3/git/swift/npm 时自动通过 E2EE 中继到在线 Mac/Linux 节点）。沙箱是你的后台执行引擎，绝对不要让用户自己去敲命令，直接把算好的结果交付给用户。
-            6. 真实浏览器 CUA 优先：用户发来 X/Twitter 链接、长帖/文章、动态网页、仪表盘或要求打开网页交互查信息时，**优先调用 `browser_browse(url, goal)`**（独立多模态浏览器子代理，自带真实 Chromium/WebKit 渲染、滚屏、点击展开与视觉截屏读图）或 `browser_open` + `browser_act`；不要用纯 HTTP `fetch_webpage` 硬拉动态 SPA 导致内容缺失。
-            7. 用户提到本地目录或项目（如“桌面上的 Projects/FSD”）：立刻调用 list_directory + read_file 亲自查看源码和 README，直接给出结论，不要把命令贴给用户自己跑。
-            8. 用户要语音/图片/截图/文件/管家操作：直接调用对应原生工具真实交付或落地生效；遇到工具或外部 CLI 报错，自主换方案兜底并验证成功后再交付最终结果，不要把原始 stderr 堆栈甩给用户。
+            [PiPiBot Jarvis 个人管家模式 · 静默闭环、真人级克制沟通]
+            当前本地时间：\(currentLocalTimeStr)（涉及“今天/最近/本周/最新”时严格以此日期为准，严禁查成过去月份或为了查日期浪费终端步骤）。
+            你是主人设备上的贴身 Jarvis 搭档——冷静、敏锐、言简意赅、真人感强。
+            核心沟通与执行准则：
+            1. 静默干活，直接交结果（最高优先级）：在后台把搜索、核验、执行、验证全部做完再一次性回复结论。严禁在交付前反复唠叨“我去查一下”“正在翻目录”“进度汇报”，也严禁干到一半把球踢回给用户。
+            2. 真人化表达，拒绝机器人套话：直接切入结论，像聪明靠谱的真人同事在微信/桌面聊天一样说话。严禁使用“📋 汇报！”“📰 报告！”“在在在，随时待命 ✨”“主人，Jarvis 已上线，工具箱全开”这类做作开场白；克制 Emoji，不要每行小标题前面都塞表情；非必要不长篇大论，重点清晰、有据可依；出错或被盾挡住时客观简述事实并给替代方案，不要找借口或演喜剧。
+            3. 合并命令提速，拒绝碎步空转：排查或修复本机/远程节点问题时，优先把多项探测或「修复 + 验证」合并在**一次** compound shell 命令（如 `&&`、分号或多行脚本）中完成；需要同时读多个文件或查多个节点时，在同一轮并发发出多个只读工具调用。绝不要把 `ls`、`cat`、`which`、`chmod` 拆成五六个单独回合白白耗时间。
+            4. 仅在真正硬阻塞时才停下询问：只有触发系统安全确认（高危删除/外发/工作区外写入）、缺少主人私密凭据或明确业务抉择、或连续换 2-3 种方案仍无法突破的外部硬故障时，才暂停请示；其余一律自主判断、试错、兜底并完成。
+            5. 主动动手，绝不推脱：你拥有完整的原生工具箱（list_directory / read_file / search_files / write_file / edit_file / run_shell / run_script / get_system_status / device_vision_ocr / device_clipboard / device_npu_status / web_search / fetch_webpage / browser_browse / browser_open / browser_act / browser_snapshot / capture_screenshot / record_screen / synthesize_voice / send_local_file / render_visual_card / render_diagram / generate_image / spawn_subagents / delegate_cli_agent / remote_nodes_list / remote_node_inspect / remote_node_exec / remote_node_run_harness / read_calendar_and_reminders / create_routine_or_reminder / read_mail_or_sms / send_mail_or_sms / show_control_menu / list_or_switch_bot / create_bot / switch_session_or_project / configure_group_mode / update_settings / check_updates）。严禁说出“我只是纯文本对话模型”“我无法访问本地文件/磁盘”“我打不开动态网页”这类推脱话术！
+            6. 对话内原生画图（T3 Code / OMP 级体验）：当解释系统架构、数据流、算法流水线、状态机、信号曲线/波形或对比关系时，主动在回复中直接内嵌清晰的 ` ```svg `（推荐自定义深浅主题自适应矢量图，用 `var(--bg-surface)` / `var(--border-subtle)` / `var(--text-primary)` / `var(--accent)` / `var(--warn)` 配色，标注关键节点、箭头标签与虚线门控）或 ` ```mermaid ` / ` ```chart ` 代码块，并配合简洁 Markdown 表格拆解子步骤；需要保存交付文件时也可调用 `render_diagram`。
+            7. 多子代理并行编排：遇到需要同时多路调研、并行修改不同模块、或“实现 + 审查”闭环的复杂工程任务时，优先调用 `spawn_subagents(goal, tasks_json)` 按 DAG 依赖波次并发调度 `scout / architect / coder / reviewer / verifier` 子代理（并发写入自动隔离 Git Worktree），拿到各路结论后再汇总交付。
+            8. 内置沙箱由你后台静默调用：遇到数值计算、日期换算、JSON/CSV 解析、正则清洗或工作区文件批处理，主动调用 `run_script(code)`（内置 Apple JavaScriptCore 沙箱，支持 `fs` 工作区读写）或 `run_shell(command)`（Mac 走原生 zsh，iPhone 走内置 POSIX 沙箱并在需要 python3/git/swift/npm 时自动通过 E2EE 中继到在线 Mac/Linux 节点）。沙箱是你的后台执行引擎，绝对不要让用户自己去敲命令，直接把算好的结果交付给用户。
+            9. 真实浏览器 CUA 优先：用户发来 X/Twitter 链接、长帖/文章、动态网页、仪表盘或要求打开网页交互查信息时，**优先调用 `browser_browse(url, goal)`**（独立多模态浏览器子代理，自带真实 Chromium/WebKit 渲染、滚屏、点击展开与视觉截屏读图）或 `browser_open` + `browser_act`；不要用纯 HTTP `fetch_webpage` 硬拉动态 SPA 导致内容缺失。
+            10. 用户提到本地目录或项目（如“桌面上的 Projects/FSD”）：立刻调用 list_directory + read_file 亲自查看源码和 README，直接给出结论，不要把命令贴给用户自己跑。
+            11. 用户要语音/图片/截图/文件/管家操作：直接调用对应原生工具真实交付或落地生效；遇到工具或外部 CLI 报错，自主换方案兜底并验证成功后再交付最终结果，不要把原始 stderr 堆栈甩给用户。
             当前默认工作区：\(workspaceDirectory)
             """
         )
@@ -5269,17 +5293,17 @@ public final class PipiAppStore {
 
             let leadSuffix = strings.t(
                 """
-                你是多智能体蜂群协作的主控 (Lead)。当前团队其他成员如下：
+                你是多智能体蜂群协作的主控编排器 (Lead Orchestrator V2)。当前团队其他成员如下：
                 \(rosterLines)
 
-                如果任务需要多人分工协作，请先简要给出整体方案，并逐行使用 `@成员名: 具体子任务` 格式分派任务（例如 `@Coder: 实现接口`）。
+                如果任务需要多人分工协作，请先简要给出整体方案，并逐行使用 `@成员名: 具体子任务` 分派任务（可附带可选标签 `[id: t1]` `[depends: t1]` `[role: scout|coder|reviewer|architect]` `[worktree]` `[harness: codex|claude-code]`，实现多波次 DAG 编排与并行 Worktree 隔离）。
                 如果任务非常简单，不需要其他成员介入，也可以直接独立完成。
                 """,
                 """
-                You are the Lead orchestrator of a multi-agent swarm. Your teammates are:
+                You are the Lead Orchestrator V2 of a multi-agent swarm. Your teammates are:
                 \(rosterLines)
 
-                If collaboration helps, briefly outline the plan and delegate subtasks on separate lines using `@MemberName: specific subtask`.
+                If collaboration helps, briefly outline the plan and delegate subtasks on separate lines using `@MemberName: specific subtask` (optional tags: `[id: t1]`, `[depends: t1]`, `[role: scout|coder|reviewer|architect]`, `[worktree]`, `[harness: codex|claude-code]` for DAG wave scheduling and worktree isolation).
                 If the request is trivial and needs no delegation, answer directly without mentioning teammates.
                 """
             )
@@ -5296,55 +5320,132 @@ public final class PipiAppStore {
             var collectedMessages = [leadOutcome.message]
             if Task.isCancelled || !leadOutcome.succeeded { return collectedMessages }
 
-            let parsedAssignments = parseSwarmAssignments(
-                from: leadOutcome.message.content,
-                participantPersonaIds: participants,
-                excludingLeadId: leadId
-            )
-            guard !parsedAssignments.isEmpty else { return collectedMessages }
+            let candidateTuples: [(id: String, nameZh: String, nameEn: String)] = participants.compactMap { pid in
+                guard pid != leadId, let p = personas.first(where: { $0.id == pid }) else { return nil }
+                return (id: p.id, nameZh: p.nameZh, nameEn: p.nameEn)
+            }
+
+            // Orchestrator V2: parse DAG plan (supports `<pipibot_plan>` JSON and `@Member: task [depends: ...]` lines)
+            let parsedPlan: PipiOrchestrationPlan? = {
+                if let plan = PipiAgentOrchestrator.parsePlanFromLeadReply(
+                    text: leadOutcome.message.content,
+                    goal: userText,
+                    supervisorId: leadId,
+                    candidates: candidateTuples
+                ) {
+                    return plan
+                }
+                let legacy = parseSwarmAssignments(
+                    from: leadOutcome.message.content,
+                    participantPersonaIds: participants,
+                    excludingLeadId: leadId
+                )
+                guard !legacy.isEmpty else { return nil }
+                return PipiOrchestrationPlan(
+                    goal: userText,
+                    supervisorId: leadId,
+                    nodes: legacy.enumerated().map { idx, item in
+                        PipiOrchestrationTaskNode(
+                            id: "t\(idx + 1)",
+                            title: String(item.subtask.prefix(72)),
+                            prompt: item.subtask,
+                            rolePreset: .general,
+                            actorId: item.personaId
+                        )
+                    }
+                )
+            }()
+
+            guard let plan = parsedPlan, !plan.nodes.isEmpty else { return collectedMessages }
+            let validation = PipiAgentOrchestrator.validate(plan)
+            let waves = validation.waves.isEmpty ? [plan.nodes.map(\.id)] : validation.waves
+            let nodeById = Dictionary(uniqueKeysWithValues: plan.nodes.map { ($0.id, $0) })
+            let isolatedSet = Set(validation.autoIsolatedNodeIds)
 
             let nowIso = ISO8601DateFormatter().string(from: Date())
             if let gIdx = groupChats.firstIndex(where: { $0.id == groupId }) {
-                groupChats[gIdx].assignments = parsedAssignments.map { item in
-                    PipiSwarmTaskAssignment(
-                        personaId: item.personaId,
-                        taskTitle: item.subtask,
+                var waveLookup: [String: Int] = [:]
+                for (wIdx, w) in waves.enumerated() {
+                    for nid in w { waveLookup[nid] = wIdx + 1 }
+                }
+                groupChats[gIdx].assignments = plan.nodes.compactMap { node in
+                    guard let pid = node.actorId else { return nil }
+                    return PipiSwarmTaskAssignment(
+                        personaId: pid,
+                        taskTitle: node.title,
                         status: .queued,
-                        updatedAt: nowIso
+                        updatedAt: nowIso,
+                        waveIndex: waveLookup[node.id],
+                        rolePreset: node.rolePreset == .general ? nil : node.rolePreset.rawValue,
+                        harnessLabel: node.harness,
+                        worktreeBranch: isolatedSet.contains(node.id) ? "auto-worktree" : nil,
+                        dependsOn: node.dependsOn.isEmpty ? nil : node.dependsOn
                     )
                 }
                 saveResidentState()
             }
 
             var spokenInWave: Set<String> = [leadId]
-            let workerSuffix = strings.t(
-                "你是多智能体蜂群协作中的执行成员。请专注完成主控分派给你的子任务；只有确实需要另一位尚未发言的队友接手补充时，才使用 `@成员名` 交接。",
-                "You are a specialist in a multi-agent swarm. Focus on completing your assigned subtask. Only @mention another teammate if a genuine follow-up handoff is needed."
-            )
+            var blackboardByNode: [String: String] = [:]
+            var allWorkerOutputs: [(actorName: String, title: String, output: String)] = []
+            var latestMessages: [PipiGroupMessage] = []
 
-            let initialDispatches = parsedAssignments.map { item -> (String, String, String?) in
-                let prompt = strings.t(
-                    "用户总目标：\(userText)\n\n主控分派给你的子任务：\(item.subtask)",
-                    "User goal: \(userText)\n\nYour assigned subtask: \(item.subtask)"
+            for (wIdx, waveNodeIds) in waves.enumerated() {
+                if Task.isCancelled { break }
+                let waveDispatches: [(nodeId: String, personaId: String, prompt: String, roleTag: String?, rolePreset: PipiSubagentRolePreset)] = waveNodeIds.compactMap { nid in
+                    guard let node = nodeById[nid], let pid = node.actorId else { return nil }
+                    let upstreamNotes = node.dependsOn.compactMap { depId -> String? in
+                        guard let depOut = blackboardByNode[depId] else { return nil }
+                        let depTitle = nodeById[depId]?.title ?? depId
+                        return "[\(depId) · \(depTitle)]:\n\(String(depOut.prefix(1200)))"
+                    }.joined(separator: "\n\n")
+                    let upstreamSection = upstreamNotes.isEmpty
+                        ? ""
+                        : strings.t("\n\n前置依赖结果（黑板上下文）：\n\(upstreamNotes)", "\n\nUpstream dependency results (Blackboard):\n\(upstreamNotes)")
+                    let worktreeHint = isolatedSet.contains(nid)
+                        ? strings.t("\n（提示：当前波次含并行写入任务，请避免修改无关文件。）", "\n(Note: parallel write lane — keep edits strictly scoped.)")
+                        : ""
+                    let prompt = strings.t(
+                        "用户总目标：\(userText)\n\n主控分派给你的子任务（第 \(wIdx + 1) 波次）：\(node.prompt)\(upstreamSection)\(worktreeHint)",
+                        "User goal: \(userText)\n\nYour assigned subtask (Wave \(wIdx + 1)): \(node.prompt)\(upstreamSection)\(worktreeHint)"
+                    )
+                    let tag = waves.count > 1 ? "W\(wIdx + 1) · \(node.title)" : node.title
+                    return (nid, pid, prompt, tag, node.rolePreset)
+                }
+
+                for item in waveDispatches {
+                    spokenInWave.insert(item.personaId)
+                }
+
+                let workerSuffix = strings.t(
+                    "你是多智能体蜂群协作中的执行成员。请专注完成主控分派给你的子任务，输出结构化结论；只有确实需要另一位尚未发言的队友接手补充时，才使用 `@成员名` 交接。",
+                    "You are a specialist in a multi-agent swarm. Complete your assigned subtask with a structured result. Only @mention another teammate if a genuine follow-up handoff is needed."
                 )
-                return (item.personaId, prompt, item.subtask)
-            }
 
-            for item in parsedAssignments {
-                spokenInWave.insert(item.personaId)
-            }
+                let waveMsgs = await runBotsInParallel(
+                    groupId: groupId,
+                    dispatches: waveDispatches.map { ($0.personaId, $0.prompt, $0.roleTag) },
+                    systemPromptSuffix: workerSuffix,
+                    project: project,
+                    topicId: topicId,
+                    trackAssignments: true
+                )
+                collectedMessages.append(contentsOf: waveMsgs)
+                latestMessages = waveMsgs
 
-            var latestMessages = await runBotsInParallel(
-                groupId: groupId,
-                dispatches: initialDispatches,
-                systemPromptSuffix: workerSuffix,
-                project: project,
-                topicId: topicId,
-                trackAssignments: true
-            )
-            collectedMessages.append(contentsOf: latestMessages)
+                for (idx, msg) in waveMsgs.enumerated() where idx < waveDispatches.count {
+                    let disp = waveDispatches[idx]
+                    blackboardByNode[disp.nodeId] = msg.content
+                    let botName = personas.first(where: { $0.id == disp.personaId })?.name(resolvedLanguage) ?? disp.personaId
+                    allWorkerOutputs.append((botName, nodeById[disp.nodeId]?.title ?? disp.nodeId, msg.content))
+                }
+            }
 
             // Bounded bot-to-bot handoff: at most 2 rounds, never re-triggering bots that already spoke this turn.
+            let handoffWorkerSuffix = strings.t(
+                "你是多智能体蜂群协作中的接力成员。请基于队友交接上下文继续完成补充或验证。",
+                "You are a handoff specialist in a multi-agent swarm. Build upon your teammate's handoff concisely."
+            )
             let maxHandoffRounds = 2
             for _ in 0..<maxHandoffRounds {
                 if Task.isCancelled { break }
@@ -5394,13 +5495,45 @@ public final class PipiAppStore {
                 latestMessages = await runBotsInParallel(
                     groupId: groupId,
                     dispatches: nextHandoffs.map { ($0.personaId, $0.subtask, strings.t("接力协作", "Handoff")) },
-                    systemPromptSuffix: workerSuffix,
+                    systemPromptSuffix: handoffWorkerSuffix,
                     project: project,
                     topicId: topicId,
                     trackAssignments: true
                 )
                 collectedMessages.append(contentsOf: latestMessages)
+                for msg in latestMessages {
+                    if case .bot(let pid) = msg.senderKind {
+                        let botName = personas.first(where: { $0.id == pid })?.name(resolvedLanguage) ?? pid
+                        allWorkerOutputs.append((botName, strings.t("接力协作", "Handoff"), msg.content))
+                    }
+                }
             }
+
+            // Orchestrator V2 Final Fan-in Synthesis: when Lead decomposed a multi-node plan (>= 2 nodes), let Lead synthesize one cohesive conclusion!
+            if !Task.isCancelled && plan.synthesizeFinal && plan.nodes.count >= 2 && allWorkerOutputs.count >= 2 {
+                let summaryBlock = allWorkerOutputs
+                    .map { "### \($0.actorName) — \($0.title)\n\(String($0.output.prefix(1500)))" }
+                    .joined(separator: "\n\n")
+                let synthPrompt = strings.t(
+                    "用户原始目标：\(userText)\n\n团队各成员已执行完毕，以下是汇总输出：\n\n\(summaryBlock)\n\n请作为主控给出最终统一结论、关键发现与后续建议（不要再 @分派 新任务）。",
+                    "Original user goal: \(userText)\n\nAll teammates have finished. Collected outputs:\n\n\(summaryBlock)\n\nSynthesize one cohesive final answer with key decisions and next steps (do not delegate new subtasks)."
+                )
+                let synthSuffix = strings.t(
+                    "你是蜂群主控，正在进行最终汇总（Synthesis）。整合团队成果为一份清晰结论，可配合表格或内嵌 SVG/Mermaid 图示。",
+                    "You are the swarm Lead performing final synthesis. Combine teammate findings into one clear answer."
+                )
+                let synthOutcome = await invokeSingleBotForGroup(
+                    groupId: groupId,
+                    persona: leadPersona,
+                    promptText: synthPrompt,
+                    systemPromptSuffix: synthSuffix,
+                    roleTag: strings.t("主控汇总", "Synthesis"),
+                    project: project,
+                    topicId: topicId
+                )
+                collectedMessages.append(synthOutcome.message)
+            }
+
             return collectedMessages
         }
     }
@@ -6812,6 +6945,7 @@ public final class PipiAppStore {
         )
 
         conversations[idx].messages = [compactedMessage] + recent
+        conversations[idx].activeTopicStartIndex = 0
         conversations[idx].compactionGeneration += 1
         conversations[idx].updatedAt = ISO8601DateFormatter().string(from: now)
 
@@ -7204,11 +7338,15 @@ public final class PipiAppStore {
                         nil,
                         nil
                     )
+                    let parsedVerdict = PipiAgentOrchestrator.parseVerdict(
+                        from: res.text,
+                        candidateActorIds: doc.members.map(\.actorId)
+                    )
                     return PipiTeamBotTurnResponse(
                         output: res.text,
-                        selectedActorId: doc.members.first?.actorId,
-                        approved: req.phase == .verify ? true : nil,
-                        done: req.phase == .loopStep ? true : nil
+                        selectedActorId: parsedVerdict.selectedActorId ?? doc.members.first?.actorId,
+                        approved: req.phase == .verify ? (parsedVerdict.approved ?? true) : nil,
+                        done: req.phase == .loopStep ? (parsedVerdict.done ?? true) : nil
                     )
                 }
 
@@ -9599,8 +9737,8 @@ public final class PipiAppStore {
 
         if finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             finalText = collectedArtifacts.isEmpty
-                ? "已经帮你处理好啦 ✨ 如果还想继续深入哪一块，随时告诉我！"
-                : "搞定啦！已经把你要的文件/媒体准备好并附在下面啦 ✨"
+                ? "处理完了，需要继续深入哪部分直接说。"
+                : "文件已准备好，附在下面了。"
         }
 
         let chatAttachments: [PipiChatAttachment] = collectedArtifacts.map { art in
@@ -10115,8 +10253,208 @@ public final class PipiAppStore {
             remoteNodeAction: { [weak self] action, args in
                 guard let self else { return "服务未就绪" }
                 return await self.handleRemoteNodeTool(action: action, args: args)
+            },
+            spawnSubagents: { [weak self] goal, tasksJSON, workingDir in
+                guard let self else { return (false, "服务未就绪") }
+                return await self.executeSubagentDAG(
+                    goal: goal,
+                    tasksJSON: tasksJSON,
+                    workingDir: workingDir,
+                    conversationId: conversationId,
+                    supervisorPersonaId: personaId
+                )
             }
         )
+    }
+
+    private func executeSubagentDAG(
+        goal: String,
+        tasksJSON: String,
+        workingDir: String,
+        conversationId: String,
+        supervisorPersonaId: String
+    ) async -> (succeeded: Bool, output: String) {
+        guard let data = tasksJSON.data(using: .utf8),
+              let rawArray = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]],
+              !rawArray.isEmpty else {
+            return (false, "tasks_json must be a non-empty JSON array of task specs.")
+        }
+
+        let nodes: [PipiOrchestrationTaskNode] = rawArray.enumerated().map { idx, obj in
+            let id = (obj["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "sub_\(idx + 1)"
+            let prompt = (obj["prompt"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? (obj["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? goal
+            let title = (obj["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? String(prompt.prefix(72))
+            let rawPreset = ((obj["rolePreset"] as? String) ?? (obj["role"] as? String) ?? "general").lowercased()
+            let preset = PipiSubagentRolePreset(rawValue: rawPreset) ?? .general
+            return PipiOrchestrationTaskNode(
+                id: id,
+                title: title,
+                prompt: prompt,
+                rolePreset: preset,
+                actorId: (obj["actorId"] as? String) ?? "\(preset.rawValue):\(id)",
+                harness: obj["harness"] as? String,
+                modelId: obj["modelId"] as? String,
+                dependsOn: (obj["dependsOn"] as? [String]) ?? [],
+                isolateWorktree: obj["isolateWorktree"] as? Bool,
+                readOnly: obj["readOnly"] as? Bool,
+                maxRetries: obj["maxRetries"] as? Int,
+                fallbackHarnesses: obj["fallbackHarnesses"] as? [String],
+                verifyWithActorId: obj["verifyWithActorId"] as? String
+            )
+        }
+
+        let plan = PipiOrchestrationPlan(
+            goal: goal.isEmpty ? "Parallel subagent orchestration" : goal,
+            supervisorId: supervisorPersonaId,
+            nodes: nodes,
+            synthesizeFinal: false,
+            maxConcurrency: 3,
+            autoWorktreeOnParallelWrite: true
+        )
+
+        let validation = PipiAgentOrchestrator.validate(plan)
+        guard validation.valid else {
+            let errText = validation.issues.map { "\($0.code): \($0.message)" }.joined(separator: "; ")
+            return (false, "Invalid subagent DAG plan: \(errText)")
+        }
+
+        let (usableKinds, defaultLLM, supervisorPersona, storeExec) = await MainActor.run {
+            let kinds = self.usableLocalAgents.map(\.kind)
+            let llm = self.llmProviders.first(where: { $0.id == self.defaultLLMProviderId && $0.isReady })
+                ?? self.llmProviders.first(where: \.isReady)
+            let sup = self.personas.first(where: { $0.id == supervisorPersonaId }) ?? self.activePersona
+            return (kinds, llm, sup, self.sessionInferenceExecutor)
+        }
+
+        let result = await PipiAgentOrchestrator.execute(plan: plan) { req in
+            let isReadOnly = req.node.readOnly ?? req.node.rolePreset.isReadOnlyDefault
+            var effectiveDir = workingDir
+            var worktreeSession: PipiWorktreeReviewSession?
+
+            if req.effectiveWorktreeIsolation && !isReadOnly {
+                worktreeSession = await MainActor.run {
+                    self.prepareWorktreeIfNeeded(
+                        repoPath: workingDir,
+                        taskTitle: req.node.title,
+                        persona: supervisorPersona,
+                        conversationId: conversationId,
+                        isGroupParallel: true,
+                        projectAlwaysUseWorktree: true
+                    )
+                }
+                if let wt = worktreeSession {
+                    effectiveDir = wt.worktreePath
+                }
+            }
+
+            let upstreamBlock = req.upstreamContext
+                .map { "[\($0.fromNodeId) · \($0.title)]:\n\(String($0.content.prefix(1200)))" }
+                .joined(separator: "\n\n")
+            let revisionBlock = req.revisionFeedback.map { "\n\nRevision feedback:\n\($0)" } ?? ""
+            let fullPrompt = """
+            Goal: \(plan.goal)
+            Subtask (\(req.node.id) · \(req.node.rolePreset.rawValue)): \(req.node.prompt)
+            Working directory: \(effectiveDir)
+            \(upstreamBlock.isEmpty ? "" : "\nUpstream blackboard:\n\(upstreamBlock)")\(revisionBlock)
+            """
+            let sysPrompt = req.node.rolePreset.systemGuidance
+
+            // Route to requested CLI harness if installed (T3 Code cross-provider handoff)
+            if let rawH = req.effectiveHarness?.lowercased() {
+                let mappedKind: PipiLocalAgentKind? = rawH.contains("claude")
+                    ? .claudeCode
+                    : (rawH.contains("codex") ? .codex : (rawH.contains("open") ? .opencode : nil))
+                if let kind = mappedKind, usableKinds.contains(kind) {
+                    let env = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: "\(conversationId)-\(req.node.id)")
+                    do {
+                        let res = try await PipiInferenceEngine.invokeLocalAgent(
+                            kind: kind,
+                            systemPrompt: sysPrompt,
+                            history: [PipiChatMessage(role: .user, content: fullPrompt)],
+                            workingDirectory: effectiveDir,
+                            permissionTier: isReadOnly ? .readOnly : .autoEdit,
+                            extraEnvironment: env
+                        )
+                        var diffSummary: String?
+                        if let wt = worktreeSession {
+                            let refreshed = await MainActor.run { self.refreshWorktreeDiff(sessionId: wt.id) }
+                            diffSummary = refreshed?.diffSummary
+                        }
+                        return PipiOrchestrationNodeResponse(
+                            output: res.text,
+                            succeeded: true,
+                            harnessUsed: kind.displayName,
+                            worktreeBranch: worktreeSession?.branchName,
+                            diffSummary: diffSummary
+                        )
+                    } catch {
+                        // Fall through to LLM provider fallback
+                    }
+                }
+            }
+
+            // Execute via session inference executor or default LLM provider
+            if let storeExec {
+                do {
+                    let target: PipiExecutionTarget = defaultLLM.map { .llm(providerId: $0.id) } ?? .auto
+                    let res = try await storeExec(
+                        target,
+                        defaultLLM,
+                        sysPrompt,
+                        [PipiChatMessage(role: .user, content: fullPrompt)],
+                        effectiveDir,
+                        isReadOnly ? .readOnly : .autoEdit,
+                        nil,
+                        nil,
+                        nil
+                    )
+                    return PipiOrchestrationNodeResponse(
+                        output: res.text,
+                        succeeded: true,
+                        harnessUsed: defaultLLM?.modelId ?? "pi",
+                        worktreeBranch: worktreeSession?.branchName
+                    )
+                } catch {
+                    return PipiOrchestrationNodeResponse(output: "", succeeded: false, errorMessage: error.localizedDescription)
+                }
+            }
+
+            if let llm = defaultLLM {
+                do {
+                    let res = try await PipiInferenceEngine.invokeLLM(
+                        config: llm,
+                        systemPrompt: sysPrompt,
+                        history: [PipiChatMessage(role: .user, content: fullPrompt)]
+                    )
+                    return PipiOrchestrationNodeResponse(
+                        output: res.text,
+                        succeeded: true,
+                        harnessUsed: "\(llm.name) · \(llm.modelId)",
+                        worktreeBranch: worktreeSession?.branchName
+                    )
+                } catch {
+                    return PipiOrchestrationNodeResponse(output: "", succeeded: false, errorMessage: error.localizedDescription)
+                }
+            }
+
+            return PipiOrchestrationNodeResponse(
+                output: "[\(req.node.rolePreset.rawValue):\(req.node.id)] No active LLM/CLI provider configured.",
+                succeeded: false,
+                errorMessage: "No active LLM/CLI provider configured."
+            )
+        }
+
+        let summaryLines = result.nodeOutcomes.map { o -> String in
+            let wt = o.worktreeBranch.map { " · worktree `\($0)`" } ?? ""
+            let diff = o.diffSummary.map { " · \($0)" } ?? ""
+            let h = o.harnessUsed.map { " · \($0)" } ?? ""
+            let statusLabel = o.skipped ? "skipped" : (o.succeeded ? "done" : "failed")
+            return "### [W\(o.waveIndex + 1)] \(o.title) (\(o.rolePreset.rawValue) · \(statusLabel)\(h)\(wt)\(diff))\n\(o.output)"
+        }.joined(separator: "\n\n")
+
+        return (result.completed, "Orchestrated \(result.nodeOutcomes.count) subagent(s) across \(result.wavesExecuted) DAG wave(s):\n\n\(summaryLines)")
     }
 }
 

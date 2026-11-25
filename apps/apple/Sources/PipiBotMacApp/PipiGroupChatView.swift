@@ -383,6 +383,18 @@ public struct PipiGroupChatView: View {
                     .foregroundStyle(PipiTokens.textSecondary)
                     .lineLimit(2)
                     .frame(maxWidth: 200, alignment: .leading)
+                let metaParts: [String] = [
+                    item.waveIndex.map { "W\($0)" },
+                    item.rolePreset,
+                    item.harnessLabel,
+                    item.worktreeBranch != nil ? "worktree" : nil
+                ].compactMap { $0 }
+                if !metaParts.isEmpty {
+                    Text(metaParts.joined(separator: " · "))
+                        .font(PipiTokens.fontMicro)
+                        .foregroundStyle(PipiTokens.textMuted)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.horizontal, PipiTokens.spacing12)

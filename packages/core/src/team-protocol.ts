@@ -54,6 +54,9 @@ export interface TeamParticipant {
   role: string;
   reportTo: string[];
   receiveFrom: string[];
+  harness?: string;
+  model?: string;
+  worktree?: boolean;
 }
 
 export interface TeamMdDocument {
@@ -151,6 +154,9 @@ function parseParticipantBlock(
   let role = '';
   let reportTo: string[] = [];
   let receiveFrom: string[] = [];
+  let harness: string | undefined;
+  let model: string | undefined;
+  let worktree: boolean | undefined;
   const seenAttrs = new Set<string>();
 
   for (const rawLine of blockLines) {
@@ -191,6 +197,15 @@ function parseParticipantBlock(
       case 'receive_from':
         receiveFrom = splitCsvList(val);
         break;
+      case 'harness':
+        harness = val || undefined;
+        break;
+      case 'model':
+        model = val || undefined;
+        break;
+      case 'worktree':
+        worktree = /^(true|yes|1|isolated|auto)$/i.test(val);
+        break;
       default:
         issues.push({
           path: `${pathPrefix}.${keyRaw}`,
@@ -211,7 +226,16 @@ function parseParticipantBlock(
     });
   }
 
-  return { name, actorId, role, reportTo, receiveFrom };
+  return {
+    name,
+    actorId,
+    role,
+    reportTo,
+    receiveFrom,
+    ...(harness ? { harness } : {}),
+    ...(model ? { model } : {}),
+    ...(worktree !== undefined ? { worktree } : {}),
+  };
 }
 
 export function parseAndValidateTeamMd(

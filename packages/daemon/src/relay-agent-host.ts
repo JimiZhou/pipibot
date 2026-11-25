@@ -70,7 +70,7 @@ async function resilientJsonFetch<T = Record<string, unknown>>(
 }
 
 export const DEFAULT_RELAY_ORIGIN = 'https://pipibot.jimizhou.com';
-export const PIPIBOT_CLI_VERSION = '0.13.3';
+export const PIPIBOT_CLI_VERSION = '0.13.4';
 
 /**
  * Resilient plain-text HTTP GET helper with curl proxy fallback (used by CLI auto-upgrade).

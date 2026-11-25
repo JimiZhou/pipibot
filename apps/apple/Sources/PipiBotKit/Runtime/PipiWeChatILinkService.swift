@@ -41,6 +41,40 @@ public enum PipiWeChatRoutingMode: String, Codable, CaseIterable, Identifiable, 
     }
 }
 
+// MARK: - 1.5 Quiet Jarvis WeChat Progress Gate (Zero Pre-Delivery Spam)
+
+/// Prevents WeChat chat spam before final delivery:
+/// - Normal turns (< `checkInDelaySeconds`) rely silently on WeChat's native `sendtyping` indicator -> 0 intermediate messages.
+/// - Only genuinely long-running tasks (>= `checkInDelaySeconds`) emit AT MOST ONE brief, natural human check-in.
+/// - Raw tool-call narrations, URLs, and CLI fallback chatter are never blasted into WeChat.
+public actor PipiWeChatQuietProgressGate {
+    public static let defaultCheckInDelaySeconds: TimeInterval = 15.0
+
+    private let startedAt: Date
+    private let checkInDelaySeconds: TimeInterval
+    private let checkInMessage: String
+    private var hasSentCheckIn: Bool = false
+
+    public init(
+        startedAt: Date = Date(),
+        checkInDelaySeconds: TimeInterval = defaultCheckInDelaySeconds,
+        checkInMessage: String = "还在深挖核实，稍等我一下。"
+    ) {
+        self.startedAt = startedAt
+        self.checkInDelaySeconds = checkInDelaySeconds
+        self.checkInMessage = checkInMessage
+    }
+
+    /// Evaluates whether a single calm long-task check-in should be sent at `now`.
+    /// Returns the calm check-in text at most once per turn, or `nil` to stay quiet.
+    public func messageToSend(now: Date = Date()) -> String? {
+        guard !hasSentCheckIn else { return nil }
+        guard now.timeIntervalSince(startedAt) >= checkInDelaySeconds else { return nil }
+        hasSentCheckIn = true
+        return checkInMessage
+    }
+}
+
 public enum PipiWeChatILinkState: Sendable, Equatable {
     case disconnected
     case requestingQR
@@ -1259,16 +1293,7 @@ public final class PipiWeChatILinkManager {
             allBots: botCandidates
         )
 
-        lastActivityNote = "正在处理微信消息（\(route.targetBotIds.count) 位智能体）"
-
-        if let voiceNotePrefix {
-            await sendTextMessage(
-                toUserId: inbound.fromUserId,
-                contextToken: inbound.contextToken,
-                text: voiceNotePrefix,
-                creds: creds
-            )
-        }
+        lastActivityNote = voiceNotePrefix ?? "正在处理微信消息（\(route.targetBotIds.count) 位智能体）"
 
         let wantsVoiceBack = inbound.hasVoice || Self.userRequestedVoiceReply(effectiveText)
 
@@ -1278,22 +1303,9 @@ public final class PipiWeChatILinkManager {
                 ? (ctx.activeConversationId ?? ctx.activeConversationIdByBot[targetBotId])
                 : ctx.activeConversationIdByBot[targetBotId]
 
-            // Lively step-by-step progress narrator for WeChat (throttled cleanly so user never waits in silence)
-            actor ProgressThrottle {
-                private var lastSentAt: Date = .distantPast
-                private var count: Int = 0
-                func shouldSend() -> Bool {
-                    let now = Date()
-                    guard count < 4 else { return false }
-                    if count == 0 || now.timeIntervalSince(lastSentAt) >= 2.2 {
-                        count += 1
-                        lastSentAt = now
-                        return true
-                    }
-                    return false
-                }
-            }
-            let throttle = ProgressThrottle()
+            // Quiet Jarvis progress gate: relies on native WeChat `sendtyping` indicator;
+            // sends ZERO pre-delivery chatter for normal turns and at most ONE calm check-in if a task runs >= 15s.
+            let progressGate = PipiWeChatQuietProgressGate()
             let userIdCopy = inbound.fromUserId
             let ctxTokenCopy = inbound.contextToken
 
@@ -1308,16 +1320,19 @@ public final class PipiWeChatILinkManager {
                     inbound.fromUserId,
                     { [weak self] progressNote in
                         let clean = progressNote.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !clean.isEmpty, await throttle.shouldSend() else { return }
-                        await MainActor.run {
-                            self?.lastActivityNote = clean
+                        if !clean.isEmpty {
+                            await MainActor.run {
+                                self?.lastActivityNote = clean
+                            }
                         }
-                        await self?.sendTextMessage(
-                            toUserId: userIdCopy,
-                            contextToken: ctxTokenCopy,
-                            text: clean,
-                            creds: creds
-                        )
+                        if let calmCheckIn = await progressGate.messageToSend() {
+                            await self?.sendTextMessage(
+                                toUserId: userIdCopy,
+                                contextToken: ctxTokenCopy,
+                                text: calmCheckIn,
+                                creds: creds
+                            )
+                        }
                     }
                 )
             } else {

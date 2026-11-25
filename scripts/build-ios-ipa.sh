@@ -9,7 +9,7 @@ APPLE_DIR="$REPO_ROOT/apps/apple"
 DIST_DIR="$REPO_ROOT/dist"
 BUILD_CONFIG="${PIPIBOT_IOS_BUILD_CONFIG:-Release}"
 DERIVED_DIR="${PIPIBOT_IOS_DEVICE_DERIVED_DATA:-$APPLE_DIR/.build/ios-device-derived}"
-VERSION="0.13.3"
+VERSION="0.13.4"
 IPA_PATH="$DIST_DIR/PiPiBot-${VERSION}-iOS-unsigned.ipa"
 STAGE_DIR="$DIST_DIR/.ipa-stage"
 APP_BUNDLE="$STAGE_DIR/Payload/PipiBotIOS.app"
@@ -111,7 +111,7 @@ cat > "$APP_BUNDLE/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.13.3</string>
+  <string>0.13.4</string>
   <key>CFBundleVersion</key>
   <string>13</string>
   <key>CFBundleSupportedPlatforms</key>

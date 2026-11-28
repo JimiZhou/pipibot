@@ -9,7 +9,7 @@
  *   - Tier 3 (`edge`): Ultra-Lite POSIX `sh` Edge Agent (<2MB RAM, OpenWrt/BusyBox/routers/IoT, curl/wget only)
  */
 
-export const PIPIBOT_EDGE_CLI_VERSION = '0.13.4';
+export const PIPIBOT_EDGE_CLI_VERSION = '0.14.0';
 
 export function renderAdaptiveInstallScript(origin: string): string {
   return `#!/bin/sh

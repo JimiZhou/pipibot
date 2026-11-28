@@ -231,6 +231,19 @@ public enum PipiBrowserCUASafetyPolicy {
         "立即支付", "确认付款", "提交订单", "付款", "转账", "永久删除", "注销账号", "确认转账", "立即下单"
     ]
 
+    private static let socialExternalPublishHosts = [
+        "xiaohongshu.com", "xhslink.com", "mp.weixin.qq.com", "weixin.qq.com",
+        "douyin.com", "weibo.com", "weibo.cn", "zhihu.com", "bilibili.com", "okjike.com",
+        "linkedin.com", "x.com", "twitter.com", "reddit.com"
+    ]
+
+    private static let socialPublishButtonLabels = [
+        "post", "publish", "reply", "repost", "retweet", "send message", "send dm",
+        "connect", "follow", "comment", "submit",
+        "发布", "发布笔记", "发布视频", "发布动态", "发表", "发表评论", "群发", "投稿",
+        "写回答", "立即发布", "确认发布", "发帖", "回复", "转发", "私信", "发送私信", "发送消息", "关注", "评论"
+    ]
+
     private static let sensitiveInputPatterns = [
         "password", "passwd", "passcode", "cvv", "cvc", "card number", "credit card",
         "密码", "银行卡", "安全码", "验证码"
@@ -308,6 +321,18 @@ public enum PipiBrowserCUASafetyPolicy {
                     reason: "该按钮涉及支付、下单、转账或不可逆删除操作，需先经你确认。"
                 )
             }
+            let lowerURL = currentURL.lowercased()
+            if socialExternalPublishHosts.contains(where: { lowerURL.contains($0) }),
+               socialPublishButtonLabels.contains(where: { label.contains($0) }) {
+                return PipiToolRiskAssessment(
+                    requiresApproval: true,
+                    isHardDenied: false,
+                    actionKind: .externalEffect,
+                    target: currentURL,
+                    summary: "社交平台外发操作「\(targetElement?.label ?? request.ref ?? "post")」",
+                    reason: "检测到在小红书 / 公众号 / 抖音 / 微博 / 知乎 / B站 / 即刻 / LinkedIn / X / Reddit 执行发帖、评论、私信或关注等对外操作，已拦截至待确认队列。"
+                )
+            }
             return nil
 
         case .type:
@@ -362,6 +387,10 @@ public enum PipiVisionContextCompactor {
 public actor PipiBrowserCUADriver {
     public static let shared = PipiBrowserCUADriver()
 
+    public let botId: String?
+    public let persistentProfileDirectory: URL?
+    public let remoteCDPEndpoint: String?
+
     private var managedProcess: Process?
     private var managedProfileDir: URL?
     private var debugPort: Int = 0
@@ -373,7 +402,15 @@ public actor PipiBrowserCUADriver {
     private var lastSnapshot: PipiBrowserCUASnapshot?
     private var lastActivityAt: Date = Date()
 
-    public init() {}
+    public init(
+        botId: String? = nil,
+        persistentProfileDirectory: URL? = nil,
+        remoteCDPEndpoint: String? = nil
+    ) {
+        self.botId = botId
+        self.persistentProfileDirectory = persistentProfileDirectory
+        self.remoteCDPEndpoint = remoteCDPEndpoint?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
 
     public static func detectChromeBinary() -> String? {
         #if os(macOS)
@@ -444,8 +481,13 @@ public actor PipiBrowserCUADriver {
         }
 
         let port = preferredPort ?? Int.random(in: 19222...29222)
-        let profileDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pipibot-cua-chrome-\(port)-\(UUID().uuidString.prefix(6))", isDirectory: true)
+        let profileDir: URL
+        if let persistentProfileDirectory {
+            profileDir = persistentProfileDirectory
+        } else {
+            profileDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("pipibot-cua-chrome-\(port)-\(UUID().uuidString.prefix(6))", isDirectory: true)
+        }
         try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
 
         let proc = Process()
@@ -769,7 +811,10 @@ public actor PipiBrowserCUADriver {
             managedProcess = nil
         }
         if let dir = managedProfileDir {
-            try? FileManager.default.removeItem(at: dir)
+            // Preserve persistent teammate browser profiles so LinkedIn / X / Reddit cookies survive restarts!
+            if persistentProfileDirectory == nil {
+                try? FileManager.default.removeItem(at: dir)
+            }
             managedProfileDir = nil
         }
         lastSnapshot = nil
@@ -1088,11 +1133,24 @@ public enum PipiBrowserCUASubagent {
         llmConfig: PipiLLMProviderConfig,
         deliverablesDirectory: URL,
         useSignedInSession: Bool = false,
-        maxSteps: Int = 8
+        maxSteps: Int = 8,
+        botId: String? = nil,
+        remoteCDPEndpoint: String? = nil
     ) async throws -> PipiBrowserCUASubagentResult {
-        let driver = PipiBrowserCUADriver()
+        let usesPersistentTeammateDriver = (botId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        let driver: PipiBrowserCUADriver
+        if let botId, usesPersistentTeammateDriver {
+            driver = await PipiTeammateBrowserRegistry.shared.driver(
+                forBotId: botId,
+                remoteCDPEndpoint: remoteCDPEndpoint
+            )
+        } else {
+            driver = PipiBrowserCUADriver()
+        }
         defer {
-            Task { await driver.close() }
+            if !usesPersistentTeammateDriver {
+                Task { await driver.close() }
+            }
         }
 
         let initialSnap = try await driver.navigate(
@@ -1240,6 +1298,54 @@ public enum PipiBrowserCUASubagent {
             latestScreenshotPath: latestShotPath,
             latestImage: latestImg
         )
+    }
+}
+
+// MARK: - 4.5 Per-Teammate Persistent Isolated Browser Registry (Brigade Mode)
+
+/// Maintains a dedicated, persistent Chrome/Chromium profile and CDP session per AI teammate (`botId`),
+/// allowing independent logged-in sessions on LinkedIn, X, Reddit, and GitHub without cookie collisions.
+public actor PipiTeammateBrowserRegistry {
+    public static let shared = PipiTeammateBrowserRegistry()
+
+    private var drivers: [String: PipiBrowserCUADriver] = [:]
+
+    public init() {}
+
+    public func driver(
+        forBotId botId: String,
+        remoteCDPEndpoint: String? = nil
+    ) -> PipiBrowserCUADriver {
+        let cleanId = botId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanId.isEmpty else { return PipiBrowserCUADriver.shared }
+        if let existing = drivers[cleanId] {
+            return existing
+        }
+        let profileDir = PipiSubscriptionAccountPoolEngine.defaultBrowserProfileDirectory(botId: cleanId)
+        let created = PipiBrowserCUADriver(
+            botId: cleanId,
+            persistentProfileDirectory: profileDir,
+            remoteCDPEndpoint: remoteCDPEndpoint
+        )
+        drivers[cleanId] = created
+        return created
+    }
+
+    public func activeBotIds() -> [String] {
+        Array(drivers.keys).sorted()
+    }
+
+    public func closeDriver(forBotId botId: String) async {
+        guard let existing = drivers.removeValue(forKey: botId) else { return }
+        await existing.close()
+    }
+
+    public func closeAll() async {
+        let all = Array(drivers.values)
+        drivers.removeAll()
+        for d in all {
+            await d.close()
+        }
     }
 }
 

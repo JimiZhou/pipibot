@@ -1,0 +1,23 @@
+services:
+  pipibot-cloud-brigade:
+    build:
+      context: ../..
+      dockerfile: deploy/cloud/Dockerfile
+    container_name: pipibot-cloud-brigade
+    restart: unless-stopped
+    ports:
+      - "4242:4242"
+    environment:
+      PIPIBOT_HOST: "0.0.0.0"
+      PIPIBOT_PORT: "4242"
+      PIPIBOT_HUB_TOKEN: "${PIPIBOT_HUB_TOKEN:-}"
+      PIPIBOT_CHROME_PATH: "/usr/bin/chromium"
+    shm_size: "1gb"
+    volumes:
+      # Persists stacked subscription logins (~/.pipibot/subscriptions/*),
+      # per-teammate browser cookies (~/.pipibot/cloud-browsers/*),
+      # shared memory, and Board threads across container restarts.
+      - pipibot_cloud_data:/data
+
+volumes:
+  pipibot_cloud_data:

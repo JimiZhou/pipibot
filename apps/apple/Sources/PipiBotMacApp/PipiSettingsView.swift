@@ -119,6 +119,18 @@ public struct PipiSettingsView: View {
     @State private var meshNodeJoinNameDraft: String = "linux-4090"
     @State private var copiedMeshJoinCmd: Bool = false
     @State private var communitySkillSourceDraft: String = ""
+    // Brigade Stacked Subscription Pool & 24/7 Cloud Host drafts
+    @State private var newSubProvider: PipiSubscriptionProviderKind = .claudeSubscription
+    @State private var newSubLabel: String = ""
+    @State private var newSubUseSystemDefault: Bool = false
+    @State private var newSubBaseURL: String = ""
+    @State private var newSubModelId: String = ""
+    @State private var newSubApiKey: String = ""
+    @State private var copiedSubLoginId: String? = nil
+    @State private var cloudBrigadeURLDraft: String = ""
+    @State private var cloudBrigadeTokenDraft: String = ""
+    @State private var cloudBrigadeSyncing: Bool = false
+    @State private var copiedCloudDeployCmd: Bool = false
 
     public init(
         store: PipiAppStore,
@@ -943,6 +955,9 @@ public struct PipiSettingsView: View {
                 }
             }
 
+            // Group 3.5: Stacked Paid Subscription Account Pool (Claude Pro/Max + ChatGPT Plus/Pro)
+            subscriptionAccountPoolSection
+
             // Group 4 (Collapsible): External Sub-Agents invoked on-demand by PiPi
             settingsDisclosureCard(
                 icon: "terminal",
@@ -1048,6 +1063,345 @@ public struct PipiSettingsView: View {
         }
         .task {
             _ = await store.scanLocalModelPlatforms()
+        }
+    }
+
+    // MARK: - Brigade: Stacked Subscription & CN / OpenAI-Compatible Account Pool
+
+    private var subscriptionAccountPoolSection: some View {
+        settingsGroup(
+            title: s.t("订阅与国内 / OpenAI 兼容多账号叠加池", "Stacked Subscription & API Account Pool"),
+            trailing: {
+                Menu {
+                    ForEach(PipiSubscriptionPoolStrategy.allCases) { strategy in
+                        Button {
+                            store.setSubscriptionPoolStrategy(strategy)
+                        } label: {
+                            if store.subscriptionPoolStrategy == strategy {
+                                Label(strategy.label(lang), systemImage: "checkmark")
+                            } else {
+                                Text(strategy.label(lang))
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(store.subscriptionPoolStrategy.label(lang))
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(PipiTokens.buttonSecondaryBg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                            .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                }
+                .pipiPlainMenu()
+            }
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                    Text(
+                        s.t(
+                            "支持复用已付费的 Claude / ChatGPT 订阅，同时支持叠加 DeepSeek、Kimi、智谱 GLM、通义千问、MiniMax、火山方舟、硅基流动及任意第三方 OpenAI 兼容接口的多个账号/Key；单号限流或余额不足时自动无缝切换。",
+                            "Stack paid Claude/ChatGPT CLI subscriptions alongside Mainland China providers (DeepSeek, Kimi, Zhipu GLM, Qwen, MiniMax, Volcengine Ark, SiliconFlow) and any OpenAI-compatible relay with automatic failover on 429/quota errors."
+                        )
+                    )
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Picker("", selection: $newSubProvider) {
+                            ForEach(PipiSubscriptionProviderKind.allCases) { prov in
+                                Text(prov.localizedName(lang)).tag(prov)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 185)
+                        .onChange(of: newSubProvider) { _, next in
+                            newSubBaseURL = next.defaultBaseURL ?? ""
+                            newSubModelId = next.defaultModelId
+                        }
+
+                        TextField(
+                            newSubProvider.isOpenAICompatibleApiPool
+                                ? s.t("账号/Key 备注（如 DeepSeek 主号 / 中转站 #2）", "Account/Key label (e.g. DeepSeek Key #2)")
+                                : s.t("账号备注（如 Claude Max #2 / 工作号）", "Account label (e.g. Claude Max #2)"),
+                            text: $newSubLabel
+                        )
+                        .textFieldStyle(.roundedBorder)
+
+                        if newSubProvider.isCliSubscription {
+                            Toggle(s.t("复用系统默认登录", "System profile"), isOn: $newSubUseSystemDefault)
+                                .toggleStyle(.checkbox)
+                                .font(PipiTokens.fontCaption)
+                        }
+
+                        PipiActionButton(
+                            s.t("添加账号", "Add account"),
+                            systemImage: "plus",
+                            tone: .primary,
+                            density: .desktopCompact
+                        ) {
+                            _ = store.addSubscriptionAccount(
+                                provider: newSubProvider,
+                                label: newSubLabel,
+                                useSystemDefaultProfile: newSubUseSystemDefault,
+                                baseURL: newSubProvider.isOpenAICompatibleApiPool ? newSubBaseURL : nil,
+                                modelId: newSubModelId.isEmpty ? newSubProvider.defaultModelId : newSubModelId,
+                                apiKey: newSubProvider.isOpenAICompatibleApiPool ? newSubApiKey : ""
+                            )
+                            newSubLabel = ""
+                            newSubApiKey = ""
+                        }
+                    }
+
+                    if newSubProvider.isOpenAICompatibleApiPool {
+                        HStack(spacing: PipiTokens.spacing8) {
+                            TextField(
+                                newSubProvider.defaultBaseURL ?? "https://api.openai.com/v1",
+                                text: $newSubBaseURL
+                            )
+                            .textFieldStyle(.roundedBorder)
+
+                            TextField(
+                                newSubProvider.defaultModelId,
+                                text: $newSubModelId
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 165)
+
+                            SecureField(
+                                s.t("API Key（安全存入钥匙串）", "API Key (saved in Keychain)"),
+                                text: $newSubApiKey
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 190)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                if !store.subscriptionAccounts.isEmpty {
+                    ForEach(store.subscriptionAccounts) { acc in
+                        settingsRowDivider
+                        subscriptionAccountRow(acc)
+                    }
+                } else {
+                    settingsRowDivider
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Circle()
+                            .fill(PipiTokens.textMuted.opacity(0.5))
+                            .frame(width: 6, height: 6)
+                        Text(s.t("尚未添加叠加账号。支持同时叠加 Claude/ChatGPT 订阅与 DeepSeek/Kimi/智谱/通义千问/第三方 OpenAI 兼容 Key。", "No stacked accounts yet. Add Claude/ChatGPT plans or Mainland China / OpenAI-compatible API keys above for automatic failover."))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textMuted)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+            }
+        }
+    }
+
+    private func subscriptionAccountRow(_ acc: PipiSubscriptionAccountRecord) -> some View {
+        let dotColor: Color = {
+            switch acc.status {
+            case .ready, .active: return PipiTokens.stateSuccess
+            case .rateLimited: return PipiTokens.stateWarning
+            case .authExpired: return PipiTokens.stateError
+            case .disabled: return PipiTokens.textMuted
+            }
+        }()
+        let loginCmd = PipiSubscriptionAccountPoolEngine.interactiveLoginCommand(for: acc)
+        let detailText: String = {
+            if acc.provider.isOpenAICompatibleApiPool {
+                let modelText = acc.modelId ?? acc.provider.defaultModelId
+                let endpointHost = URL(string: acc.baseURL ?? "")?.host ?? (acc.baseURL ?? "")
+                return s.t(
+                    "\(acc.status.label(lang)) · \(modelText) · \(endpointHost) · 请求 \(acc.requestsCount) 次 · 切换 \(acc.failoverCount) 次",
+                    "\(acc.status.label(lang)) · \(modelText) · \(endpointHost) · \(acc.requestsCount) reqs · \(acc.failoverCount) failovers"
+                )
+            }
+            return s.t(
+                "\(acc.status.label(lang)) · 请求 \(acc.requestsCount) 次 · 切换 \(acc.failoverCount) 次 · \(acc.useSystemDefaultProfile ? "系统默认登录" : "独立隔离目录")",
+                "\(acc.status.label(lang)) · \(acc.requestsCount) reqs · \(acc.failoverCount) failovers · \(acc.useSystemDefaultProfile ? "System login" : "Isolated profile")"
+            )
+        }()
+
+        return HStack(spacing: PipiTokens.spacing12) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 6, height: 6)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(acc.label) · \(acc.provider.localizedName(lang))")
+                    .font(PipiTokens.fontSubheadline)
+                    .foregroundStyle(PipiTokens.textPrimary)
+                    .lineLimit(1)
+
+                Text(detailText)
+                    .font(PipiTokens.fontMicro.weight(.regular))
+                    .foregroundStyle(PipiTokens.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: PipiTokens.spacing8)
+
+            #if os(macOS)
+            if acc.provider.isCliSubscription {
+                PipiActionButton(
+                    copiedSubLoginId == acc.id ? s.t("已复制登录命令", "Copied login") : s.t("复制登录命令", "Login cmd"),
+                    systemImage: "terminal",
+                    tone: .ghost,
+                    density: .desktopCompact
+                ) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(loginCmd, forType: .string)
+                    copiedSubLoginId = acc.id
+                }
+            }
+            #endif
+
+            if acc.status == .rateLimited || acc.status == .authExpired {
+                PipiActionButton(
+                    s.t("重置冷却", "Reset"),
+                    systemImage: "arrow.clockwise",
+                    tone: .secondary,
+                    density: .desktopCompact
+                ) {
+                    store.resetSubscriptionCooldown(accountId: acc.id)
+                }
+            }
+
+            PipiGhostIconButton(
+                systemImage: "trash",
+                size: 28,
+                iconSize: 12,
+                accessibilityLabel: s.delete
+            ) {
+                store.removeSubscriptionAccount(id: acc.id)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Brigade: 24/7 Cloud Host & Isolated Browsers
+
+    private var cloudBrigadeHostSection: some View {
+        let deployCmd = "docker compose -f deploy/cloud/docker-compose.yml up -d"
+
+        return settingsGroup(
+            title: s.t("24/7 云端团队主机与独立浏览器", "24/7 Cloud Brigade Host & Isolated Browsers")
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    Text(
+                        s.t(
+                            "将 AI 队友团队托管在 24/7 云端主机（Docker / VPS / Fly.io），即使合上 Mac 也能持续运行；云端模式下每位队友拥有独立 Chromium 浏览器档案，适配小红书、微信公众号、抖音、微博、知乎、B站、即刻及 LinkedIn、Reddit、X 等平台。",
+                            "Run your AI teammate team 24/7 on a cloud host (Docker / VPS / Fly.io) even when your Mac sleeps. Each teammate gets an isolated persistent Chromium browser for Xiaohongshu, WeChat MP, Douyin, Weibo, Zhihu, Bilibili, Jike, LinkedIn, Reddit, and X."
+                        )
+                    )
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+
+                    HStack(spacing: PipiTokens.spacing8) {
+                        TextField(
+                            "http://127.0.0.1:4242",
+                            text: $cloudBrigadeURLDraft
+                        )
+                        .textFieldStyle(.roundedBorder)
+
+                        SecureField(
+                            s.t("可选 Hub Token", "Optional Hub Token"),
+                            text: $cloudBrigadeTokenDraft
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 150)
+
+                        PipiActionButton(
+                            cloudBrigadeSyncing ? s.t("同步中…", "Syncing…") : s.t("连接并同步队友", "Connect & sync"),
+                            systemImage: "arrow.triangle.2.circlepath",
+                            tone: .primary,
+                            density: .desktopCompact
+                        ) {
+                            cloudBrigadeSyncing = true
+                            store.updateCloudBrigadeConfig(
+                                hostURL: cloudBrigadeURLDraft.isEmpty ? store.cloudBrigadeConfig.cloudHostURL : cloudBrigadeURLDraft,
+                                hubToken: cloudBrigadeTokenDraft,
+                                autoSync: true
+                            )
+                            Task {
+                                _ = await store.probeAndSyncCloudBrigadeHost()
+                                cloudBrigadeSyncing = false
+                            }
+                        }
+                        .disabled(cloudBrigadeSyncing)
+                    }
+
+                    HStack(spacing: PipiTokens.spacing8) {
+                        Circle()
+                            .fill(store.cloudBrigadeConfig.isCloudReachable ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                            .frame(width: 6, height: 6)
+                        Text(
+                            store.cloudBrigadeConfig.lastHealthSummary
+                                ?? s.t(
+                                    "当前配置：\(store.cloud24x7TeammatesCount) 位 24/7 云端队友 · \(store.isolatedBrowserTeammatesCount) 个独立浏览器",
+                                    "Configured: \(store.cloud24x7TeammatesCount) 24/7 cloud teammates · \(store.isolatedBrowserTeammatesCount) isolated browsers"
+                                )
+                        )
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                settingsRowDivider
+
+                HStack(spacing: PipiTokens.spacing8) {
+                    Text(deployCmd)
+                        .font(PipiTokens.fontMonoSmall)
+                        .foregroundStyle(PipiTokens.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                    Spacer()
+                    #if os(macOS)
+                    PipiActionButton(
+                        copiedCloudDeployCmd ? s.t("已复制", "Copied") : s.t("复制一键部署命令", "Copy deploy cmd"),
+                        systemImage: "doc.on.doc",
+                        tone: .ghost,
+                        density: .desktopCompact
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(deployCmd, forType: .string)
+                        copiedCloudDeployCmd = true
+                    }
+                    #endif
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+            .onAppear {
+                if cloudBrigadeURLDraft.isEmpty {
+                    cloudBrigadeURLDraft = store.cloudBrigadeConfig.cloudHostURL
+                }
+                if cloudBrigadeTokenDraft.isEmpty {
+                    cloudBrigadeTokenDraft = store.cloudBrigadeConfig.cloudHubToken
+                }
+            }
         }
     }
 
@@ -2189,6 +2543,9 @@ public struct PipiSettingsView: View {
 
             // Section 2: WeChat iLink Remote Assistant
             wechatILinkRemoteSection
+
+            // Section 2.5: 24/7 Cloud Brigade Host & Per-Teammate Isolated Browsers
+            cloudBrigadeHostSection
 
             // Section 3 (Collapsed): Advanced Multi-Machine Mesh & Local Bridge
             settingsDisclosureCard(

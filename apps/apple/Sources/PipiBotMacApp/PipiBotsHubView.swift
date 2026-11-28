@@ -3,6 +3,7 @@ import PipiBotKit
 
 private enum PipiBotsHubMode: String, CaseIterable, Identifiable {
     case cards
+    case org
     case space3D
 
     var id: String { rawValue }
@@ -10,6 +11,7 @@ private enum PipiBotsHubMode: String, CaseIterable, Identifiable {
     func label(_ s: PipiStrings) -> String {
         switch self {
         case .cards: return s.t("卡片", "Cards")
+        case .org: return s.t("团队架构", "Org")
         case .space3D: return s.t("3D 空间", "3D Space")
         }
     }
@@ -93,6 +95,8 @@ public struct PipiBotsHubView: View {
 
             if mode == .cards {
                 cardsGridStage
+            } else if mode == .org {
+                orgChartStage
             } else {
                 PipiBotHomeSceneView(
                     store: store,
@@ -183,6 +187,171 @@ public struct PipiBotsHubView: View {
         .background(PipiTokens.bgCanvas)
     }
 
+    // MARK: - AI Teammate Org Chart Stage (Brigade Mode)
+
+    private var orgChartStage: some View {
+        let roots = store.orgChartRoots()
+        let stackedCount = store.subscriptionAccounts.count
+        let cloudCount = store.cloud24x7TeammatesCount
+        let browserCount = store.isolatedBrowserTeammatesCount
+
+        return ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: PipiTokens.spacing20) {
+                // Quiet single-line Brigade status strip (no decorative pills or box-in-box)
+                HStack(spacing: PipiTokens.spacing12) {
+                    Circle()
+                        .fill(store.cloudBrigadeConfig.isCloudReachable ? PipiTokens.stateSuccess : PipiTokens.textMuted)
+                        .frame(width: 6, height: 6)
+                    Text(
+                        s.t(
+                            "AI 队友团队 · \(store.personas.count) 位队友 · \(cloudCount) 位 24/7 云端 · \(browserCount) 个独立浏览器 · \(stackedCount) 个叠加订阅账号",
+                            "AI teammate org · \(store.personas.count) teammates · \(cloudCount) in 24/7 cloud · \(browserCount) isolated browsers · \(stackedCount) stacked subscriptions"
+                        )
+                    )
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textSecondary)
+                    Spacer()
+                }
+                .padding(.bottom, 4)
+
+                // Owner root node
+                HStack(spacing: PipiTokens.spacing12) {
+                    Circle()
+                        .fill(PipiTokens.soulPrimary)
+                        .frame(width: 8, height: 8)
+                    Text(s.t("你 · 团队负责人（Owner）", "You · Team Owner"))
+                        .font(PipiTokens.fontHeadline)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                    Text(s.t("· 审批高风险操作与外发内容（Needs You）", "· Approves external posts & critical actions"))
+                        .font(PipiTokens.fontCaption)
+                        .foregroundStyle(PipiTokens.textMuted)
+                    Spacer()
+                }
+                .padding(.horizontal, PipiTokens.spacing16)
+                .padding(.vertical, PipiTokens.spacing12)
+                .background(PipiTokens.bgElevated)
+                .overlay(
+                    RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                        .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+
+                VStack(alignment: .leading, spacing: PipiTokens.spacing12) {
+                    ForEach(roots) { rootBot in
+                        orgChartRow(rootBot, depth: 0)
+                        ForEach(store.orgChartChildren(of: rootBot.id)) { child in
+                            orgChartRow(child, depth: 1)
+                            ForEach(store.orgChartChildren(of: child.id)) { grandChild in
+                                orgChartRow(grandChild, depth: 2)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(PipiTokens.spacing24)
+            .frame(maxWidth: 1040, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .pipiHideScrollbars()
+        .background(PipiTokens.bgSurface.opacity(0.55))
+    }
+
+    private func orgChartRow(_ bot: PipiBotPersona, depth: Int) -> some View {
+        let engineLabel = preferredEngineDisplayLabel(for: bot)
+        let platformsText = bot.browserConfig.enabled
+            ? bot.browserConfig.platforms.map { PipiTeammateBrowserConfig.platformDisplayName($0, lang: lang) }.joined(separator: " / ")
+            : nil
+        let runtimeDotColor: Color = {
+            switch bot.runtimeMode {
+            case .cloud24x7: return PipiTokens.stateSuccess
+            case .hybridFailover: return PipiTokens.soulPrimary
+            case .local: return PipiTokens.textMuted
+            }
+        }()
+
+        return HStack(spacing: PipiTokens.spacing12) {
+            if depth > 0 {
+                Rectangle()
+                    .fill(PipiTokens.borderSubtle)
+                    .frame(width: 1, height: 32)
+                    .padding(.leading, CGFloat(depth) * 24)
+            }
+
+            PipiBotPersonaGlyph(persona: bot, size: 34, isSelected: true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: PipiTokens.spacing8) {
+                    Text(bot.name(lang))
+                        .font(PipiTokens.fontSubheadline)
+                        .foregroundStyle(PipiTokens.textPrimary)
+                        .lineLimit(1)
+
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(runtimeDotColor)
+                            .frame(width: 6, height: 6)
+                        Text(bot.runtimeMode.label(lang))
+                            .font(PipiTokens.fontMicro.weight(.regular))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                    }
+                }
+
+                let subParts: [String] = [
+                    bot.role(lang),
+                    engineLabel,
+                    bot.subscriptionProvider?.displayName,
+                    platformsText.map { s.t("独立浏览器：\($0)", "Browser: \($0)") }
+                ].compactMap { $0 }.filter { !$0.isEmpty }
+
+                Text(subParts.joined(separator: " · "))
+                    .font(PipiTokens.fontCaption)
+                    .foregroundStyle(PipiTokens.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: PipiTokens.spacing8)
+
+            if bot.browserConfig.enabled {
+                PipiActionButton(
+                    s.t("浏览器登录", "Browser"),
+                    systemImage: "globe",
+                    tone: .ghost,
+                    density: .desktopCompact
+                ) {
+                    let firstPlatform = bot.browserConfig.platforms.first ?? "x"
+                    _ = store.launchIsolatedBrowserLoginWindow(botId: bot.id, platformSlug: firstPlatform)
+                }
+            }
+
+            PipiActionButton(
+                s.t("对话", "Chat"),
+                systemImage: "arrow.up.right",
+                tone: .secondary,
+                density: .desktopCompact
+            ) {
+                onOpenBotChat(bot)
+            }
+
+            PipiGhostIconButton(
+                systemImage: "pencil",
+                size: 28,
+                iconSize: 12,
+                accessibilityLabel: s.editBotTitle
+            ) {
+                onEditBot(bot)
+            }
+        }
+        .padding(.horizontal, PipiTokens.spacing16)
+        .padding(.vertical, PipiTokens.spacing12)
+        .background(PipiTokens.bgElevated)
+        .overlay(
+            RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous)
+                .strokeBorder(PipiTokens.borderSubtle, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusMD, style: .continuous))
+    }
+
     // MARK: - Default Cards Grid
 
     private var cardsGridStage: some View {
@@ -247,7 +416,19 @@ public struct PipiBotsHubView: View {
             .buttonStyle(.plain)
 
             HStack(spacing: PipiTokens.spacing8) {
-                Text("\(engineLabel) · \(bot.permissionTier.label(lang)) · \(s.t("\(routineCount) 条例行", "\(routineCount) \(routineCount == 1 ? "routine" : "routines")"))")
+                let runtimeBadge = bot.runtimeMode == .local ? nil : bot.runtimeMode.label(lang)
+                let browserBadge: String? = bot.browserConfig.enabled
+                    ? s.t("独立浏览器", "Isolated browser")
+                    : nil
+                let metaParts = [
+                    engineLabel,
+                    runtimeBadge,
+                    browserBadge,
+                    bot.permissionTier.label(lang),
+                    s.t("\(routineCount) 条例行", "\(routineCount) \(routineCount == 1 ? "routine" : "routines")")
+                ].compactMap { $0 }
+
+                Text(metaParts.joined(separator: " · "))
                     .font(PipiTokens.fontMicro.weight(.regular))
                     .foregroundStyle(PipiTokens.textMuted)
                     .lineLimit(1)

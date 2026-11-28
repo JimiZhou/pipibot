@@ -1234,6 +1234,125 @@ export interface BoardSnapshot {
   updatedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// 13. Brigade AI Teammate Contracts: Stacked Subscriptions, 24/7 Cloud & Isolated Browsers
+// ---------------------------------------------------------------------------
+
+export const SUBSCRIPTION_PROVIDER_KINDS = [
+  'claude_subscription',
+  'chatgpt_subscription',
+  'gemini_subscription',
+  'deepseek',
+  'kimi',
+  'zhipu',
+  'qwen',
+  'minimax',
+  'volcengine',
+  'siliconflow',
+  'openai_compatible',
+] as const;
+
+export type SubscriptionProviderKind = (typeof SUBSCRIPTION_PROVIDER_KINDS)[number];
+
+export const SUBSCRIPTION_ACCOUNT_STATUSES = [
+  'ready',
+  'active',
+  'rate_limited',
+  'auth_expired',
+  'disabled',
+] as const;
+
+export type SubscriptionAccountStatus = (typeof SUBSCRIPTION_ACCOUNT_STATUSES)[number];
+
+export const SUBSCRIPTION_POOL_STRATEGIES = [
+  'priority_failover',
+  'round_robin',
+  'least_used',
+] as const;
+
+export type SubscriptionPoolStrategy = (typeof SUBSCRIPTION_POOL_STRATEGIES)[number];
+
+export const TEAMMATE_RUNTIME_MODES = [
+  'local',
+  'cloud_24x7',
+  'hybrid_failover',
+] as const;
+
+export type TeammateRuntimeMode = (typeof TEAMMATE_RUNTIME_MODES)[number];
+
+export const CLOUD_BROWSER_STATUSES = [
+  'stopped',
+  'starting',
+  'running',
+  'needs_login',
+  'error',
+] as const;
+
+export type CloudBrowserStatus = (typeof CLOUD_BROWSER_STATUSES)[number];
+
+export interface SubscriptionAccountRecord {
+  id: string;
+  label: string;
+  provider: SubscriptionProviderKind;
+  planTier?: string;
+  emailHint?: string;
+  /** Isolated config directory (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `GEMINI_CLI_HOME`), or omitted if using default system CLI profile */
+  profileDir?: string;
+  useSystemDefaultProfile: boolean;
+  /** For Mainland China & third-party OpenAI-compatible stacked accounts/keys */
+  baseUrl?: string;
+  modelId?: string;
+  /** Optional environment variable name holding the API key (raw secrets are never persisted to disk) */
+  apiKeyEnvVar?: string;
+  /** Whether a secret/key is configured in env/runtime for this account */
+  hasApiKeyConfigured?: boolean;
+  priority: number;
+  status: SubscriptionAccountStatus;
+  cooldownUntil?: string;
+  rateLimitReason?: string;
+  requestsCount: number;
+  estimatedTokensUsed: number;
+  failoverCount: number;
+  lastUsedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeammateBrowserProfile {
+  botId: string;
+  botName: string;
+  enabled: boolean;
+  status: CloudBrowserStatus;
+  profileDir: string;
+  cdpPort: number;
+  cdpEndpoint?: string;
+  liveViewUrl?: string;
+  proxyUrl?: string;
+  platforms: string[];
+  currentUrl?: string;
+  currentTitle?: string;
+  requireApprovalBeforePost: boolean;
+  lastActiveAt?: string;
+  lastError?: string;
+}
+
+export interface CloudTeammateDescriptor {
+  botId: string;
+  name: string;
+  role: string;
+  runtimeMode: TeammateRuntimeMode;
+  reportsToBotId?: string;
+  subscriptionProvider?: SubscriptionProviderKind;
+  subscriptionAccountId?: string;
+  modelId?: string;
+  browserEnabled: boolean;
+  browserPlatforms: string[];
+  status: 'idle' | 'working' | 'needs_you' | 'offline';
+  uptimeSeconds: number;
+  lastHeartbeatAt: string;
+}
+
+
 
 
 

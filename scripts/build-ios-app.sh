@@ -105,9 +105,9 @@ cat > "$APP_BUNDLE/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.13.4</string>
+  <string>0.14.0</string>
   <key>CFBundleVersion</key>
-  <string>13</string>
+  <string>14</string>
   <key>CFBundleSupportedPlatforms</key>
   <array>
     <string>iPhoneSimulator</string>

@@ -1,6 +1,6 @@
 {
   "name": "pipibot",
-  "version": "0.13.4",
+  "version": "0.14.0",
   "description": "Your private AI assistant team on macOS and Linux, connected seamlessly to your phone with end-to-end encryption.",
   "private": true,
   "type": "module",
@@ -24,7 +24,7 @@
     "audit:protocol": "node scripts/audit-protocol-parity.mjs",
     "start:daemon": "node --experimental-strip-types packages/daemon/src/cli.ts",
     "pipibot": "node --experimental-strip-types packages/core/src/pipibot-cli.ts",
-    "test:core": "node --experimental-strip-types --test packages/core/test/wave1.test.ts packages/core/test/wave2.test.ts packages/core/test/wave3.test.ts packages/core/test/wave4.test.ts packages/core/test/wave5.test.ts packages/core/test/board.test.ts packages/core/test/diagram-orchestrator.test.ts",
+    "test:core": "node --experimental-strip-types --test packages/core/test/wave1.test.ts packages/core/test/wave2.test.ts packages/core/test/wave3.test.ts packages/core/test/wave4.test.ts packages/core/test/wave5.test.ts packages/core/test/board.test.ts packages/core/test/diagram-orchestrator.test.ts packages/core/test/brigade-subscription-pool.test.ts",
     "test:daemon": "node --experimental-strip-types --test packages/daemon/test/daemon.test.ts",
     "test:relay": "node --experimental-strip-types --test packages/relay/test/relay.test.ts",
     "build:apple": "cd apps/apple && swift build",

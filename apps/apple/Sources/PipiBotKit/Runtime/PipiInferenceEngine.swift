@@ -157,7 +157,7 @@ public struct PipiInferenceEngine: Sendable {
         let trimmedHistory = Array(history.suffix(24))
         let text: String = try await withTransientNetworkRetry {
             switch config.kind {
-            case .openai, .deepseek, .openrouter, .customOpenAI:
+            case .openai, .deepseek, .kimi, .zhipu, .qwen, .minimax, .volcengine, .siliconflow, .openrouter, .customOpenAI:
                 if let onDelta {
                     return try await streamOpenAICompatible(
                         config: config,
@@ -1441,7 +1441,7 @@ public struct PipiInferenceEngine: Sendable {
                     }
                 }
             }
-        case .openai, .deepseek, .openrouter, .customOpenAI:
+        case .openai, .deepseek, .kimi, .zhipu, .qwen, .minimax, .volcengine, .siliconflow, .openrouter, .customOpenAI:
             let modelsURLString = base.hasSuffix("/models") ? base : "\(base)/models"
             if let url = URL(string: modelsURLString),
                !config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1581,7 +1581,7 @@ public struct PipiInferenceEngine: Sendable {
 
         return try await withTransientNetworkRetry {
             switch config.kind {
-            case .openai, .deepseek, .openrouter, .customOpenAI:
+            case .openai, .deepseek, .kimi, .zhipu, .qwen, .minimax, .volcengine, .siliconflow, .openrouter, .customOpenAI:
                 do {
                     return try await callOpenAICompatibleWithTools(
                         config: config,

@@ -61,6 +61,11 @@ public struct PipiBotCreatorSheet: View {
     @State private var enabledTools: Set<String> = [PipiBotToolKind.personalWiki.rawValue, PipiBotToolKind.voiceCall.rawValue]
     @State private var enabledConnectors: Set<String> = []
     @State private var sharingPolicy: PipiBotSharingPolicy = .default
+    @State private var runtimeMode: PipiTeammateRuntimeMode = .local
+    @State private var reportsToBotId: String = ""
+    @State private var subscriptionProvider: PipiSubscriptionProviderKind? = nil
+    @State private var subscriptionAccountId: String = ""
+    @State private var browserConfig: PipiTeammateBrowserConfig = .default
     @State private var previewEngine = PipiProceduralAvatarEngine(initialState: .ambientBreathe)
 
     public init(
@@ -158,6 +163,11 @@ public struct PipiBotCreatorSheet: View {
                 enabledTools = Set(existing.enabledTools)
                 enabledConnectors = Set(existing.enabledConnectors)
                 sharingPolicy = existing.sharingPolicy
+                runtimeMode = existing.runtimeMode
+                reportsToBotId = existing.reportsToBotId ?? ""
+                subscriptionProvider = existing.subscriptionProvider
+                subscriptionAccountId = existing.subscriptionAccountId ?? ""
+                browserConfig = existing.browserConfig
                 previewEngine.setState(existing.idleAvatarState)
             } else if let first = PipiBotPersonaTemplate.catalog.first {
                 applyTemplate(first)
@@ -799,7 +809,7 @@ public struct PipiBotCreatorSheet: View {
             VStack(alignment: .leading, spacing: PipiTokens.spacing4) {
                 HStack(spacing: 6) {
                     Text(s.permissionTierTitle)
-                        .font(PipiTokens.fontCaption.weight(.semibold))
+                        .font(PipiTokens.fontCaption.weight(.medium))
                         .foregroundStyle(PipiTokens.textSecondary)
                     PipiInfoHelpButton(
                         title: s.permissionTierTitle,
@@ -812,6 +822,89 @@ public struct PipiBotCreatorSheet: View {
                     selection: $permissionTier
                 ) { tier in
                     tier.label(lang)
+                }
+            }
+
+            // Brigade: 24/7 Cloud Residency, Org Reporting Line & Stacked Subscription Binding
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                Text(s.t("运行模式（本机 / 24/7 云端）", "Runtime residency (Local / 24/7 Cloud)"))
+                    .font(PipiTokens.fontCaption.weight(.medium))
+                    .foregroundStyle(PipiTokens.textSecondary)
+
+                PipiSegmentedControl(
+                    options: PipiTeammateRuntimeMode.allCases,
+                    selection: $runtimeMode
+                ) { mode in
+                    mode.label(lang)
+                }
+
+                HStack(spacing: PipiTokens.spacing12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(s.t("汇报对象（团队架构）", "Reports to (Org)"))
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Picker("", selection: $reportsToBotId) {
+                            Text(s.t("团队负责人（Owner）", "Team Owner")).tag("")
+                            ForEach(store.personas.filter { $0.id != existing?.id }) { candidate in
+                                Text(candidate.name(lang)).tag(candidate.id)
+                            }
+                        }
+                        .labelsHidden()
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(s.t("绑定订阅 / 叠加账号池", "Stacked account pool"))
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Menu {
+                            Button(s.t("不绑定（使用上方默认引擎）", "None (use engine above)")) {
+                                subscriptionProvider = nil
+                                subscriptionAccountId = ""
+                            }
+                            Divider()
+                            ForEach(PipiSubscriptionProviderKind.allCases) { prov in
+                                Button {
+                                    subscriptionProvider = prov
+                                    subscriptionAccountId = ""
+                                    if let mapped = prov.mappedLocalAgentKind {
+                                        preferredTarget = .localAgent(mapped)
+                                    } else if prov.isOpenAICompatibleApiPool {
+                                        preferredTarget = .llm(providerId: "\(PipiAppStore.poolProviderIdPrefix)\(prov.rawValue)")
+                                    }
+                                    if preferredModelId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        preferredModelId = prov.defaultModelId
+                                    }
+                                } label: {
+                                    let count = store.subscriptionAccounts(for: prov).count
+                                    if subscriptionProvider == prov {
+                                        Label("\(prov.localizedName(lang)) (\(count))", systemImage: "checkmark")
+                                    } else {
+                                        Text("\(prov.localizedName(lang)) (\(count))")
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(subscriptionProvider?.localizedName(lang) ?? s.t("未绑定账号池", "Not bound"))
+                                    .font(PipiTokens.fontCaption.weight(.medium))
+                                    .foregroundStyle(PipiTokens.textPrimary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .foregroundStyle(PipiTokens.textMuted)
+                            }
+                            .padding(.horizontal, 10)
+                            .frame(height: 32)
+                            .background(PipiTokens.buttonSecondaryBg)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous)
+                                    .strokeBorder(PipiTokens.composerBorder, lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: PipiTokens.radiusSM, style: .continuous))
+                        }
+                        .pipiPlainMenu()
+                    }
                 }
             }
         }
@@ -930,7 +1023,7 @@ public struct PipiBotCreatorSheet: View {
             // 4. Connectors
             VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
                 Text(s.t("连接器 (\(enabledConnectors.count))", "Connectors (\(enabledConnectors.count))"))
-                    .font(PipiTokens.fontCaption.weight(.semibold))
+                    .font(PipiTokens.fontCaption.weight(.medium))
                     .foregroundStyle(PipiTokens.textSecondary)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
@@ -943,6 +1036,78 @@ public struct PipiBotCreatorSheet: View {
                                 enabledConnectors.insert(conn.rawValue)
                             }
                         }
+                    }
+                }
+            }
+
+            // 5. Dedicated Isolated Cloud / Local Browser (Mainland China + Global Social Platforms)
+            VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.t("独立浏览器环境（云端 / 本机隔离 Cookie）", "Dedicated isolated browser (persistent cookies)"))
+                            .font(PipiTokens.fontCaption.weight(.medium))
+                            .foregroundStyle(PipiTokens.textPrimary)
+                        Text(s.t("为该 AI 队友分配独立浏览器档案，适配小红书、微信公众号、抖音、微博、知乎、B站、即刻及 LinkedIn、Reddit、X。", "Assigns an isolated browser profile for Xiaohongshu, WeChat MP, Douyin, Weibo, Zhihu, Bilibili, Jike, LinkedIn, Reddit, and X."))
+                            .font(PipiTokens.fontMicro.weight(.regular))
+                            .foregroundStyle(PipiTokens.textMuted)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $browserConfig.enabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+
+                if browserConfig.enabled {
+                    Text(s.t("中国大陆平台", "Mainland China platforms"))
+                        .font(PipiTokens.fontMicro.weight(.medium))
+                        .foregroundStyle(PipiTokens.textMuted)
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 98), spacing: 8)], spacing: 8) {
+                        ForEach(PipiTeammateBrowserConfig.mainlandChinaPlatforms, id: \.self) { slug in
+                            let isOn = browserConfig.platforms.contains(slug)
+                            capabilityChip(
+                                title: PipiTeammateBrowserConfig.platformDisplayName(slug, lang: lang),
+                                icon: "globe",
+                                isSelected: isOn
+                            ) {
+                                if isOn {
+                                    browserConfig.platforms.removeAll { $0 == slug }
+                                } else {
+                                    browserConfig.platforms.append(slug)
+                                }
+                            }
+                        }
+                    }
+
+                    Text(s.t("海外与通用平台", "Global platforms"))
+                        .font(PipiTokens.fontMicro.weight(.medium))
+                        .foregroundStyle(PipiTokens.textMuted)
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 98), spacing: 8)], spacing: 8) {
+                        ForEach(PipiTeammateBrowserConfig.globalPlatforms, id: \.self) { slug in
+                            let isOn = browserConfig.platforms.contains(slug)
+                            capabilityChip(
+                                title: PipiTeammateBrowserConfig.platformDisplayName(slug, lang: lang),
+                                icon: "globe",
+                                isSelected: isOn
+                            ) {
+                                if isOn {
+                                    browserConfig.platforms.removeAll { $0 == slug }
+                                } else {
+                                    browserConfig.platforms.append(slug)
+                                }
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Text(s.t("在社交平台发布笔记、群发、评论或私信前送审确认", "Require approval before posting, replying, or sending DMs"))
+                            .font(PipiTokens.fontCaption)
+                            .foregroundStyle(PipiTokens.textSecondary)
+                        Spacer()
+                        Toggle("", isOn: $browserConfig.requireApprovalBeforePost)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
                     }
                 }
             }
@@ -1148,6 +1313,14 @@ public struct PipiBotCreatorSheet: View {
             ex.enabledTools = Array(enabledTools).sorted()
             ex.enabledConnectors = Array(enabledConnectors).sorted()
             ex.sharingPolicy = sharingPolicy
+            ex.runtimeMode = runtimeMode
+            ex.reportsToBotId = reportsToBotId.isEmpty ? nil : reportsToBotId
+            ex.subscriptionProvider = subscriptionProvider
+            ex.subscriptionAccountId = subscriptionAccountId.isEmpty ? nil : subscriptionAccountId
+            ex.browserConfig = browserConfig
+            if browserConfig.enabled && !ex.enabledTools.contains(PipiBotToolKind.browserSeat.rawValue) {
+                ex.enabledTools.append(PipiBotToolKind.browserSeat.rawValue)
+            }
             savedPersona = ex
         } else {
             var created = selectedTemplate.instantiate(
@@ -1170,6 +1343,14 @@ public struct PipiBotCreatorSheet: View {
             created.enabledTools = Array(enabledTools).sorted()
             created.enabledConnectors = Array(enabledConnectors).sorted()
             created.sharingPolicy = sharingPolicy
+            created.runtimeMode = runtimeMode
+            created.reportsToBotId = reportsToBotId.isEmpty ? nil : reportsToBotId
+            created.subscriptionProvider = subscriptionProvider
+            created.subscriptionAccountId = subscriptionAccountId.isEmpty ? nil : subscriptionAccountId
+            created.browserConfig = browserConfig
+            if browserConfig.enabled && !created.enabledTools.contains(PipiBotToolKind.browserSeat.rawValue) {
+                created.enabledTools.append(PipiBotToolKind.browserSeat.rawValue)
+            }
             savedPersona = created
         }
 

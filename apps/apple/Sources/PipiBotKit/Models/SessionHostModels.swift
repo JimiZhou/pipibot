@@ -1785,6 +1785,232 @@ public struct PipiBoardActivityEvent: Codable, Identifiable, Equatable, Sendable
     }
 }
 
+// MARK: - 13. Brigade AI Teammate Contracts (Stacked Subscriptions, 24/7 Cloud & Isolated Browsers)
+
+public enum PipiSubscriptionProviderKind: String, Codable, CaseIterable, Identifiable, Sendable, Equatable {
+    case claudeSubscription = "claude_subscription"
+    case chatgptSubscription = "chatgpt_subscription"
+    case geminiSubscription = "gemini_subscription"
+    case deepseek
+    case kimi
+    case zhipu
+    case qwen
+    case minimax
+    case volcengine
+    case siliconflow
+    case openaiCompatible = "openai_compatible"
+
+    public var id: String { rawValue }
+
+    public var isCliSubscription: Bool {
+        switch self {
+        case .claudeSubscription, .chatgptSubscription, .geminiSubscription:
+            return true
+        case .deepseek, .kimi, .zhipu, .qwen, .minimax, .volcengine, .siliconflow, .openaiCompatible:
+            return false
+        }
+    }
+
+    public var isOpenAICompatibleApiPool: Bool {
+        !isCliSubscription
+    }
+
+    public var displayName: String {
+        switch self {
+        case .claudeSubscription: return "Claude (Pro / Max)"
+        case .chatgptSubscription: return "ChatGPT (Plus / Pro)"
+        case .geminiSubscription: return "Gemini CLI"
+        case .deepseek: return "DeepSeek"
+        case .kimi: return "Kimi (月之暗面)"
+        case .zhipu: return "智谱 GLM"
+        case .qwen: return "通义千问 Qwen"
+        case .minimax: return "MiniMax"
+        case .volcengine: return "豆包 / 火山方舟"
+        case .siliconflow: return "硅基流动 SiliconFlow"
+        case .openaiCompatible: return "第三方 OpenAI 兼容"
+        }
+    }
+
+    public func localizedName(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .kimi: return lang == .zhHans ? "Kimi (月之暗面)" : "Kimi (Moonshot)"
+        case .zhipu: return lang == .zhHans ? "智谱 GLM" : "Zhipu GLM"
+        case .qwen: return lang == .zhHans ? "通义千问 Qwen" : "Qwen (DashScope)"
+        case .volcengine: return lang == .zhHans ? "豆包 / 火山方舟" : "Doubao / Volcengine Ark"
+        case .siliconflow: return lang == .zhHans ? "硅基流动 SiliconFlow" : "SiliconFlow"
+        case .openaiCompatible: return lang == .zhHans ? "第三方 OpenAI 兼容" : "OpenAI-Compatible Relay"
+        default: return displayName
+        }
+    }
+
+    public var defaultBaseURL: String? {
+        switch self {
+        case .claudeSubscription, .chatgptSubscription, .geminiSubscription:
+            return nil
+        case .deepseek: return "https://api.deepseek.com/v1"
+        case .kimi: return "https://api.moonshot.cn/v1"
+        case .zhipu: return "https://open.bigmodel.cn/api/paas/v4"
+        case .qwen: return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        case .minimax: return "https://api.minimaxi.com/v1"
+        case .volcengine: return "https://ark.cn-beijing.volces.com/api/v3"
+        case .siliconflow: return "https://api.siliconflow.cn/v1"
+        case .openaiCompatible: return "https://api.openai.com/v1"
+        }
+    }
+
+    public var cliBinaryName: String {
+        switch self {
+        case .claudeSubscription: return "claude"
+        case .chatgptSubscription: return "codex"
+        case .geminiSubscription: return "gemini"
+        default: return "api"
+        }
+    }
+
+    public var configDirEnvKey: String {
+        switch self {
+        case .claudeSubscription: return "CLAUDE_CONFIG_DIR"
+        case .chatgptSubscription: return "CODEX_HOME"
+        case .geminiSubscription: return "GEMINI_CLI_HOME"
+        default: return "OPENAI_BASE_URL"
+        }
+    }
+
+    public var defaultModelId: String {
+        switch self {
+        case .claudeSubscription: return "claude-sonnet-4-6"
+        case .chatgptSubscription: return "gpt-5.3-codex"
+        case .geminiSubscription: return "gemini-2.5-pro"
+        case .deepseek: return "deepseek-chat"
+        case .kimi: return "kimi-k2-0905-preview"
+        case .zhipu: return "glm-4.6"
+        case .qwen: return "qwen3-coder-plus"
+        case .minimax: return "MiniMax-M2"
+        case .volcengine: return "doubao-seed-1-6-250615"
+        case .siliconflow: return "deepseek-ai/DeepSeek-V3"
+        case .openaiCompatible: return "gpt-4o"
+        }
+    }
+
+    public var suggestedModels: [String] {
+        switch self {
+        case .claudeSubscription:
+            return ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+        case .chatgptSubscription:
+            return ["gpt-5.3-codex", "gpt-5.2-codex", "o3", "gpt-5"]
+        case .geminiSubscription:
+            return ["gemini-2.5-pro", "gemini-2.5-flash"]
+        case .deepseek:
+            return ["deepseek-chat", "deepseek-reasoner"]
+        case .kimi:
+            return ["kimi-k2-0905-preview", "kimi-k2-thinking", "moonshot-v1-128k"]
+        case .zhipu:
+            return ["glm-4.6", "glm-4.5", "glm-4.5-air", "glm-4-plus"]
+        case .qwen:
+            return ["qwen3-coder-plus", "qwen-max", "qwen-plus", "qwq-plus"]
+        case .minimax:
+            return ["MiniMax-M2", "MiniMax-M1", "MiniMax-Text-01"]
+        case .volcengine:
+            return ["doubao-seed-1-6-250615", "doubao-1-5-pro-32k-250115", "deepseek-v3-250324"]
+        case .siliconflow:
+            return ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1", "Qwen/Qwen3-Coder-480B-A35B-Instruct"]
+        case .openaiCompatible:
+            return ["gpt-4o", "claude-sonnet-4-6", "deepseek-chat", "qwen-max"]
+        }
+    }
+
+    public var mappedLocalAgentKind: PipiLocalAgentKind? {
+        switch self {
+        case .claudeSubscription: return .claudeCode
+        case .chatgptSubscription: return .codex
+        default: return nil
+        }
+    }
+
+    public var mappedLLMProviderKind: PipiLLMProviderKind {
+        switch self {
+        case .deepseek: return .deepseek
+        case .kimi: return .kimi
+        case .zhipu: return .zhipu
+        case .qwen: return .qwen
+        case .minimax: return .minimax
+        case .volcengine: return .volcengine
+        case .siliconflow: return .siliconflow
+        case .openaiCompatible: return .customOpenAI
+        default: return .customOpenAI
+        }
+    }
+}
+
+public enum PipiSubscriptionAccountStatus: String, Codable, CaseIterable, Sendable, Equatable {
+    case ready
+    case active
+    case rateLimited = "rate_limited"
+    case authExpired = "auth_expired"
+    case disabled
+
+    public func label(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .ready: return lang == .zhHans ? "就绪" : "Ready"
+        case .active: return lang == .zhHans ? "使用中" : "Active"
+        case .rateLimited: return lang == .zhHans ? "限流冷却" : "Rate limited"
+        case .authExpired: return lang == .zhHans ? "需重新登录" : "Needs login"
+        case .disabled: return lang == .zhHans ? "已停用" : "Disabled"
+        }
+    }
+}
+
+public enum PipiSubscriptionPoolStrategy: String, Codable, CaseIterable, Identifiable, Sendable, Equatable {
+    case priorityFailover = "priority_failover"
+    case roundRobin = "round_robin"
+    case leastUsed = "least_used"
+
+    public var id: String { rawValue }
+
+    public func label(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .priorityFailover: return lang == .zhHans ? "优先主号 · 限流自动切换" : "Priority failover"
+        case .roundRobin: return lang == .zhHans ? "多号轮询负载均衡" : "Round robin"
+        case .leastUsed: return lang == .zhHans ? "优先低用量账号" : "Least used"
+        }
+    }
+}
+
+public enum PipiTeammateRuntimeMode: String, Codable, CaseIterable, Identifiable, Sendable, Equatable {
+    case local
+    case cloud24x7 = "cloud_24x7"
+    case hybridFailover = "hybrid_failover"
+
+    public var id: String { rawValue }
+
+    public func label(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .local: return lang == .zhHans ? "本机运行" : "Local"
+        case .cloud24x7: return lang == .zhHans ? "24/7 云端" : "24/7 Cloud"
+        case .hybridFailover: return lang == .zhHans ? "混合接管" : "Hybrid"
+        }
+    }
+}
+
+public enum PipiCloudBrowserStatus: String, Codable, CaseIterable, Sendable, Equatable {
+    case stopped
+    case starting
+    case running
+    case needsLogin = "needs_login"
+    case error
+
+    public func label(_ lang: PipiResolvedLanguage) -> String {
+        switch self {
+        case .stopped: return lang == .zhHans ? "已休眠" : "Stopped"
+        case .starting: return lang == .zhHans ? "启动中" : "Starting"
+        case .running: return lang == .zhHans ? "运行中" : "Running"
+        case .needsLogin: return lang == .zhHans ? "等待登录" : "Needs login"
+        case .error: return lang == .zhHans ? "异常" : "Error"
+        }
+    }
+}
+
+
 
 
 

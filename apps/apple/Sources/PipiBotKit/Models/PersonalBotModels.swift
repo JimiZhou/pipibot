@@ -7,6 +7,12 @@ public enum PipiLLMProviderKind: String, Codable, CaseIterable, Identifiable, Se
     case anthropic
     case gemini
     case deepseek
+    case kimi
+    case zhipu
+    case qwen
+    case minimax
+    case volcengine
+    case siliconflow
     case openrouter
     case ollama
     case customOpenAI = "custom_openai"
@@ -19,6 +25,12 @@ public enum PipiLLMProviderKind: String, Codable, CaseIterable, Identifiable, Se
         case .anthropic: return "Anthropic"
         case .gemini: return "Google Gemini"
         case .deepseek: return "DeepSeek"
+        case .kimi: return "Kimi (月之暗面)"
+        case .zhipu: return "智谱 GLM"
+        case .qwen: return "通义千问 Qwen"
+        case .minimax: return "MiniMax"
+        case .volcengine: return "豆包 / 火山方舟"
+        case .siliconflow: return "硅基流动 SiliconFlow"
         case .openrouter: return "OpenRouter"
         case .ollama: return "Ollama"
         case .customOpenAI: return "OpenAI Compatible"
@@ -27,8 +39,13 @@ public enum PipiLLMProviderKind: String, Codable, CaseIterable, Identifiable, Se
 
     public func localizedName(_ lang: PipiResolvedLanguage) -> String {
         switch self {
+        case .kimi: return lang == .zhHans ? "Kimi (月之暗面)" : "Kimi (Moonshot)"
+        case .zhipu: return lang == .zhHans ? "智谱 GLM" : "Zhipu GLM"
+        case .qwen: return lang == .zhHans ? "通义千问 Qwen" : "Qwen (DashScope)"
+        case .volcengine: return lang == .zhHans ? "豆包 / 火山方舟" : "Doubao / Volcengine Ark"
+        case .siliconflow: return lang == .zhHans ? "硅基流动 SiliconFlow" : "SiliconFlow"
         case .ollama: return lang == .zhHans ? "Ollama (本地模型)" : "Ollama (Local)"
-        case .customOpenAI: return lang == .zhHans ? "自定义 (OpenAI 兼容)" : "Custom (OpenAI Compatible)"
+        case .customOpenAI: return lang == .zhHans ? "第三方 OpenAI 兼容 / 中转站" : "Custom (OpenAI Compatible)"
         default: return displayName
         }
     }
@@ -39,6 +56,12 @@ public enum PipiLLMProviderKind: String, Codable, CaseIterable, Identifiable, Se
         case .anthropic: return "https://api.anthropic.com"
         case .gemini: return "https://generativelanguage.googleapis.com/v1beta"
         case .deepseek: return "https://api.deepseek.com/v1"
+        case .kimi: return "https://api.moonshot.cn/v1"
+        case .zhipu: return "https://open.bigmodel.cn/api/paas/v4"
+        case .qwen: return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        case .minimax: return "https://api.minimaxi.com/v1"
+        case .volcengine: return "https://ark.cn-beijing.volces.com/api/v3"
+        case .siliconflow: return "https://api.siliconflow.cn/v1"
         case .openrouter: return "https://openrouter.ai/api/v1"
         case .ollama: return "http://127.0.0.1:11434"
         case .customOpenAI: return "https://api.openai.com/v1"
@@ -51,6 +74,12 @@ public enum PipiLLMProviderKind: String, Codable, CaseIterable, Identifiable, Se
         case .anthropic: return "claude-sonnet-4-20250514"
         case .gemini: return "gemini-2.5-flash"
         case .deepseek: return "deepseek-chat"
+        case .kimi: return "kimi-k2-0905-preview"
+        case .zhipu: return "glm-4.6"
+        case .qwen: return "qwen3-coder-plus"
+        case .minimax: return "MiniMax-M2"
+        case .volcengine: return "doubao-seed-1-6-250615"
+        case .siliconflow: return "deepseek-ai/DeepSeek-V3"
         case .openrouter: return "anthropic/claude-sonnet-4"
         case .ollama: return "qwen2.5:14b"
         case .customOpenAI: return "gpt-4o-mini"
@@ -63,9 +92,15 @@ public enum PipiLLMProviderKind: String, Codable, CaseIterable, Identifiable, Se
         case .anthropic: return ["claude-sonnet-4-20250514", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest"]
         case .gemini: return ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
         case .deepseek: return ["deepseek-chat", "deepseek-reasoner"]
+        case .kimi: return ["kimi-k2-0905-preview", "kimi-k2-thinking", "moonshot-v1-128k"]
+        case .zhipu: return ["glm-4.6", "glm-4.5", "glm-4.5-air", "glm-4-plus"]
+        case .qwen: return ["qwen3-coder-plus", "qwen-max", "qwen-plus", "qwq-plus"]
+        case .minimax: return ["MiniMax-M2", "MiniMax-M1", "MiniMax-Text-01"]
+        case .volcengine: return ["doubao-seed-1-6-250615", "doubao-1-5-pro-32k-250115", "deepseek-v3-250324"]
+        case .siliconflow: return ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1", "Qwen/Qwen3-Coder-480B-A35B-Instruct"]
         case .openrouter: return ["anthropic/claude-sonnet-4", "openai/gpt-4o", "google/gemini-2.5-pro", "deepseek/deepseek-chat-v3-0324"]
         case .ollama: return ["qwen2.5:14b", "llama3.3", "deepseek-r1:14b", "gemma3:12b"]
-        case .customOpenAI: return ["gpt-4o", "deepseek-chat"]
+        case .customOpenAI: return ["gpt-4o", "deepseek-chat", "qwen-max", "claude-sonnet-4-6"]
         }
     }
 
@@ -482,6 +517,11 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
     public var learnedUpgrades: [PipiBotPeerUpgradeRecord]
     public var automationBlueprint: PipiBotAutomationBlueprint?
     public var executionIsolation: PipiBotExecutionIsolationMode
+    public var runtimeMode: PipiTeammateRuntimeMode
+    public var reportsToBotId: String?
+    public var subscriptionProvider: PipiSubscriptionProviderKind?
+    public var subscriptionAccountId: String?
+    public var browserConfig: PipiTeammateBrowserConfig
 
     public init(
         id: String = "bot_\(UUID().uuidString.prefix(8).lowercased())",
@@ -510,7 +550,12 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         sharingPolicy: PipiBotSharingPolicy = .default,
         learnedUpgrades: [PipiBotPeerUpgradeRecord] = [],
         automationBlueprint: PipiBotAutomationBlueprint? = nil,
-        executionIsolation: PipiBotExecutionIsolationMode = .hostDirect
+        executionIsolation: PipiBotExecutionIsolationMode = .hostDirect,
+        runtimeMode: PipiTeammateRuntimeMode = .local,
+        reportsToBotId: String? = nil,
+        subscriptionProvider: PipiSubscriptionProviderKind? = nil,
+        subscriptionAccountId: String? = nil,
+        browserConfig: PipiTeammateBrowserConfig = .default
     ) {
         self.id = id
         self.hostId = hostId
@@ -539,6 +584,11 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         self.learnedUpgrades = learnedUpgrades
         self.automationBlueprint = automationBlueprint
         self.executionIsolation = executionIsolation
+        self.runtimeMode = runtimeMode
+        self.reportsToBotId = reportsToBotId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.subscriptionProvider = subscriptionProvider
+        self.subscriptionAccountId = subscriptionAccountId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.browserConfig = browserConfig
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -547,6 +597,7 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         case starterPromptsZh, starterPromptsEn, isBuiltIn
         case voiceProfileId, assignedSkillSlugs, enabledTools, enabledConnectors
         case sharingPolicy, learnedUpgrades, automationBlueprint, executionIsolation
+        case runtimeMode, reportsToBotId, subscriptionProvider, subscriptionAccountId, browserConfig
     }
 
     public init(from decoder: Decoder) throws {
@@ -578,6 +629,11 @@ public struct PipiBotPersona: Codable, Identifiable, Equatable, Sendable {
         self.learnedUpgrades = try c.decodeIfPresent([PipiBotPeerUpgradeRecord].self, forKey: .learnedUpgrades) ?? []
         self.automationBlueprint = try c.decodeIfPresent(PipiBotAutomationBlueprint.self, forKey: .automationBlueprint)
         self.executionIsolation = try c.decodeIfPresent(PipiBotExecutionIsolationMode.self, forKey: .executionIsolation) ?? .hostDirect
+        self.runtimeMode = try c.decodeIfPresent(PipiTeammateRuntimeMode.self, forKey: .runtimeMode) ?? .local
+        self.reportsToBotId = try c.decodeIfPresent(String.self, forKey: .reportsToBotId)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.subscriptionProvider = try c.decodeIfPresent(PipiSubscriptionProviderKind.self, forKey: .subscriptionProvider)
+        self.subscriptionAccountId = try c.decodeIfPresent(String.self, forKey: .subscriptionAccountId)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.browserConfig = try c.decodeIfPresent(PipiTeammateBrowserConfig.self, forKey: .browserConfig) ?? .default
     }
 
     public var isRemoteHost: Bool {
@@ -1062,6 +1118,84 @@ public struct PipiBotPersonaTemplate: Identifiable, Equatable, Hashable, Sendabl
                 "Design a Friday personal review and subscription check workflow",
                 "Create a health-check checklist for my personal projects",
                 "Break a multi-week goal into verifiable milestones"
+            ]
+        ),
+        PipiBotPersonaTemplate(
+            id: "tpl_cn_social_ops",
+            category: .operations,
+            iconName: "globe",
+            nameZh: "国内社媒运营队友",
+            nameEn: "CN Social Ops Teammate",
+            taglineZh: "配备独立浏览器，24/7 追踪小红书 / 公众号 / 抖音 / 知乎 / 微博 / B站热点并草拟笔记与评论，发布前送审确认",
+            taglineEn: "Dedicated isolated browser for Xiaohongshu, WeChat MP, Douyin, Zhihu, Weibo & Bilibili monitoring and drafts with approval before publishing",
+            greetingZh: "你好！我已就绪国内社媒独立浏览器档案，可全天候追踪小红书、公众号、抖音、知乎与 B站动态并起草内容，所有发布/评论/私信操作都会先送你确认。",
+            greetingEn: "Ready with my dedicated browser profile for Xiaohongshu, WeChat MP, Douyin, Zhihu, Weibo, and Bilibili. External publishing always pauses for your approval.",
+            systemPrompt: "You are a 24/7 Mainland China Social Media Operations AI Teammate inside PiPiBot. Operate in your dedicated isolated browser profile across Xiaohongshu (小红书), WeChat Official Account (微信公众号), Douyin (抖音), Weibo (微博), Zhihu (知乎), Bilibili (B站), and Jike (即刻) to track trends, analyze comments, and draft high-engagement notes/articles/replies. Never publish notes, group-send articles, post comments, or send DMs without explicit owner approval.",
+            defaultAccent: .coral,
+            defaultAvatarShape: .spark,
+            defaultIdleAvatarState: .ambientBreathe,
+            defaultPermissionTier: .ask,
+            starterPromptsZh: [
+                "巡检今天小红书和知乎上关于 AI 工具的热门笔记与高赞评论，提炼 3 个选题",
+                "把这篇产品更新改写成小红书爆款图文脚本与公众号推文草稿",
+                "查看 B站与即刻近期关于竞品的讨论反馈并整理优缺点"
+            ],
+            starterPromptsEn: [
+                "Scan trending AI posts on Xiaohongshu and Zhihu today and propose 3 angles",
+                "Adapt our product update into a Xiaohongshu post and a WeChat MP draft",
+                "Summarize recent Bilibili and Jike community feedback on competitors"
+            ]
+        ),
+        PipiBotPersonaTemplate(
+            id: "tpl_social_growth",
+            category: .operations,
+            iconName: "globe",
+            nameZh: "社媒增长队友",
+            nameEn: "Social Growth Teammate",
+            taglineZh: "配备独立云端浏览器，24/7 巡检 X / LinkedIn / Reddit 热点并起草回复，发帖前送审确认",
+            taglineEn: "Dedicated isolated browser for 24/7 X, LinkedIn & Reddit monitoring and draft replies with approval before posting",
+            greetingZh: "你好！我已就绪独立浏览器环境，可以持续追踪 X、LinkedIn 和 Reddit 动态并为你起草高转化内容，所有外发动作都会先送你确认。",
+            greetingEn: "Ready with my own isolated browser profile. I monitor X, LinkedIn, and Reddit 24/7 and draft responses for your approval before publishing.",
+            systemPrompt: "You are a 24/7 Social Growth AI Teammate inside PiPiBot. Operate inside your dedicated isolated browser profile across X, LinkedIn, and Reddit to research discussions, surface high-signal leads, and draft authentic posts/replies. Never publish external posts, replies, DMs, or connection requests without owner approval.",
+            defaultAccent: .coral,
+            defaultAvatarShape: .spark,
+            defaultIdleAvatarState: .ambientBreathe,
+            defaultPermissionTier: .ask,
+            starterPromptsZh: [
+                "巡检今天 X 和 Reddit 上关于我们产品赛道的最新讨论并汇总要点",
+                "在 LinkedIn 行业动态下起草 3 条专业且不油腻的互动评论供我审批",
+                "整理本周竞品在 X 上的发布动态与用户反馈"
+            ],
+            starterPromptsEn: [
+                "Scan today's X and Reddit discussions in our niche and summarize top threads",
+                "Draft 3 thoughtful LinkedIn comment replies for my review before posting",
+                "Track competitor announcements on X this week and highlight user pain points"
+            ]
+        ),
+        PipiBotPersonaTemplate(
+            id: "tpl_support_24x7",
+            category: .operations,
+            iconName: "lifepreserver",
+            nameZh: "24/7 客服与分诊队友",
+            nameEn: "24/7 Support & Triage",
+            taglineZh: "全天候追踪工单、邮件与社区反馈，自动查知识库草拟回复并在高敏操作前提醒你",
+            taglineEn: "Always-on support teammate triaging issues, emails, and community threads with shared team memory",
+            greetingZh: "我全天候在线值守，帮你分诊客户问题、核对知识库并把需要拍板的事项汇总到待确认清单。",
+            greetingEn: "Always on watch — I triage incoming customer issues, search shared memory, and route key decisions to your Needs You queue.",
+            systemPrompt: "You are a 24/7 Customer Support & Triage AI Teammate inside PiPiBot. Categorize incoming issues, search shared team memory and docs for verified answers, draft polite replies, and escalate refunds, account changes, or external sends to the owner via Needs You.",
+            defaultAccent: .sky,
+            defaultAvatarShape: .squircle,
+            defaultIdleAvatarState: .ambientNightWatch,
+            defaultPermissionTier: .ask,
+            starterPromptsZh: [
+                "梳理今天新增的用户反馈并按严重程度分组",
+                "结合知识库为这个常见问题起草一份标准回复模板",
+                "检查是否有超过 24 小时未跟进的重要工单"
+            ],
+            starterPromptsEn: [
+                "Triage today's incoming user reports by severity",
+                "Draft a reusable support reply grounded in our shared knowledge base",
+                "Flag any high-priority thread waiting over 24 hours"
             ]
         ),
         PipiBotPersonaTemplate(

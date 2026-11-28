@@ -51,7 +51,10 @@ export type DaemonCliMode =
   | 'mcp_stdio'
   | 'team_apply'
   | 'sentinel_scan'
-  | 'box_check';
+  | 'box_check'
+  | 'cloud_up'
+  | 'accounts_list'
+  | 'browsers_list';
 
 export interface ParsedCliArgs {
   mode: DaemonCliMode;
@@ -142,6 +145,16 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
   } else if (argv[0] === 'box-check') {
     mode = 'box_check';
     idx = 1;
+  } else if (argv[0] === 'cloud' && (argv[1] === 'up' || !argv[1] || argv[1].startsWith('-'))) {
+    mode = 'cloud_up';
+    host = process.env.PIPIBOT_HOST ?? '0.0.0.0';
+    idx = argv[1] === 'up' ? 2 : 1;
+  } else if (argv[0] === 'accounts') {
+    mode = 'accounts_list';
+    idx = argv[1] === 'list' ? 2 : 1;
+  } else if (argv[0] === 'browsers') {
+    mode = 'browsers_list';
+    idx = argv[1] === 'list' ? 2 : 1;
   }
 
   for (let i = idx; i < argv.length; i += 1) {
@@ -257,6 +270,11 @@ export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> 
         '  devices [--relay <url>]                                    List all online Mac/PC/Linux devices in your account',
         '  agents                                                     Detect local CLI agents (Claude Code / Codex / OpenCode)',
         '  logout                                                     Clear local CLI session',
+        '',
+        '24/7 Cloud Brigade & Stacked Subscriptions:',
+        '  cloud up [--host 0.0.0.0 --port 4242 --token <tok>]       Run 24/7 Cloud Teammate Host + Isolated Browsers',
+        '  accounts [list] [--hub <url>]                             Inspect stacked Claude / ChatGPT subscription pool',
+        '  browsers [list] [--hub <url>]                             Inspect per-teammate isolated cloud browsers',
         '',
         'Advanced / Self-Hosted Mesh Commands:',
         '  hub start [--host 0.0.0.0 --port 4242 --token <tok>]       Start self-hosted Mesh Hub',
@@ -463,6 +481,28 @@ export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> 
     return;
   }
 
+  if (opts.mode === 'accounts_list') {
+    const resp = await fetch(`${opts.hubUrl}/api/v1/subscriptions/accounts`, { headers: authHeaders() });
+    if (!resp.ok) {
+      console.error(`Failed to query subscription pool: HTTP ${resp.status}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(await resp.json(), null, 2));
+    return;
+  }
+
+  if (opts.mode === 'browsers_list') {
+    const resp = await fetch(`${opts.hubUrl}/api/v1/cloud/browsers`, { headers: authHeaders() });
+    if (!resp.ok) {
+      console.error(`Failed to query cloud browsers: HTTP ${resp.status}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(await resp.json(), null, 2));
+    return;
+  }
+
   if (opts.mode === 'box_check') {
     const report = runBotBoxSelfCheck();
     console.log(JSON.stringify(report, null, 2));
@@ -524,7 +564,7 @@ export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> 
     return;
   }
 
-  // Default: hub start
+  // Default: hub start or 24/7 cloud up
   const server = new PipiResidentServer({
     port: opts.port,
     host: opts.host,
@@ -541,7 +581,11 @@ export async function runDaemonCli(argv = process.argv.slice(2)): Promise<void> 
   }
 
   const baseUrl = await server.start();
-  console.log(`[pipibot-hub v${DAEMON_VERSION}] listening on ${baseUrl}`);
+  const modeLabel = opts.mode === 'cloud_up' ? 'pipibot-cloud-brigade' : 'pipibot-hub';
+  console.log(`[${modeLabel} v${DAEMON_VERSION}] listening on ${baseUrl}`);
+  console.log(`  - Brigade Team    : ${baseUrl}/api/v1/brigade/overview`);
+  console.log(`  - Sub Account Pool: ${baseUrl}/api/v1/subscriptions/accounts`);
+  console.log(`  - Cloud Browsers  : ${baseUrl}/api/v1/cloud/browsers`);
   console.log(`  - Mesh Nodes      : ${baseUrl}/api/v1/mesh/nodes`);
   console.log(`  - Mesh Dispatch   : ${baseUrl}/api/v1/mesh/dispatch`);
   console.log(`  - Ecosystem API   : ${baseUrl}/api/v1/ecosystem`);

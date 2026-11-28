@@ -1073,4 +1073,209 @@ describe('PipiBot V1 Mac Resident Daemon (@pipibot/daemon)', () => {
     assert.ok(inspectRes.data.counts.open >= 1);
     assert.ok(inspectRes.data.recentEvents.length >= 4);
   });
+
+  test('Brigade 24/7 Cloud Teammates, Stacked Subscription Pool & Isolated Cloud Browsers API + CLI', async () => {
+    assert.equal(parseCliArgs(['cloud', 'up', '--port', '4343']).mode, 'cloud_up');
+    assert.equal(parseCliArgs(['accounts']).mode, 'accounts_list');
+    assert.equal(parseCliArgs(['browsers']).mode, 'browsers_list');
+
+    const cloudDataDir = mkdtempSync(join(tmpdir(), 'pipibot-brigade-daemon-'));
+    const mockLauncher = {
+      async launch(profile: { cdpPort: number }) {
+        return {
+          cdpEndpoint: `http://127.0.0.1:${profile.cdpPort}`,
+          liveViewUrl: `http://127.0.0.1:${profile.cdpPort}/json/list`,
+        };
+      },
+      async stop() {},
+      async probe() {
+        return { reachable: true, currentUrl: 'https://x.com', currentTitle: 'X' };
+      },
+      async navigate(_profile: unknown, url: string) {
+        return { url, title: `Loaded ${url}` };
+      },
+    };
+
+    const cloudServer = new PipiResidentServer({
+      host: '127.0.0.1',
+      port: 0,
+      dataDir: cloudDataDir,
+      seedDefaults: true,
+      seedFleet: false,
+      seedMemoryIfEmpty: false,
+      cloudBrowserLauncher: mockLauncher,
+    });
+    const cloudBase = await cloudServer.start();
+    try {
+      // 1. Brigade overview includes seeded 24/7 cloud teammates & org roots
+      const ov = await requestJson<{ cloudModeActive: boolean; teammates: Array<{ botId: string }>; orgRoots: string[] }>(
+        cloudBase,
+        '/api/v1/brigade/overview',
+      );
+      assert.equal(ov.status, 200);
+      assert.equal(ov.data.cloudModeActive, true);
+      assert.ok(ov.data.teammates.length >= 3);
+      assert.ok(ov.data.orgRoots.includes('bot_pipi_general'));
+
+      // 2. Stack two Claude subscription accounts & switch strategy to round_robin
+      const sub1 = await requestJson<{ ok: boolean; account: { id: string }; loginCommand: string }>(
+        cloudBase,
+        '/api/v1/subscriptions/accounts',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            provider: 'claude_subscription',
+            label: 'Claude Max #1',
+            useSystemDefaultProfile: true,
+          }),
+        },
+      );
+      const sub2 = await requestJson<{ ok: boolean; account: { id: string }; loginCommand: string }>(
+        cloudBase,
+        '/api/v1/subscriptions/accounts',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            provider: 'claude_subscription',
+            label: 'Claude Max #2',
+          }),
+        },
+      );
+      assert.equal(sub1.status, 201);
+      assert.equal(sub2.status, 201);
+      assert.ok(sub2.data.loginCommand.includes('CLAUDE_CONFIG_DIR='));
+
+      const strat = await requestJson<{ strategy: string; accounts: unknown[] }>(
+        cloudBase,
+        '/api/v1/subscriptions/strategy',
+        { method: 'POST', body: JSON.stringify({ strategy: 'round_robin' }) },
+      );
+      assert.equal(strat.status, 200);
+      assert.equal(strat.data.strategy, 'round_robin');
+      assert.equal(strat.data.accounts.length, 2);
+
+      // 3. Upsert a 24/7 Growth Teammate with isolated browser & run login handoff + social risk guardrail check
+      const upBot = await requestJson<{ ok: boolean; teammate: { botId: string; runtimeMode: string } }>(
+        cloudBase,
+        '/api/v1/cloud/teammates',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            botId: 'bot_growth_reddit',
+            name: 'Reddit Scout',
+            role: '24/7 Reddit & LinkedIn monitor',
+            runtimeMode: 'cloud_24x7',
+            reportsToBotId: 'bot_pipi_general',
+            subscriptionProvider: 'chatgpt_subscription',
+            modelId: 'gpt-5.3-codex',
+            browserEnabled: true,
+            browserPlatforms: ['reddit', 'linkedin', 'x'],
+          }),
+        },
+      );
+      assert.equal(upBot.status, 201);
+      assert.equal(upBot.data.teammate.runtimeMode, 'cloud_24x7');
+
+      const handoff = await requestJson<{ ok: boolean; browser: { status: string; currentUrl: string } }>(
+        cloudBase,
+        '/api/v1/cloud/browsers/bot_growth_reddit/login-handoff',
+        { method: 'POST', body: JSON.stringify({ url: 'https://www.linkedin.com/login' }) },
+      );
+      assert.equal(handoff.status, 200);
+      assert.equal(handoff.data.browser.status, 'needs_login');
+
+      const doneLogin = await requestJson<{ ok: boolean; browser: { status: string } }>(
+        cloudBase,
+        '/api/v1/cloud/browsers/bot_growth_reddit/login-complete',
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      assert.equal(doneLogin.status, 200);
+      assert.equal(doneLogin.data.browser.status, 'running');
+
+      const riskPost = await requestJson<{ ok: boolean; verdict: { requiresApproval: boolean; platform: string } }>(
+        cloudBase,
+        '/api/v1/cloud/browsers/bot_growth_reddit/risk-check',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            url: 'https://x.com/compose/post',
+            actionType: 'click',
+            targetLabel: 'Post',
+          }),
+        },
+      );
+      assert.equal(riskPost.status, 200);
+      assert.equal(riskPost.data.verdict.platform, 'x');
+      assert.equal(riskPost.data.verdict.requiresApproval, true);
+
+      const riskScroll = await requestJson<{ ok: boolean; verdict: { requiresApproval: boolean } }>(
+        cloudBase,
+        '/api/v1/cloud/browsers/bot_growth_reddit/risk-check',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            url: 'https://www.reddit.com/r/LocalLLaMA',
+            actionType: 'scroll',
+          }),
+        },
+      );
+      assert.equal(riskScroll.status, 200);
+      assert.equal(riskScroll.data.verdict.requiresApproval, false);
+
+      // 4. Mainland China social platforms (小红书 / 微信公众号) guardrails + DeepSeek / OpenAI-compatible pool stacking
+      const riskXhs = await requestJson<{ ok: boolean; verdict: { requiresApproval: boolean; platform: string } }>(
+        cloudBase,
+        '/api/v1/cloud/browsers/bot_growth_reddit/risk-check',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            url: 'https://creator.xiaohongshu.com/publish/publish',
+            actionType: 'click',
+            targetLabel: '发布笔记',
+          }),
+        },
+      );
+      assert.equal(riskXhs.status, 200);
+      assert.equal(riskXhs.data.verdict.platform, 'xiaohongshu');
+      assert.equal(riskXhs.data.verdict.requiresApproval, true);
+
+      const riskWeChatMp = await requestJson<{ ok: boolean; verdict: { requiresApproval: boolean; platform: string } }>(
+        cloudBase,
+        '/api/v1/cloud/browsers/bot_growth_reddit/risk-check',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            url: 'https://mp.weixin.qq.com/cgi-bin/appmsg',
+            actionType: 'click',
+            targetLabel: '群发',
+          }),
+        },
+      );
+      assert.equal(riskWeChatMp.status, 200);
+      assert.equal(riskWeChatMp.data.verdict.platform, 'wechat_mp');
+      assert.equal(riskWeChatMp.data.verdict.requiresApproval, true);
+
+      const cnRelay = await requestJson<{ ok: boolean; account: { provider: string; baseUrl: string; modelId: string } }>(
+        cloudBase,
+        '/api/v1/subscriptions/accounts',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            provider: 'openai_compatible',
+            label: '国内中转站 #1',
+            baseUrl: 'https://api.oneapi.example.cn/v1',
+            modelId: 'deepseek-chat',
+            apiKey: 'sk-ephemeral-test',
+          }),
+        },
+      );
+      assert.equal(cnRelay.status, 201);
+      assert.equal(cnRelay.data.account.provider, 'openai_compatible');
+      assert.equal(cnRelay.data.account.baseUrl, 'https://api.oneapi.example.cn/v1');
+      assert.equal(cnRelay.data.account.modelId, 'deepseek-chat');
+    } finally {
+      await cloudServer.stop();
+      rmSync(cloudDataDir, { recursive: true, force: true });
+    }
+  });
 });

@@ -97,6 +97,10 @@ public struct PipiResidentPersistedState: Codable, Sendable {
     public var boardChannels: [PipiBoardChannel]?
     public var boardThreads: [PipiBoardThread]?
     public var boardEvents: [PipiBoardActivityEvent]?
+    // Brigade Upgrade: Stacked Subscription Account Pool & 24/7 Cloud Brigade Host
+    public var subscriptionAccounts: [PipiSubscriptionAccountRecord]?
+    public var subscriptionPoolStrategy: PipiSubscriptionPoolStrategy?
+    public var cloudBrigadeConfig: PipiCloudBrigadeConfig?
 
     private enum CodingKeys: String, CodingKey {
         case outcomes, decisions, museCards, activeHarness, themeModeRaw, keepAwakeEnabled, updatedAt
@@ -117,6 +121,7 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         case wechatAutoConnectEnabled, wechatTypingIndicatorEnabled, wechatPrimaryBotId
         case wechatRoutingModeRaw, wechatGroupMemberBotIds
         case boardChannels, boardThreads, boardEvents
+        case subscriptionAccounts, subscriptionPoolStrategy, cloudBrigadeConfig
     }
 
     public init(
@@ -169,7 +174,10 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         wechatGroupMemberBotIds: [String]? = nil,
         boardChannels: [PipiBoardChannel]? = nil,
         boardThreads: [PipiBoardThread]? = nil,
-        boardEvents: [PipiBoardActivityEvent]? = nil
+        boardEvents: [PipiBoardActivityEvent]? = nil,
+        subscriptionAccounts: [PipiSubscriptionAccountRecord]? = nil,
+        subscriptionPoolStrategy: PipiSubscriptionPoolStrategy? = nil,
+        cloudBrigadeConfig: PipiCloudBrigadeConfig? = nil
     ) {
         self.outcomes = outcomes
         self.decisions = decisions
@@ -221,6 +229,9 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         self.boardChannels = boardChannels
         self.boardThreads = boardThreads
         self.boardEvents = boardEvents
+        self.subscriptionAccounts = subscriptionAccounts
+        self.subscriptionPoolStrategy = subscriptionPoolStrategy
+        self.cloudBrigadeConfig = cloudBrigadeConfig
     }
 
     public init(from decoder: Decoder) throws {
@@ -278,6 +289,9 @@ public struct PipiResidentPersistedState: Codable, Sendable {
         self.boardChannels = (try? c.decodeIfPresent(PipiLossyArray<PipiBoardChannel>.self, forKey: .boardChannels))?.elements
         self.boardThreads = (try? c.decodeIfPresent(PipiLossyArray<PipiBoardThread>.self, forKey: .boardThreads))?.elements
         self.boardEvents = (try? c.decodeIfPresent(PipiLossyArray<PipiBoardActivityEvent>.self, forKey: .boardEvents))?.elements
+        self.subscriptionAccounts = (try? c.decodeIfPresent(PipiLossyArray<PipiSubscriptionAccountRecord>.self, forKey: .subscriptionAccounts))?.elements
+        self.subscriptionPoolStrategy = try? c.decodeIfPresent(PipiSubscriptionPoolStrategy.self, forKey: .subscriptionPoolStrategy)
+        self.cloudBrigadeConfig = try? c.decodeIfPresent(PipiCloudBrigadeConfig.self, forKey: .cloudBrigadeConfig)
     }
 }
 

@@ -499,6 +499,13 @@ public final class PipiAppStore {
     public var boardThreads: [PipiBoardThread] = []
     public var boardEvents: [PipiBoardActivityEvent] = []
 
+    // Brigade Upgrade: Stacked Subscription Account Pool & 24/7 Cloud Brigade Host
+    public var subscriptionAccounts: [PipiSubscriptionAccountRecord] = []
+    public var subscriptionPoolStrategy: PipiSubscriptionPoolStrategy = .priorityFailover
+    public var subscriptionRoundRobinCursors: [PipiSubscriptionProviderKind: Int] = [:]
+    public var cloudBrigadeConfig: PipiCloudBrigadeConfig = .default
+    public var lastBrigadeNotice: String? = nil
+
     // Inspector, Shell & Host Seam State
     public var isInspectorPresented: Bool = false
     public var selectedInspectorTab: PipiInspectorTab = .context
@@ -752,7 +759,10 @@ public final class PipiAppStore {
     }
 
     public var hasConfiguredEngine: Bool {
-        !readyLLMProviders.isEmpty || !usableLocalAgents.isEmpty
+        let hasReadyApiPool = subscriptionAccounts.contains {
+            $0.provider.isOpenAICompatibleApiPool && ($0.status == .ready || $0.status == .active) && !$0.apiKey.isEmpty
+        }
+        return !readyLLMProviders.isEmpty || !usableLocalAgents.isEmpty || hasReadyApiPool
     }
 
     public init(
@@ -1192,7 +1202,10 @@ public final class PipiAppStore {
             wechatGroupMemberBotIds: wechatILinkManager.groupMemberBotIds,
             boardChannels: boardChannels,
             boardThreads: Array(boardThreads.prefix(200)),
-            boardEvents: Array(boardEvents.suffix(200))
+            boardEvents: Array(boardEvents.suffix(200)),
+            subscriptionAccounts: subscriptionAccounts,
+            subscriptionPoolStrategy: subscriptionPoolStrategy,
+            cloudBrigadeConfig: cloudBrigadeConfig
         )
     }
 
@@ -1519,6 +1532,16 @@ public final class PipiAppStore {
         }
         if let savedBoardEvents = saved.boardEvents {
             self.boardEvents = savedBoardEvents
+        }
+        if let savedSubAccounts = saved.subscriptionAccounts {
+            self.subscriptionAccounts = savedSubAccounts
+            self.hydrateSubscriptionAccountSecrets()
+        }
+        if let savedSubStrategy = saved.subscriptionPoolStrategy {
+            self.subscriptionPoolStrategy = savedSubStrategy
+        }
+        if let savedCloudBrigade = saved.cloudBrigadeConfig {
+            self.cloudBrigadeConfig = savedCloudBrigade
         }
 
         if needsDirtySeedPurge || didMigratePlaintextKeys || didMigratePipiPersona {
@@ -2049,7 +2072,13 @@ public final class PipiAppStore {
         for candidate in candidates {
             switch candidate {
             case .llm(let pid):
-                if llmProviders.first(where: { $0.id == pid && $0.isReady }) != nil {
+                if pid.hasPrefix(Self.poolProviderIdPrefix) {
+                    let raw = String(pid.dropFirst(Self.poolProviderIdPrefix.count))
+                    if let poolProv = PipiSubscriptionProviderKind(rawValue: raw),
+                       availableSubscriptionCount(for: poolProv) > 0 {
+                        return candidate
+                    }
+                } else if llmProviders.first(where: { $0.id == pid && $0.isReady }) != nil {
                     return candidate
                 }
             case .localAgent(let kind):
@@ -2059,6 +2088,12 @@ public final class PipiAppStore {
             case .auto:
                 break
             }
+        }
+
+        if let subProv = p.subscriptionProvider,
+           subProv.isOpenAICompatibleApiPool,
+           availableSubscriptionCount(for: subProv) > 0 {
+            return .llm(providerId: "\(Self.poolProviderIdPrefix)\(subProv.rawValue)")
         }
 
         if let defaultId = defaultLLMProviderId,
@@ -2081,6 +2116,14 @@ public final class PipiAppStore {
     }
 
     public func resolvedEffectiveLLMConfig(providerId: String, for persona: PipiBotPersona) -> PipiLLMProviderConfig? {
+        if providerId.hasPrefix(Self.poolProviderIdPrefix) {
+            let raw = String(providerId.dropFirst(Self.poolProviderIdPrefix.count))
+            if let poolProv = PipiSubscriptionProviderKind(rawValue: raw),
+               let resolved = resolvedPooledLLMConfig(for: poolProv, persona: persona) {
+                return resolved.config
+            }
+            return nil
+        }
         guard var cfg = llmProviders.first(where: { $0.id == providerId }) else { return nil }
         if let modelOverride = persona.preferredModelId?.trimmingCharacters(in: .whitespacesAndNewlines),
            !modelOverride.isEmpty {
@@ -2545,14 +2588,17 @@ public final class PipiAppStore {
                 guard let self else { return }
                 let callbacks = self.makeAgentHostCallbacks(conversationId: sessionId, personaId: personaId)
                 let deliverablesDir = self.localDataRootURL.appendingPathComponent("deliverables", isDirectory: true)
-                let effectiveLLM = self.resolvedEffectiveLLMConfig(providerId: self.defaultLLMProviderId ?? self.readyLLMProviders.first?.id ?? "", for: self.personas.first(where: { $0.id == personaId }) ?? self.activePersona)
+                let botForApproval = self.personas.first(where: { $0.id == personaId }) ?? self.activePersona
+                let effectiveLLM = self.resolvedEffectiveLLMConfig(providerId: self.defaultLLMProviderId ?? self.readyLLMProviders.first?.id ?? "", for: botForApproval)
                 let toolRes = await PipiAgentToolbox.execute(
                     toolCall: pendingTool.toolCall,
                     workspaceDirectory: pendingTool.workDir,
                     llmConfig: effectiveLLM,
                     deliverablesDirectory: deliverablesDir,
                     callbacks: callbacks,
-                    skipRiskCheck: true
+                    skipRiskCheck: true,
+                    activeBotId: botForApproval.browserConfig.enabled ? botForApproval.id : nil,
+                    remoteBrowserCDPEndpoint: botForApproval.browserConfig.remoteCDPEndpoint
                 )
                 let attachments: [PipiChatAttachment] = toolRes.artifacts.map { art in
                     PipiChatAttachment(id: art.id, name: art.fileName, path: art.filePath, sizeBytes: Int(art.byteSize))
@@ -3186,6 +3232,19 @@ public final class PipiAppStore {
                                         workDir,
                                         onDelta
                                     )
+                                } else if providerId.hasPrefix(Self.poolProviderIdPrefix),
+                                          let poolProv = PipiSubscriptionProviderKind(rawValue: String(providerId.dropFirst(Self.poolProviderIdPrefix.count))) {
+                                    return try await self.runJarvisAgentLoopWithSubscriptionPool(
+                                        provider: poolProv,
+                                        systemPrompt: effectiveSystemPrompt,
+                                        history: attemptHistory,
+                                        conversationId: convId,
+                                        persona: persona,
+                                        workDir: workDir,
+                                        runId: runId,
+                                        placeholderMessageId: placeholderId,
+                                        onDelta: onDelta
+                                    )
                                 } else {
                                     return try await self.runJarvisAgentLoop(
                                         config: cfg,
@@ -3244,6 +3303,29 @@ public final class PipiAppStore {
                                     )
                                 } else {
                                     do {
+                                        let hasStackedPool: Bool = {
+                                            if kind == .claudeCode {
+                                                return !self.subscriptionAccounts(for: .claudeSubscription).isEmpty
+                                            }
+                                            if kind == .codex {
+                                                return !self.subscriptionAccounts(for: .chatgptSubscription).isEmpty
+                                            }
+                                            return false
+                                        }()
+                                        if hasStackedPool {
+                                            return try await self.invokeLocalAgentWithSubscriptionPool(
+                                                kind: kind,
+                                                persona: persona,
+                                                systemPrompt: effectiveSystemPrompt,
+                                                history: attemptHistory,
+                                                workingDirectory: workDir,
+                                                permissionTier: invocationPermission,
+                                                cliSessionId: attemptCliSessionId,
+                                                modelOverride: persona.preferredModelId,
+                                                onDelta: onDelta,
+                                                onEvent: onCLIEvent
+                                            )
+                                        }
                                         let injectedEnv = await self.resolveCLIReverseInjectionEnvironment(for: kind, profileId: convId)
                                         return try await PipiInferenceEngine.invokeLocalAgent(
                                             kind: kind,
@@ -9582,6 +9664,8 @@ public final class PipiAppStore {
                 }
 
                 let toolCalls = stepResult.toolCalls
+                let activeBrowserBotId = persona.browserConfig.enabled ? persona.id : nil
+                let activeBrowserRemoteCDP = persona.browserConfig.remoteCDPEndpoint
                 let batchResults: [(Int, PipiLLMToolCall, PipiAgentToolExecutionResult, Int)] = await withTaskGroup(
                     of: (Int, PipiLLMToolCall, PipiAgentToolExecutionResult, Int).self
                 ) { group in
@@ -9594,7 +9678,9 @@ public final class PipiAppStore {
                                 llmConfig: config,
                                 deliverablesDirectory: deliverablesDir,
                                 callbacks: callbacks,
-                                skipRiskCheck: false
+                                skipRiskCheck: false,
+                                activeBotId: activeBrowserBotId,
+                                remoteBrowserCDPEndpoint: activeBrowserRemoteCDP
                             )
                             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
                             return (idx, tc, res, elapsedMs)
@@ -9671,7 +9757,9 @@ public final class PipiAppStore {
                         llmConfig: config,
                         deliverablesDirectory: deliverablesDir,
                         callbacks: callbacks,
-                        skipRiskCheck: false
+                        skipRiskCheck: false,
+                        activeBotId: persona.browserConfig.enabled ? persona.id : nil,
+                        remoteBrowserCDPEndpoint: persona.browserConfig.remoteCDPEndpoint
                     )
                     let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
                     stepEvent.status = execRes.isError ? .failed : .succeeded

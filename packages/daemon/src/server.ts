@@ -33,8 +33,12 @@ import type {
   MemoryDomain,
   OutcomeDomain,
   OutcomeStatus,
+  SubscriptionPoolStrategy,
+  SubscriptionProviderKind,
+  TeammateRuntimeMode,
 } from '../../protocol/src/index.ts';
 import { PipiBoardEngine } from '../../core/src/board-engine.ts';
+import { PipiSubscriptionAccountPool } from '../../core/src/subscription-pool.ts';
 import {
   ACTIVITY_PULSE_INTERVAL_MS,
   AtomicTranscriptStore,
@@ -47,6 +51,8 @@ import { PipiEvolutionLoop, PipiMemoryEngine } from '../../core/src/memory-engin
 import { formatUniversalPairingLink, generateE2EEIdentity, type E2EEIdentity } from '../../relay/src/e2e.ts';
 import { renderUniversalIconSVG, renderUniversalManifest, renderUniversalPWAHTML } from '../../relay/src/pwa-bundle.ts';
 import { runBotBoxSelfCheck } from './bot-box.ts';
+import { PipiCloudBrowserManager, evaluateSocialBrowserActionRisk, type CloudBrowserLauncher } from './cloud-browser.ts';
+import { PipiCloudBrigadeRuntime } from './cloud-runtime.ts';
 import { PipiCredentialBrokerServer } from './credential-broker.ts';
 import { PipiCueSensor, PipiFleetManager } from './cue-fleet-sensor.ts';
 import { EcosystemRegistry } from './ecosystem.ts';
@@ -74,6 +80,7 @@ export interface PipiResidentServerOptions {
   seedDefaults?: boolean;
   seedFleet?: boolean;
   hubToken?: string;
+  cloudBrowserLauncher?: CloudBrowserLauncher;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -193,6 +200,9 @@ export class PipiResidentServer {
   readonly eventTriggers: DaemonEventTriggerRegistry;
   readonly proofHarness: DaemonProofAndHarnessEngine;
   readonly credentialBroker: PipiCredentialBrokerServer;
+  readonly subscriptionPool: PipiSubscriptionAccountPool;
+  readonly cloudBrowsers: PipiCloudBrowserManager;
+  readonly cloudBrigade: PipiCloudBrigadeRuntime;
   readonly e2eeIdentity: E2EEIdentity;
 
   private pairingChallenges = new Map<string, { code: string; scope: 'owner' | 'chat' | 'mcp_bounded'; expiresAt: number; consumed: boolean }>();
@@ -296,6 +306,17 @@ export class PipiResidentServer {
     this.eventTriggers = new DaemonEventTriggerRegistry();
     this.proofHarness = new DaemonProofAndHarnessEngine();
     this.credentialBroker = new PipiCredentialBrokerServer();
+    this.subscriptionPool = new PipiSubscriptionAccountPool({ dataDir: this.dataDir });
+    this.cloudBrowsers = new PipiCloudBrowserManager({
+      dataDir: this.dataDir,
+      launcher: options.cloudBrowserLauncher,
+    });
+    this.cloudBrigade = new PipiCloudBrigadeRuntime({
+      dataDir: this.dataDir,
+      subscriptionPool: this.subscriptionPool,
+      cloudBrowsers: this.cloudBrowsers,
+      seedDefaults: options.seedDefaults !== false,
+    });
     this.e2eeIdentity = generateE2EEIdentity();
 
     this.boardEngine.onEvent((evt) => {
@@ -388,6 +409,7 @@ export class PipiResidentServer {
     }
     this.sseClients.clear();
     this.meshHub.closeAllStreams();
+    await this.cloudBrowsers.stopAll();
     await this.mcpBridge.stop();
     await this.credentialBroker.stop();
 
@@ -1794,6 +1816,225 @@ export class PipiResidentServer {
             return;
           }
           this.sendJson(res, 201, { followUp });
+          return;
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // Brigade 24/7 Cloud Teammates, Stacked Subscriptions & Isolated Browsers
+      // ---------------------------------------------------------------------
+
+      if (method === 'GET' && pathname === '/api/v1/brigade/overview') {
+        this.sendJson(res, 200, this.cloudBrigade.getOverview());
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/api/v1/cloud/teammates') {
+        this.sendJson(res, 200, { teammates: this.cloudBrigade.listTeammates() });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/cloud/teammates') {
+        const body = await this.readJsonBody<{
+          botId?: string;
+          name?: string;
+          role?: string;
+          runtimeMode?: TeammateRuntimeMode;
+          reportsToBotId?: string;
+          subscriptionProvider?: SubscriptionProviderKind;
+          subscriptionAccountId?: string;
+          modelId?: string;
+          browserEnabled?: boolean;
+          browserPlatforms?: string[];
+          proxyUrl?: string;
+          requireApprovalBeforePost?: boolean;
+        }>(req);
+        if (!body.botId?.trim()) {
+          this.sendJson(res, 400, { error: 'botId is required' });
+          return;
+        }
+        const teammate = this.cloudBrigade.upsertTeammate({
+          botId: body.botId.trim(),
+          name: body.name ?? body.botId,
+          role: body.role ?? 'AI Teammate',
+          runtimeMode: body.runtimeMode,
+          reportsToBotId: body.reportsToBotId,
+          subscriptionProvider: body.subscriptionProvider,
+          subscriptionAccountId: body.subscriptionAccountId,
+          modelId: body.modelId,
+          browserEnabled: body.browserEnabled,
+          browserPlatforms: body.browserPlatforms,
+          proxyUrl: body.proxyUrl,
+          requireApprovalBeforePost: body.requireApprovalBeforePost,
+        });
+        this.broadcastSse('brigade.teammate.updated', teammate);
+        this.sendJson(res, 201, { ok: true, teammate });
+        return;
+      }
+
+      const teammateDelMatch = pathname.match(/^\/api\/v1\/cloud\/teammates\/([^/]+)$/);
+      if (method === 'DELETE' && teammateDelMatch?.[1]) {
+        const removed = this.cloudBrigade.removeTeammate(decodeURIComponent(teammateDelMatch[1]));
+        this.sendJson(res, removed ? 200 : 404, { ok: removed });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/api/v1/subscriptions/accounts') {
+        this.sendJson(res, 200, this.subscriptionPool.getSnapshot());
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/subscriptions/accounts') {
+        const body = await this.readJsonBody<{
+          id?: string;
+          label?: string;
+          provider?: SubscriptionProviderKind;
+          planTier?: string;
+          emailHint?: string;
+          useSystemDefaultProfile?: boolean;
+          profileDir?: string;
+          baseUrl?: string;
+          modelId?: string;
+          apiKeyEnvVar?: string;
+          apiKey?: string;
+          priority?: number;
+        }>(req);
+        if (!body.provider) {
+          this.sendJson(res, 400, { error: 'provider is required' });
+          return;
+        }
+        const account = this.subscriptionPool.addAccount({
+          id: body.id,
+          label: body.label ?? '',
+          provider: body.provider,
+          planTier: body.planTier,
+          emailHint: body.emailHint,
+          useSystemDefaultProfile: body.useSystemDefaultProfile,
+          profileDir: body.profileDir,
+          baseUrl: body.baseUrl,
+          modelId: body.modelId,
+          apiKeyEnvVar: body.apiKeyEnvVar,
+          apiKey: body.apiKey,
+          priority: body.priority,
+        });
+        const loginCommand = this.subscriptionPool.buildInteractiveLoginCommand(account);
+        this.broadcastSse('brigade.subscription.updated', account);
+        this.sendJson(res, 201, { ok: true, account, loginCommand });
+        return;
+      }
+
+      const subAccountDelMatch = pathname.match(/^\/api\/v1\/subscriptions\/accounts\/([^/]+)$/);
+      if (method === 'DELETE' && subAccountDelMatch?.[1]) {
+        const removed = this.subscriptionPool.removeAccount(decodeURIComponent(subAccountDelMatch[1]));
+        this.sendJson(res, removed ? 200 : 404, { ok: removed });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/subscriptions/strategy') {
+        const body = await this.readJsonBody<{ strategy?: SubscriptionPoolStrategy }>(req);
+        if (!body.strategy) {
+          this.sendJson(res, 400, { error: 'strategy is required' });
+          return;
+        }
+        this.subscriptionPool.setStrategy(body.strategy);
+        this.sendJson(res, 200, this.subscriptionPool.getSnapshot());
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/subscriptions/cooldown-reset') {
+        const body = await this.readJsonBody<{ accountId?: string }>(req);
+        const resetCount = this.subscriptionPool.resetCooldown(body.accountId);
+        this.sendJson(res, 200, { ok: true, resetCount, pool: this.subscriptionPool.getSnapshot() });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/api/v1/cloud/browsers') {
+        this.sendJson(res, 200, { browsers: this.cloudBrowsers.listProfiles() });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/cloud/browsers') {
+        const body = await this.readJsonBody<{
+          botId?: string;
+          botName?: string;
+          enabled?: boolean;
+          proxyUrl?: string;
+          platforms?: string[];
+          requireApprovalBeforePost?: boolean;
+          cdpPort?: number;
+        }>(req);
+        if (!body.botId?.trim()) {
+          this.sendJson(res, 400, { error: 'botId is required' });
+          return;
+        }
+        const profile = this.cloudBrowsers.configureProfile({
+          botId: body.botId.trim(),
+          botName: body.botName ?? body.botId,
+          enabled: body.enabled,
+          proxyUrl: body.proxyUrl,
+          platforms: body.platforms,
+          requireApprovalBeforePost: body.requireApprovalBeforePost,
+          cdpPort: body.cdpPort,
+        });
+        this.sendJson(res, 201, { ok: true, browser: profile });
+        return;
+      }
+
+      const browserActionMatch = pathname.match(
+        /^\/api\/v1\/cloud\/browsers\/([^/]+)\/(start|stop|navigate|login-handoff|login-complete|risk-check)$/,
+      );
+      if (method === 'POST' && browserActionMatch?.[1] && browserActionMatch?.[2]) {
+        const botId = decodeURIComponent(browserActionMatch[1]);
+        const action = browserActionMatch[2];
+
+        if (action === 'start') {
+          const browser = await this.cloudBrowsers.startBrowser(botId);
+          this.broadcastSse('brigade.browser.updated', browser);
+          this.sendJson(res, 200, { ok: true, browser });
+          return;
+        }
+        if (action === 'stop') {
+          const browser = await this.cloudBrowsers.stopBrowser(botId);
+          this.sendJson(res, browser ? 200 : 404, { ok: Boolean(browser), browser });
+          return;
+        }
+        if (action === 'navigate') {
+          const body = await this.readJsonBody<{ url?: string }>(req);
+          if (!body.url?.trim()) {
+            this.sendJson(res, 400, { error: 'url is required' });
+            return;
+          }
+          const result = await this.cloudBrowsers.navigate(botId, body.url.trim());
+          this.broadcastSse('brigade.browser.updated', result.profile);
+          this.sendJson(res, 200, { ok: true, browser: result.profile, risk: result.risk });
+          return;
+        }
+        if (action === 'login-handoff') {
+          const body = await this.readJsonBody<{ url?: string }>(req);
+          const browser = await this.cloudBrowsers.requestLoginHandoff(botId, body.url?.trim() || 'https://x.com/login');
+          this.broadcastSse('brigade.browser.updated', browser);
+          this.sendJson(res, 200, { ok: true, browser });
+          return;
+        }
+        if (action === 'login-complete') {
+          const browser = this.cloudBrowsers.completeLoginHandoff(botId);
+          this.sendJson(res, browser ? 200 : 404, { ok: Boolean(browser), browser });
+          return;
+        }
+        if (action === 'risk-check') {
+          const body = await this.readJsonBody<{
+            url?: string;
+            actionType?: 'navigate' | 'click' | 'type' | 'submit' | 'scroll' | 'snapshot';
+            targetLabel?: string;
+          }>(req);
+          const existing = this.cloudBrowsers.getProfile(botId);
+          const verdict = evaluateSocialBrowserActionRisk({
+            url: body.url ?? existing?.currentUrl ?? '',
+            actionType: body.actionType ?? 'click',
+            targetLabel: body.targetLabel,
+            requireApprovalBeforePost: existing?.requireApprovalBeforePost ?? true,
+          });
+          this.sendJson(res, 200, { ok: true, verdict });
           return;
         }
       }

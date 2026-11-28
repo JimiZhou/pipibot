@@ -39,6 +39,14 @@
       "types": "./src/server.ts",
       "default": "./src/server.ts"
     },
+    "./cloud-browser": {
+      "types": "./src/cloud-browser.ts",
+      "default": "./src/cloud-browser.ts"
+    },
+    "./cloud-runtime": {
+      "types": "./src/cloud-runtime.ts",
+      "default": "./src/cloud-runtime.ts"
+    },
     "./cli": {
       "types": "./src/cli.ts",
       "default": "./src/cli.ts"
@@ -49,7 +57,7 @@
     "@pipibot/protocol": "workspace:*"
   },
   "scripts": {
-    "check": "node --experimental-strip-types ./src/outcome-engine.ts && node --experimental-strip-types ./src/cue-fleet-sensor.ts && node --experimental-strip-types ./src/ecosystem.ts && node --experimental-strip-types ./src/mesh-hub.ts && node --experimental-strip-types ./src/mesh-node.ts && node --experimental-strip-types ./src/credential-broker.ts && node --experimental-strip-types ./src/bot-box.ts && node --experimental-strip-types ./src/sentinel.ts && node --experimental-strip-types ./src/portable-template.ts && node --experimental-strip-types ./src/group-router.ts && node --experimental-strip-types ./src/mcp-server.ts && node --experimental-strip-types ./src/server.ts && node --experimental-strip-types ./src/cli.ts --help >/dev/null",
+    "check": "node --experimental-strip-types ./src/outcome-engine.ts && node --experimental-strip-types ./src/cue-fleet-sensor.ts && node --experimental-strip-types ./src/ecosystem.ts && node --experimental-strip-types ./src/mesh-hub.ts && node --experimental-strip-types ./src/mesh-node.ts && node --experimental-strip-types ./src/credential-broker.ts && node --experimental-strip-types ./src/bot-box.ts && node --experimental-strip-types ./src/sentinel.ts && node --experimental-strip-types ./src/portable-template.ts && node --experimental-strip-types ./src/group-router.ts && node --experimental-strip-types ./src/mcp-server.ts && node --experimental-strip-types ./src/cloud-browser.ts && node --experimental-strip-types ./src/cloud-runtime.ts && node --experimental-strip-types ./src/server.ts && node --experimental-strip-types ./src/cli.ts --help >/dev/null",
     "start": "node --experimental-strip-types ./src/cli.ts",
     "test": "node --experimental-strip-types --test ./test/daemon.test.ts"
   },

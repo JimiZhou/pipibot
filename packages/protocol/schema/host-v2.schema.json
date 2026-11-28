@@ -413,6 +413,63 @@
         "followup_triggered"
       ]
     },
+    "SubscriptionProviderKind": {
+      "type": "string",
+      "description": "Paid CLI subscription or Mainland China / third-party OpenAI-compatible provider that can be stacked across multiple accounts/keys to expand quota.",
+      "enum": [
+        "claude_subscription",
+        "chatgpt_subscription",
+        "gemini_subscription",
+        "deepseek",
+        "kimi",
+        "zhipu",
+        "qwen",
+        "minimax",
+        "volcengine",
+        "siliconflow",
+        "openai_compatible"
+      ]
+    },
+    "SubscriptionAccountStatus": {
+      "type": "string",
+      "description": "Live operational status of a stacked subscription account inside the Account Pool.",
+      "enum": [
+        "ready",
+        "active",
+        "rate_limited",
+        "auth_expired",
+        "disabled"
+      ]
+    },
+    "SubscriptionPoolStrategy": {
+      "type": "string",
+      "description": "Account selection & failover strategy when multiple paid subscription accounts are stacked.",
+      "enum": [
+        "priority_failover",
+        "round_robin",
+        "least_used"
+      ]
+    },
+    "TeammateRuntimeMode": {
+      "type": "string",
+      "description": "Execution residency for an AI teammate: local machine, 24/7 cloud host, or hybrid failover.",
+      "enum": [
+        "local",
+        "cloud_24x7",
+        "hybrid_failover"
+      ]
+    },
+    "CloudBrowserStatus": {
+      "type": "string",
+      "description": "Lifecycle state of a teammate's isolated persistent cloud/local browser container.",
+      "enum": [
+        "stopped",
+        "starting",
+        "running",
+        "needs_login",
+        "error"
+      ]
+    },
     "GuardrailVerdict": {
       "type": "object",
       "additionalProperties": false,

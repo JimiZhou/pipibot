@@ -680,6 +680,57 @@ public struct PipiBotInspectorView: View {
                 cardDivider
 
                 VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
+                    let bot = store.activePersona
+                    let managerName: String = {
+                        if let mid = bot.reportsToBotId, let mgr = store.personas.first(where: { $0.id == mid }) {
+                            return mgr.name(lang)
+                        }
+                        return s.t("团队负责人（Owner）", "Team Owner")
+                    }()
+
+                    PipiKeyValueRow(
+                        key: s.t("运行模式", "Runtime"),
+                        value: bot.runtimeMode.label(lang),
+                        valueColor: bot.runtimeMode == .local ? PipiTokens.textPrimary : PipiTokens.stateSuccess
+                    )
+                    PipiKeyValueRow(
+                        key: s.t("汇报对象", "Reports to"),
+                        value: managerName
+                    )
+                    if let subProv = bot.subscriptionProvider {
+                        let poolCount = store.availableSubscriptionCount(for: subProv)
+                        PipiKeyValueRow(
+                            key: s.t("账号叠加池", "Account pool"),
+                            value: "\(subProv.localizedName(lang)) (\(poolCount))"
+                        )
+                    }
+                    PipiKeyValueRow(
+                        key: s.t("独立浏览器", "Isolated browser"),
+                        value: bot.browserConfig.enabled
+                            ? bot.browserConfig.platforms.map { PipiTeammateBrowserConfig.platformDisplayName($0, lang: lang) }.joined(separator: " · ")
+                            : s.disabled,
+                        valueColor: bot.browserConfig.enabled ? PipiTokens.stateSuccess : PipiTokens.textMuted
+                    )
+
+                    if bot.browserConfig.enabled {
+                        PipiActionButton(
+                            s.t("打开独立浏览器登录", "Open isolated browser login"),
+                            systemImage: "globe",
+                            tone: .secondary,
+                            density: .desktopCompact,
+                            fullWidth: true
+                        ) {
+                            let firstPlatform = bot.browserConfig.platforms.first ?? "x"
+                            _ = store.launchIsolatedBrowserLoginWindow(botId: bot.id, platformSlug: firstPlatform)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+
+                cardDivider
+
+                VStack(alignment: .leading, spacing: PipiTokens.spacing8) {
                     HStack(spacing: PipiTokens.spacing8) {
                         Image(systemName: "folder")
                             .font(.system(size: 12.5, weight: .semibold))

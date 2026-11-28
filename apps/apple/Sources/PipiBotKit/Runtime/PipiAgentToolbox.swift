@@ -1216,7 +1216,9 @@ public enum PipiAgentToolbox {
         llmConfig: PipiLLMProviderConfig?,
         deliverablesDirectory: URL,
         callbacks: PipiAgentHostCallbacks,
-        skipRiskCheck: Bool = false
+        skipRiskCheck: Bool = false,
+        activeBotId: String? = nil,
+        remoteBrowserCDPEndpoint: String? = nil
     ) async -> PipiAgentToolExecutionResult {
         if !skipRiskCheck {
             let risk = PipiJarvisToolRiskEvaluator.evaluate(toolCall: toolCall, workspaceDirectory: workspaceDirectory)
@@ -1537,7 +1539,14 @@ public enum PipiAgentToolbox {
             let maxSteps = toolCall.int("max_steps") ?? 8
             guard let cfg = llmConfig else {
                 // Fallback to single live browser_open snapshot when no LLM config was passed
-                return await executeBrowserOpen(urlString: urlStr, useSignedIn: useSignedIn, deliverablesDir: deliverablesDirectory, callbacks: callbacks)
+                return await executeBrowserOpen(
+                    urlString: urlStr,
+                    useSignedIn: useSignedIn,
+                    deliverablesDir: deliverablesDirectory,
+                    callbacks: callbacks,
+                    activeBotId: activeBotId,
+                    remoteCDPEndpoint: remoteBrowserCDPEndpoint
+                )
             }
             do {
                 let res = try await PipiBrowserCUASubagent.run(
@@ -1546,7 +1555,9 @@ public enum PipiAgentToolbox {
                     llmConfig: cfg,
                     deliverablesDirectory: deliverablesDirectory,
                     useSignedInSession: useSignedIn,
-                    maxSteps: maxSteps
+                    maxSteps: maxSteps,
+                    botId: activeBotId,
+                    remoteCDPEndpoint: remoteBrowserCDPEndpoint
                 )
                 if let blocked = res.blockedAssessment {
                     return PipiAgentToolExecutionResult(
@@ -1572,7 +1583,14 @@ public enum PipiAgentToolbox {
         case "browser_open":
             let urlStr = toolCall.string("url") ?? ""
             let useSignedIn = (toolCall.string("use_signed_in_session") ?? "").lowercased() == "true"
-            return await executeBrowserOpen(urlString: urlStr, useSignedIn: useSignedIn, deliverablesDir: deliverablesDirectory, callbacks: callbacks)
+            return await executeBrowserOpen(
+                urlString: urlStr,
+                useSignedIn: useSignedIn,
+                deliverablesDir: deliverablesDirectory,
+                callbacks: callbacks,
+                activeBotId: activeBotId,
+                remoteCDPEndpoint: remoteBrowserCDPEndpoint
+            )
 
         case "browser_act":
             let kind = PipiBrowserCUAActionKind(rawValue: (toolCall.string("action") ?? "scroll").lowercased()) ?? .scroll
@@ -1586,7 +1604,12 @@ public enum PipiAgentToolbox {
                 submit: (toolCall.string("submit") ?? "").lowercased() == "true"
             )
             do {
-                let (snap, blocked) = try await PipiBrowserCUADriver.shared.perform(
+                let driver: PipiBrowserCUADriver = if let activeBotId, !activeBotId.isEmpty {
+                    await PipiTeammateBrowserRegistry.shared.driver(forBotId: activeBotId, remoteCDPEndpoint: remoteBrowserCDPEndpoint)
+                } else {
+                    PipiBrowserCUADriver.shared
+                }
+                let (snap, blocked) = try await driver.perform(
                     request: req,
                     deliverablesDirectory: deliverablesDirectory,
                     skipSafetyCheck: skipRiskCheck
@@ -1613,7 +1636,12 @@ public enum PipiAgentToolbox {
 
         case "browser_snapshot":
             do {
-                let snap = try await PipiBrowserCUADriver.shared.captureSnapshot(deliverablesDirectory: deliverablesDirectory)
+                let driver: PipiBrowserCUADriver = if let activeBotId, !activeBotId.isEmpty {
+                    await PipiTeammateBrowserRegistry.shared.driver(forBotId: activeBotId, remoteCDPEndpoint: remoteBrowserCDPEndpoint)
+                } else {
+                    PipiBrowserCUADriver.shared
+                }
+                let snap = try await driver.captureSnapshot(deliverablesDirectory: deliverablesDirectory)
                 return PipiAgentToolExecutionResult(
                     output: snap.formattedForModel(),
                     visionImages: snap.encodedImagePart.map { [$0] } ?? [],
@@ -1672,10 +1700,17 @@ public enum PipiAgentToolbox {
         urlString: String,
         useSignedIn: Bool,
         deliverablesDir: URL,
-        callbacks: PipiAgentHostCallbacks
+        callbacks: PipiAgentHostCallbacks,
+        activeBotId: String? = nil,
+        remoteCDPEndpoint: String? = nil
     ) async -> PipiAgentToolExecutionResult {
         do {
-            let snap = try await PipiBrowserCUADriver.shared.navigate(
+            let driver: PipiBrowserCUADriver = if let activeBotId, !activeBotId.isEmpty {
+                await PipiTeammateBrowserRegistry.shared.driver(forBotId: activeBotId, remoteCDPEndpoint: remoteCDPEndpoint)
+            } else {
+                PipiBrowserCUADriver.shared
+            }
+            let snap = try await driver.navigate(
                 url: urlString,
                 useSignedInSession: useSignedIn,
                 deliverablesDirectory: deliverablesDir

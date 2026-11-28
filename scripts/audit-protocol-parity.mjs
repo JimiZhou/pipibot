@@ -127,6 +127,11 @@ const ENUM_PARITY_MAP = [
   { schemaDef: 'BoardTaskStatus', tsConst: 'BOARD_TASK_STATUSES', swiftEnum: 'PipiBoardTaskStatus' },
   { schemaDef: 'BoardActorKind', tsConst: 'BOARD_ACTOR_KINDS', swiftEnum: 'PipiBoardActorKind' },
   { schemaDef: 'BoardEventKind', tsConst: 'BOARD_EVENT_KINDS', swiftEnum: 'PipiBoardEventKind' },
+  { schemaDef: 'SubscriptionProviderKind', tsConst: 'SUBSCRIPTION_PROVIDER_KINDS', swiftEnum: 'PipiSubscriptionProviderKind' },
+  { schemaDef: 'SubscriptionAccountStatus', tsConst: 'SUBSCRIPTION_ACCOUNT_STATUSES', swiftEnum: 'PipiSubscriptionAccountStatus' },
+  { schemaDef: 'SubscriptionPoolStrategy', tsConst: 'SUBSCRIPTION_POOL_STRATEGIES', swiftEnum: 'PipiSubscriptionPoolStrategy' },
+  { schemaDef: 'TeammateRuntimeMode', tsConst: 'TEAMMATE_RUNTIME_MODES', swiftEnum: 'PipiTeammateRuntimeMode' },
+  { schemaDef: 'CloudBrowserStatus', tsConst: 'CLOUD_BROWSER_STATUSES', swiftEnum: 'PipiCloudBrowserStatus' },
 ];
 
 console.log('=== PiPiBot Cross-Platform Protocol Parity & Attribution Audit ===');
